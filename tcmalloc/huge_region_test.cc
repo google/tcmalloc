@@ -153,6 +153,20 @@ class HugeRegionTest : public ::testing::Test {
     Check(a);
     region_.Put(Range(a.p, a.n), true);
   }
+
+  // Rebuilds region_ over the same range, unbacking through `unback`.
+  void ResetRegion(MemoryModifyFunction& unback) {
+    region_.~HugeRegion();
+    new (&region_)
+        HugeRegion({p_, region_.size()}, unback, mock_set_anon_vma_name_);
+  }
+
+  // Release as HugePageAwareAllocator calls it: with pageheap_lock held, so
+  // that an UnbackWithoutLock unbacker has a lock to drop.
+  HugeLength ReleaseUnderLock(Length n, HugeRegionAdaptiveRelease adaptive) {
+    PageHeapSpinLockHolder l;
+    return region_.Release(n, adaptive);
+  }
 };
 
 TEST_F(HugeRegionTest, Basic) {
@@ -957,6 +971,279 @@ TEST_F(HugeRegionTest, ReleaseDuringRelease) {
   EXPECT_EQ(unbacked[1].n, kPagesPerHugePage);
 
   // Clean up
+  Delete(a1);
+}
+
+// Counts the unbacks it completes; fails them all if !success_.
+class CountingUnback final : public MemoryModifyFunction {
+ public:
+  [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
+    if (success_) {
+      ++unbacked_;
+    }
+    return {.success = success_, .error_number = 0};
+  }
+
+  int unbacked_ = 0;
+  bool success_ = true;
+};
+
+// Drops pageheap_lock around the unback.  Tests may install a hook that runs
+// while the lock is dropped, standing in for another thread that takes
+// pageheap_lock while UnbackHugepages is mid-unback (b/73749855).
+class UnbackWithoutLock final : public MemoryModifyFunction {
+ public:
+  explicit UnbackWithoutLock(
+      MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND)
+      : unback_(unback) {}
+
+  [[nodiscard]] MemoryModifyStatus operator()(Range r) override
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    pageheap_lock.AssertHeld();
+    pageheap_lock.unlock();
+    if (unlocked_hook_ != nullptr) {
+      unlocked_hook_(r);
+    }
+    MemoryModifyStatus ret = unback_(r);
+    pageheap_lock.lock();
+    return ret;
+  }
+
+  // Runs with pageheap_lock dropped.  The hook takes the lock itself before
+  // touching the region, as the thread it stands in for would.  A hook that
+  // unbacks through this same object is re-entered.
+  std::function<void(Range)> unlocked_hook_;
+
+ private:
+  MemoryModifyFunction& unback_;
+};
+
+// region_ unbacks through UnbackWithoutLock, as HugeRegion::Release will once
+// it drops pageheap_lock around the syscall (b/73749855).
+//
+// region_ (a base member) refers to the unbackers below, which are destroyed
+// first; that is safe because HugeRegion's destructor never unbacks.
+class HugeRegionUnbackWithoutLockTest : public HugeRegionTest {
+ protected:
+  HugeRegionUnbackWithoutLockTest() { Reset(); }
+
+  // Rebuilds region_ and clears the unbackers' state, for tests that loop.
+  void Reset() {
+    unback_.unbacked_ = 0;
+    unback_.success_ = true;
+    unback_without_lock_.unlocked_hook_ = nullptr;
+    ResetRegion(unback_without_lock_);
+  }
+
+  CountingUnback unback_;
+  UnbackWithoutLock unback_without_lock_{unback_};
+};
+
+// An allocation that runs while UnbackHugepages is unbacking a range must not
+// receive any page of that range, even when it is the best-fit free span, and
+// the range must look allocated to stats and GetPageAllocationStatus until the
+// unback finishes.
+TEST_F(HugeRegionUnbackWithoutLockTest, GetDuringUnbackAvoidsRangeInFlight) {
+  const Length hp = kPagesPerHugePage;
+  Alloc a0 = Allocate(2 * hp);
+  Alloc a1 = Allocate(hp);
+  // Free hugepages 0-1 (best fit for a 2-hugepage request); hugepages 3+ are
+  // free and unbacked.
+  Delete(a0);
+  ASSERT_EQ(region_.backed(), NHugePages(3));
+  ASSERT_EQ(region_.free_backed(), NHugePages(2));
+
+  Alloc concurrent;
+  bool concurrent_from_released = false;
+  unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    EXPECT_EQ(r.p, p_.first_page());
+    EXPECT_EQ(r.n, 2 * hp);
+
+    // Taking pageheap_lock here shows the release dropped it: this thread
+    // would otherwise deadlock.
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(region_.free_backed(), NHugePages(0));
+    EXPECT_EQ(region_.used_pages(), 3 * hp);
+
+    for (HugeLength offset; offset < NHugePages(2); ++offset) {
+      PageBitmap pages;
+      ASSERT_TRUE(region_.GetPageAllocationStatus(p_ + offset, pages));
+      EXPECT_EQ(pages.CountBits(0, hp.raw_num()), hp.raw_num());
+    }
+    SmallSpanStats small;
+    LargeSpanStats large;
+    region_.AddSpanStats(&small, &large);
+    EXPECT_EQ(large.normal_pages, Length(0));
+
+    concurrent = Allocate(2 * hp, &concurrent_from_released);
+  };
+  EXPECT_EQ(ReleaseUnderLock(2 * hp, HugeRegionAdaptiveRelease::kDisabled),
+            NHugePages(2));
+  unback_without_lock_.unlocked_hook_ = nullptr;
+
+  // Hugepages 0-1 were in flight, so the concurrent Get landed past a1 on
+  // hugepages 3-4.
+  EXPECT_EQ(concurrent.p, p_.first_page() + 3 * hp);
+  EXPECT_TRUE(concurrent_from_released);
+  EXPECT_EQ(region_.backed(), NHugePages(3));
+  EXPECT_EQ(region_.free_backed(), NHugePages(0));
+  EXPECT_EQ(region_.used_pages(), 3 * hp);
+
+  Delete(concurrent);
+  Delete(a1);
+}
+
+// Release selects all candidate hugepages before unbacking the first range.
+// If a concurrent Get allocates even one page of a later candidate while the
+// first unback has dropped the lock, UnbackHugepages must recheck CanUnback
+// and skip it.
+TEST_F(HugeRegionUnbackWithoutLockTest, GetDuringUnbackTakesPendingCandidate) {
+  const Length hp = kPagesPerHugePage;
+  for (HugeRegionAdaptiveRelease adaptive :
+       {HugeRegionAdaptiveRelease::kDisabled,
+        HugeRegionAdaptiveRelease::kEnabled}) {
+    SCOPED_TRACE(testing::Message()
+                 << "adaptive=" << static_cast<bool>(adaptive));
+    Reset();
+
+    // Hugepages 0 and 2 are free and backed; 1 and 3 are allocated so that 0
+    // and 2 are separate unback calls and hugepage 2 is the best-fit 1-hugepage
+    // gap for a 1-page allocation after hugepage 0 is marked in flight.
+    Alloc a0 = Allocate(hp);
+    Alloc a1 = Allocate(hp);
+    Alloc a2 = Allocate(hp);
+    Alloc a3 = Allocate(hp);
+    Delete(a0);
+    Delete(a2);
+
+    Alloc taken;
+    bool from_released = true;
+    int hooks = 0;
+    unback_without_lock_.unlocked_hook_ = [&](Range r) {
+      ++hooks;
+      EXPECT_EQ(r.p, p_.first_page());
+      EXPECT_EQ(r.n, hp);
+      // Take 1 page of hugepage 2, which Release already put in should_unback.
+      PageHeapSpinLockHolder l;
+      taken = Allocate(Length(1), &from_released);
+    };
+    const HugeLength released = ReleaseUnderLock(2 * hp, adaptive);
+    unback_without_lock_.unlocked_hook_ = nullptr;
+
+    EXPECT_EQ(hooks, 1);
+    EXPECT_EQ(released, NHugePages(1));
+    EXPECT_EQ(unback_.unbacked_, 1);
+    EXPECT_EQ(taken.p, p_.first_page() + 2 * hp);
+    EXPECT_FALSE(from_released);
+    EXPECT_EQ(region_.backed(), NHugePages(3));
+    EXPECT_EQ(region_.free_backed(), NHugePages(0));
+
+    Delete(taken);
+    EXPECT_EQ(region_.free_backed(), NHugePages(1));
+    Delete(a1);
+    Delete(a3);
+  }
+}
+
+// A Put that runs while Release is unbacking another range updates the freed
+// hugepage's state without disturbing the in-flight unback.
+TEST_F(HugeRegionUnbackWithoutLockTest, PutDuringUnback) {
+  const Length hp = kPagesPerHugePage;
+  for (bool release_on_put : {false, true}) {
+    SCOPED_TRACE(testing::Message() << "release_on_put=" << release_on_put);
+    Reset();
+
+    Alloc a0 = Allocate(hp);
+    Alloc a1 = Allocate(hp);
+    Alloc a2 = Allocate(hp);
+    Delete(a0);
+
+    // With release_on_put, the Put unbacks a2's hugepage through the same
+    // unbacker, re-entering the hook; only the outer call does the Put.
+    int hooks = 0;
+    unback_without_lock_.unlocked_hook_ = [&](Range r) {
+      if (hooks++ > 0) {
+        return;
+      }
+      EXPECT_EQ(r.p, p_.first_page());
+      PageHeapSpinLockHolder l;
+      if (release_on_put) {
+        DeleteUnback(a2);
+      } else {
+        Delete(a2);
+      }
+      EXPECT_EQ(region_.free_backed(),
+                release_on_put ? NHugePages(0) : NHugePages(1));
+    };
+    EXPECT_EQ(ReleaseUnderLock(hp, HugeRegionAdaptiveRelease::kDisabled),
+              NHugePages(1));
+    unback_without_lock_.unlocked_hook_ = nullptr;
+
+    EXPECT_EQ(hooks, release_on_put ? 2 : 1);
+    EXPECT_EQ(unback_.unbacked_, release_on_put ? 2 : 1);
+    EXPECT_EQ(region_.backed(), release_on_put ? NHugePages(1) : NHugePages(2));
+    EXPECT_EQ(region_.free_backed(),
+              release_on_put ? NHugePages(0) : NHugePages(1));
+    EXPECT_EQ(region_.used_pages(), hp);
+
+    Delete(a1);
+  }
+}
+
+// When an unback fails after another thread allocated from the region during
+// the lock drop, the rollback restores the failed range to the free-and-backed
+// pool alongside the concurrent changes, and the range can be allocated and
+// released again.
+TEST_F(HugeRegionUnbackWithoutLockTest, FailedUnbackAfterConcurrentGet) {
+  unback_.success_ = false;
+
+  const Length hp = kPagesPerHugePage;
+  Alloc a0 = Allocate(2 * hp);
+  Alloc a1 = Allocate(hp);
+  Alloc a2 = Allocate(hp);
+  // Hugepages 0-1 and 3 are free and backed; 2 is allocated.
+  Delete(a0);
+  Delete(a2);
+  ASSERT_EQ(region_.backed(), NHugePages(4));
+  ASSERT_EQ(region_.free_backed(), NHugePages(3));
+
+  Alloc concurrent;
+  bool from_released = true;
+  unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    EXPECT_EQ(r.p, p_.first_page());
+    EXPECT_EQ(r.n, 2 * hp);
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(region_.free_backed(), NHugePages(1));
+    // Consumes hugepage 3 while hugepages 0-1 are in flight.
+    concurrent = Allocate(hp, &from_released);
+    EXPECT_EQ(concurrent.p, p_.first_page() + 3 * hp);
+    EXPECT_FALSE(from_released);
+    EXPECT_EQ(region_.free_backed(), NHugePages(0));
+  };
+  EXPECT_EQ(ReleaseUnderLock(2 * hp, HugeRegionAdaptiveRelease::kDisabled),
+            NHugePages(0));
+  unback_without_lock_.unlocked_hook_ = nullptr;
+
+  // Hugepages 0-1 rolled back to free-and-backed; hugepage 3 stays allocated.
+  EXPECT_EQ(region_.backed(), NHugePages(4));
+  EXPECT_EQ(region_.free_backed(), NHugePages(2));
+  EXPECT_EQ(region_.used_pages(), 2 * hp);
+
+  // The rolled-back range is unmarked in tracker_ and still backed.
+  bool reget_from_released = true;
+  Alloc reget = Allocate(2 * hp, &reget_from_released);
+  EXPECT_EQ(reget.p, p_.first_page());
+  EXPECT_FALSE(reget_from_released);
+  Delete(reget);
+
+  // And it is still eligible for a subsequent Release.
+  unback_.success_ = true;
+  EXPECT_EQ(ReleaseUnderLock(2 * hp, HugeRegionAdaptiveRelease::kEnabled),
+            NHugePages(2));
+  EXPECT_EQ(region_.backed(), NHugePages(2));
+  EXPECT_EQ(region_.free_backed(), NHugePages(0));
+
+  Delete(concurrent);
   Delete(a1);
 }
 
