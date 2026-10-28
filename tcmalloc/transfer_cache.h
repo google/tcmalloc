@@ -274,6 +274,9 @@ class ShardedTransferCacheManagerBase {
     for (int shard = 0; shard < num_shards_; ++shard) {
       if (!shard_initialized(shard)) continue;
       for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+        if (!should_use(size_class)) continue;
+#endif
         TransferCache& cache = shards_[shard].transfer_caches[size_class];
         cache.TryPlunder(size_class);
       }

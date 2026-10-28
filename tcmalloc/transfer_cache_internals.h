@@ -260,6 +260,9 @@ class TransferCache {
       lock_.unlock();
 
       freelist().InsertRange({buf, num_to_move});
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+      if (to_return == 0) return;
+#endif
       if (!lock_.try_lock()) return;
     }
     lock_.unlock();
