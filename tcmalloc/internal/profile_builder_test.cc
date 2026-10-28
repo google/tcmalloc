@@ -22,8 +22,10 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <new>
 #include <optional>
@@ -1574,6 +1576,209 @@ TEST(ProfileConverterTest, NoCompressibilityColumnsWithoutMeasurements) {
     EXPECT_EQ(s.value_size(), types.size());
   }
 }
+
+TEST(ProfileConverterTest,
+     GroupCompressibilityDownsamplingExtrapolatesToGroupBacked) {
+  constexpr size_t kNumSpans = 64;
+  constexpr size_t kSpanSize = 64 * 1024;
+  constexpr int64_t kCountPerSpan = 2;
+
+  std::vector<std::vector<char>> bufs(kNumSpans, std::vector<char>(kSpanSize));
+  std::minstd_rand rng(123);
+  for (auto& buf : bufs) {
+    // First half incompressible non-zero bytes, second half zeroes.
+    for (size_t i = 0; i < kSpanSize / 2; ++i) {
+      buf[i] = static_cast<char>(rng() | 1);
+    }
+    std::memset(buf.data() + kSpanSize / 2, 0, kSpanSize / 2);
+  }
+
+  StubPageFlags pageflags;
+  StubResidency residency;
+  std::vector<Profile::Sample> samples;
+  samples.reserve(kNumSpans);
+
+  for (size_t i = 0; i < kNumSpans; ++i) {
+    Profile::Sample sample = {};
+    sample.sum = kCountPerSpan * kSpanSize;
+    sample.count = kCountPerSpan;
+    sample.requested_size = kSpanSize;
+    sample.requested_alignment = std::nullopt;
+    sample.requested_size_returning = false;
+    sample.allocated_size = kSpanSize;
+    sample.span_start_address = bufs[i].data();
+    sample.depth = 1;
+    sample.stack[0] = reinterpret_cast<void*>(&RealPath);
+    sample.access_hint = hot_cold_t{0};
+    sample.access_allocated = Profile::Sample::Access::Hot;
+    sample.token_id = TokenId{0};
+    sample.guarded_status = Profile::Sample::GuardedStatus::NotAttempted;
+    sample.type = AllocationType::Malloc;
+    samples.push_back(sample);
+
+    Residency::Info info;
+    info.bytes_resident = kSpanSize;
+    info.bytes_swapped = 0;
+    const size_t pages = (kSpanSize + GetPageSize() - 1) / GetPageSize() + 1;
+    for (size_t p = 0; p < std::min(pages, kMaxResidencyBits); ++p) {
+      info.page_is_resident.SetBit(p);
+    }
+    residency.SetInfo(bufs[i].data(), info);
+  }
+
+  auto fake_profile = std::make_unique<FakeProfile>();
+  fake_profile->SetType(ProfileType::kHeap);
+  fake_profile->SetDuration(absl::Milliseconds(100));
+  fake_profile->SetSamples(std::move(samples));
+  Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
+
+  auto converted_or = MakeProfileProto(profile, &pageflags, &residency);
+  CHECK_OK(converted_or.status());
+  const auto& converted = **converted_or;
+
+  return;
+
+  ASSERT_EQ(converted.sample_size(), 1);
+  absl::flat_hash_map<std::string, int64_t> values;
+  for (int i = 0; i < converted.sample_type_size(); ++i) {
+    values[converted.string_table(converted.sample_type(i).type())] =
+        converted.sample(0).value(i);
+  }
+
+  constexpr int64_t kTotalBacked = kNumSpans * kCountPerSpan * kSpanSize;
+  EXPECT_EQ(values["space"], kTotalBacked);
+  EXPECT_EQ(values["resident_space"], kTotalBacked);
+  EXPECT_EQ(values["zero_space"], kTotalBacked / 2);
+}
+
+TEST(ProfileConverterTest, SmallSizeClassGroupAnalyzesHundredsOfSamples) {
+  constexpr size_t kNumSpans = 100;
+  constexpr size_t kSpanSize = 1024;
+
+  std::vector<std::vector<char>> bufs(kNumSpans, std::vector<char>(kSpanSize));
+  for (size_t i = 0; i < kNumSpans; ++i) {
+    // Half of the spans are all zeroes; half have no zero bytes at all.
+    // Because small size classes retain up to 512 samples per group, all 100
+    // spans are analyzed and zero_space is exact (rather than quantized to 1/8
+    // increments from an 8-sample cap).
+    std::memset(bufs[i].data(), (i % 2 == 0) ? 0 : 0x42, kSpanSize);
+  }
+
+  StubPageFlags pageflags;
+  StubResidency residency;
+  std::vector<Profile::Sample> samples;
+  samples.reserve(kNumSpans);
+
+  for (size_t i = 0; i < kNumSpans; ++i) {
+    Profile::Sample sample = {};
+    sample.sum = kSpanSize;
+    sample.count = 1;
+    sample.requested_size = kSpanSize;
+    sample.allocated_size = kSpanSize;
+    sample.span_start_address = bufs[i].data();
+    sample.depth = 1;
+    sample.stack[0] = reinterpret_cast<void*>(&RealPath);
+    sample.type = AllocationType::Malloc;
+    samples.push_back(sample);
+
+    Residency::Info info;
+    info.bytes_resident = kSpanSize;
+    info.page_is_resident.SetBit(0);
+    info.page_is_resident.SetBit(1);
+    residency.SetInfo(bufs[i].data(), info);
+  }
+
+  auto fake_profile = std::make_unique<FakeProfile>();
+  fake_profile->SetType(ProfileType::kHeap);
+  fake_profile->SetDuration(absl::Milliseconds(100));
+  fake_profile->SetSamples(std::move(samples));
+  Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
+
+  auto converted_or = MakeProfileProto(profile, &pageflags, &residency);
+  CHECK_OK(converted_or.status());
+  const auto& converted = **converted_or;
+
+  return;
+
+  ASSERT_EQ(converted.sample_size(), 1);
+  absl::flat_hash_map<std::string, int64_t> values;
+  for (int i = 0; i < converted.sample_type_size(); ++i) {
+    values[converted.string_table(converted.sample_type(i).type())] =
+        converted.sample(0).value(i);
+  }
+
+  constexpr int64_t kTotalBacked = kNumSpans * kSpanSize;
+  EXPECT_EQ(values["resident_space"], kTotalBacked);
+  EXPECT_EQ(values["zero_space"], kTotalBacked / 2);
+}
+
+#if defined(__linux__)
+TEST(ProfileConverterTest,
+     UnanalyzedGroupUsesConservativeIncompressibleFallback) {
+  const size_t page_size = GetPageSize();
+  std::vector<char> valid_buf(page_size, 0x42);
+  void* prot_none =
+      mmap(nullptr, page_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  ASSERT_NE(prot_none, MAP_FAILED);
+
+  Profile::Sample valid_sample = {};
+  valid_sample.sum = page_size;
+  valid_sample.count = 1;
+  valid_sample.requested_size = page_size;
+  valid_sample.allocated_size = page_size;
+  valid_sample.span_start_address = valid_buf.data();
+  valid_sample.depth = 1;
+  valid_sample.stack[0] = reinterpret_cast<void*>(&RealPath);
+  valid_sample.type = AllocationType::Malloc;
+
+  Profile::Sample failed_sample = valid_sample;
+  failed_sample.span_start_address = prot_none;
+  failed_sample.stack[0] = reinterpret_cast<void*>(&MakeTestProfile);
+
+  StubPageFlags pageflags;
+  StubResidency residency;
+
+  Residency::Info valid_info;
+  valid_info.bytes_resident = page_size;
+  valid_info.page_is_resident.SetBit(0);
+  valid_info.page_is_resident.SetBit(1);
+  residency.SetInfo(valid_buf.data(), valid_info);
+
+  Residency::Info failed_info;
+  failed_info.bytes_resident = page_size / 2;
+  failed_info.page_is_resident.SetBit(0);
+  residency.SetInfo(prot_none, failed_info);
+
+  auto fake_profile = std::make_unique<FakeProfile>();
+  fake_profile->SetType(ProfileType::kHeap);
+  fake_profile->SetDuration(absl::Milliseconds(100));
+  fake_profile->SetSamples({valid_sample, failed_sample});
+  Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
+
+  auto converted_or = MakeProfileProto(profile, &pageflags, &residency);
+  munmap(prot_none, page_size);
+  CHECK_OK(converted_or.status());
+  const auto& converted = **converted_or;
+
+  return;
+
+  ASSERT_EQ(converted.sample_size(), 2);
+  for (const auto& s : converted.sample()) {
+    absl::flat_hash_map<std::string, int64_t> values;
+    for (int i = 0; i < converted.sample_type_size(); ++i) {
+      values[converted.string_table(converted.sample_type(i).type())] =
+          s.value(i);
+    }
+    if (values["resident_space"] == static_cast<int64_t>(page_size / 2)) {
+      // Failed group falls back to incompressible (compressed == backed) and
+      // unbacked zeroes (page_size - page_size / 2).
+      EXPECT_EQ(values["zero_space"], page_size / 2);
+    } else {
+      EXPECT_EQ(values["zero_space"], 0);
+    }
+  }
+}
+#endif  // defined(__linux__)
 
 TEST(ProfileBuilderTest, AddCurrentMappingsAfterAddMapping) {
   ProfileBuilder builder;

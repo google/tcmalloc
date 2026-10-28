@@ -141,7 +141,7 @@ TEST(CompressibilityTest, PseudoRandomUncompressible) {
 }
 
 TEST(CompressibilityTest, MultiChunkScanning) {
-  CompressionAnalyzer analyzer;
+  CompressionAnalyzer analyzer(2 * 1024 * 1024);
   // 5MB allocation: first 2MB is sampled and extrapolated.
   const size_t page_size = GetPageSize();
   const size_t num_pages = (5 * 1024 * 1024) / page_size;
@@ -154,6 +154,31 @@ TEST(CompressibilityTest, MultiChunkScanning) {
                               MakeResidencyInfo(buf.ptr, buf.size, "R"));
   ABSL_ASSERT_OK(res);
   EXPECT_EQ(res->zero_bytes, buf.size / 2);
+}
+
+TEST(CompressibilityTest, RandomizedContiguousSubRange) {
+  CompressionAnalyzer analyzer;
+  const size_t page_size = GetPageSize();
+  const size_t num_pages = (2 * 1024 * 1024) / page_size;
+  PageAlignedBuffer buf(num_pages);
+  // First 1MB is non-zero (0x42), second 1MB is zero.
+  std::memset(buf.ptr, 0x42, buf.size / 2);
+  std::memset(buf.ptr + buf.size / 2, 0, buf.size / 2);
+
+  const Residency::Info info = MakeResidencyInfo(buf.ptr, buf.size, "R");
+  bool saw_nonzero_window = false;
+  bool saw_zero_window = false;
+  for (int i = 0; i < 32; ++i) {
+    auto res = analyzer.Analyze(absl::MakeConstSpan(buf.ptr, buf.size), info);
+    ABSL_ASSERT_OK(res);
+    if (res->zero_bytes == 0) {
+      saw_nonzero_window = true;
+    } else if (res->zero_bytes == buf.size) {
+      saw_zero_window = true;
+    }
+  }
+  EXPECT_TRUE(saw_nonzero_window);
+  EXPECT_TRUE(saw_zero_window);
 }
 
 #if defined(__linux__)
