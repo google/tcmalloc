@@ -46,8 +46,6 @@ enum class MemoryTag : uint8_t {
 inline constexpr uintptr_t kTagShift = std::min(kAddressBits - 4, 42);
 inline constexpr uintptr_t kTagMask =
     uintptr_t{kSanitizerAddressSpace ? 0x3 : 0x7} << kTagShift;
-inline constexpr uintptr_t kNormalTagMask =
-    uintptr_t{kSanitizerAddressSpace ? 0x3 : 0x5} << kTagShift;
 
 [[nodiscard]] inline MemoryTag GetMemoryTag(const void* ptr) {
   return static_cast<MemoryTag>((reinterpret_cast<uintptr_t>(ptr) & kTagMask) >>
@@ -55,12 +53,12 @@ inline constexpr uintptr_t kNormalTagMask =
 }
 
 [[nodiscard]] inline bool IsNormalMemory(const void* ptr) {
-  // This is slightly faster than checking kNormalP0/P1 separately.
+  // This is slightly faster than checking kNormalP0/P1 separetly.
   static_assert((static_cast<uint8_t>(MemoryTag::kNormalP0) &
                  (static_cast<uint8_t>(MemoryTag::kSampledOrCold) |
                   static_cast<uint8_t>(MemoryTag::kSampledOrColdP1))) == 0);
-  bool res = (reinterpret_cast<uintptr_t>(ptr) & kNormalTagMask) ==
-             (static_cast<uintptr_t>(MemoryTag::kNormal) << kTagShift);
+  bool res = (static_cast<uintptr_t>(GetMemoryTag(ptr)) &
+              static_cast<uintptr_t>(MemoryTag::kNormal)) != 0;
   TC_ASSERT(res == (GetMemoryTag(ptr) == MemoryTag::kNormalP0 ||
                     GetMemoryTag(ptr) == MemoryTag::kNormalP1),
             "ptr=%p res=%d tag=%d", ptr, res,

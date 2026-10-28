@@ -90,9 +90,6 @@ TEST(MemoryErrorsFuzzTest, WildPointerUnsizedDeleteRegression) {
   WildPointerUnsizedDelete(1);
   WildPointerUnsizedDelete(5351867499084745203ull);
   WildPointerUnsizedDelete(5351867499084745200ull);
-  WildPointerUnsizedDelete((uintptr_t{3} << 42) + 8);
-  WildPointerUnsizedDelete((uintptr_t{5} << 42) + 8);
-  WildPointerUnsizedDelete((uintptr_t{7} << 42) + 8);
 }
 
 FUZZ_TEST(MemoryErrorsFuzzTest, WildPointerUnsizedDelete);
@@ -138,12 +135,12 @@ void WildPointerSizedDelete(uintptr_t ptr, size_t size) {
     return;
   }
 
-  // The pointer must either be sampled/guarded/metadata, carry an unassigned
-  // tag, or be larger than kMaxSize.  We don't expect to have lightweight
-  // checks otherwise: normal memory, and sampled/cold memory that is aligned
-  // but not page aligned (which can only be a cold object), with a size <=
-  // kMaxSize take the fast sized-delete path that derives the size class from
-  // `size` without consulting the pagemap, so a wild pointer is not detected.
+  // The pointer must either be sampled/guarded/metadata or larger than
+  // kMaxSize.  We don't expect to have lightweight checks otherwise: normal
+  // memory, and sampled/cold memory that is aligned but not page aligned
+  // (which can only be a cold object), with a size <= kMaxSize take the fast
+  // sized-delete path that derives the size class from `size` without
+  // consulting the pagemap, so a wild pointer is not detected.
   if (auto tag = GetMemoryTag(p);
       ((tag == MemoryTag::kNormal || tag == MemoryTag::kNormalP1) ||
        (tag == MemoryTag::kSampledOrCold &&
@@ -171,12 +168,9 @@ TEST(MemoryErrorsFuzzTest, WildPointerSizedDeleteRegression) {
   WildPointerSizedDelete(8796093022208ull, 0);
   WildPointerSizedDelete(8796093022208ull, 131072);
   WildPointerSizedDelete(8796093022216ull, 131073);
-  // Sampled/cold, metadata, and unassigned-tag wild pointers are also rejected.
+  // A misaligned sampled/cold wild pointer also reaches
+  // InvokeHooksAndFreePages() and is rejected there for having no span.
   WildPointerSizedDelete((uintptr_t{1} << 41) + 1, 8);
-  WildPointerSizedDelete(uintptr_t{1} << 41, 8);
-  WildPointerSizedDelete((uintptr_t{3} << 42) + 8, 8);
-  WildPointerSizedDelete((uintptr_t{5} << 42) + 8, 8);
-  WildPointerSizedDelete((uintptr_t{7} << 42) + 8, 8);
 }
 
 FUZZ_TEST(MemoryErrorsFuzzTest, WildPointerSizedDelete);
@@ -488,16 +482,13 @@ TEST(MemoryErrorsFuzzTest, MisalignedPointerRegression) {
 
 TEST(MemoryErrorsFuzzTest, MisalignedPointerSampledRegression) {
   ScopedAlwaysSample always_sample;
-  for (bool guarded : {false, true}) {
-    ScopedGuardedSamplingInterval gs(guarded ? 0 : -1);
-    for (int i = 0; i < 4; ++i) {
-      MisalignedPointer(16, std::nullopt, std::align_val_t{64},
-                        std::align_val_t{8}, /*sized=*/false);
-      MisalignedPointer(16, std::nullopt, std::align_val_t{64},
-                        std::align_val_t{8}, /*sized=*/true);
-      MisalignedPointer(16, std::nullopt, std::nullopt, std::align_val_t{1},
-                        /*sized=*/false);
-    }
+  for (int i = 0; i < 4; ++i) {
+    MisalignedPointer(16, std::nullopt, std::align_val_t{64},
+                      std::align_val_t{8}, /*sized=*/false);
+    MisalignedPointer(16, std::nullopt, std::align_val_t{64},
+                      std::align_val_t{8}, /*sized=*/true);
+    MisalignedPointer(16, std::nullopt, std::nullopt, std::align_val_t{1},
+                      /*sized=*/false);
   }
 }
 

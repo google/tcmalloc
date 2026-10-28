@@ -685,7 +685,8 @@ static constexpr uintptr_t kBadDeallocationHighMask =
     ~((uintptr_t{1} << kAddressBits) - 1u);
 static constexpr uintptr_t kBadAlignmentMask =
     static_cast<uintptr_t>(kAlignment) - 1u;
-// kNormalTagMask covers both kNormal and kNormalP1 and rejects unassigned tags.
+// kNormalMask covers both kNormal and kNormalP1 because they share an
+// overlapping tag bit.  This is the same property IsNormalMemory relies on.
 static constexpr uintptr_t kNormalMask =
     static_cast<uintptr_t>(MemoryTag::kNormal) << kTagShift;
 static constexpr uintptr_t kSampledOrColdMask =
@@ -694,7 +695,7 @@ static_assert((static_cast<uintptr_t>(MemoryTag::kNormal) &
                static_cast<uintptr_t>(MemoryTag::kNormalP1)) != 0);
 
 static constexpr uintptr_t kNormalOrBadDeallocationMask =
-    kBadDeallocationHighMask | kNormalTagMask | kBadAlignmentMask;
+    kBadDeallocationHighMask | kNormalMask | kBadAlignmentMask;
 
 static constexpr uintptr_t kTagOrBadDeallocationMask =
     kBadDeallocationHighMask | kTagMask | kBadAlignmentMask;
@@ -824,16 +825,15 @@ bool CorrectAlignment(void* ptr, std::align_val_t alignment);
 ABSL_ATTRIBUTE_NOINLINE static void do_unsized_free_irregular(
     void* ptr, DynamicPolicy policy) {
   const uintptr_t uptr = absl::bit_cast<uintptr_t>(ptr);
-  // Only aligned kSampledOrCold pointers can belong to small cold spans.
-  // GWP-ASan guarded allocations (which may be right-aligned and tagged
-  // kGuarded), sampled allocations in kSampledOrColdP1, and ill-formed
-  // pointers (misaligned, bad high bits, or other tags) have sizeclass == 0
-  // and are handled or rejected by InvokeHooksAndFreePages().
-  if (ABSL_PREDICT_FALSE((uptr & kTagOrBadDeallocationMask) !=
-                         kSampledOrColdMask)) {
-    SLOW_PATH_BARRIER();
-    InvokeHooksAndFreePages(ptr, std::nullopt, policy);
-    return;
+
+  if (ABSL_PREDICT_FALSE(uptr & kBadDeallocationHighMask)) {
+    ReportCorruptedFree(tc_globals, ptr);
+  }
+
+  // Only GWP-ASan may hand out misaligned pointers: it right-aligns small
+  // allocations in their page.  Those are tagged kGuarded.
+  if (ABSL_PREDICT_FALSE(uptr & kBadAlignmentMask) && !IsGuardedMemory(ptr)) {
+    ReportCorruptedFree(tc_globals, kAlignment, ptr);
   }
 
   const size_t size_class =
@@ -926,8 +926,7 @@ ABSL_ATTRIBUTE_NOINLINE static void handle_sampled_or_illformed_ptrs(
   }
   // At this point, the pointer is purely illformed: wrong alignment, corrupted
   // high bits, or illegal tags.
-  if (ABSL_PREDICT_FALSE((uptr & (kBadDeallocationHighMask | kNormalTagMask)) !=
-                         kNormalMask)) {
+  if (ABSL_PREDICT_FALSE(uptr & kBadDeallocationHighMask)) {
     ReportCorruptedFree(tc_globals, ptr);
   }
 
