@@ -29,6 +29,7 @@
 #include "gtest/gtest.h"
 #include "absl/base/config.h"
 #include "absl/strings/str_cat.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
@@ -612,6 +613,23 @@ TEST_F(GetStatsTest, RequiredBufferSizes) {
 
   // The required bytes should be similar.
   EXPECT_LE(std::abs(actual_large - actual_small), 8192);
+}
+
+TEST_F(GetStatsTest, Latency) {
+  const absl::Time start_stats = absl::Now();
+  const std::string stats = MallocExtension::GetStats();
+  const absl::Duration stats_elapsed = absl::Now() - start_stats;
+
+  const absl::Time start_pbtxt = absl::Now();
+  const std::string pbtxt = GetStatsInPbTxt();
+  const absl::Duration pbtxt_elapsed = absl::Now() - start_pbtxt;
+
+  if (!tcmalloc_internal::kSanitizerPresent) {
+    EXPECT_FALSE(stats.empty());
+    EXPECT_FALSE(pbtxt.empty());
+  }
+  EXPECT_LT(stats_elapsed, absl::Seconds(1));
+  EXPECT_LT(pbtxt_elapsed, absl::Seconds(1));
 }
 
 }  // namespace
