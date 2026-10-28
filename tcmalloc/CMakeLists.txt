@@ -344,6 +344,7 @@ tcmalloc_cc_library_variants(
     "tcmalloc::internal_central_freelist_hooks"
     "tcmalloc::internal_clock"
     "tcmalloc::internal_config"
+    "tcmalloc::internal_constant_divisor"
     "tcmalloc::internal_cpu_utils"
     "tcmalloc::internal_delay_injection"
     "tcmalloc::internal_environment"
