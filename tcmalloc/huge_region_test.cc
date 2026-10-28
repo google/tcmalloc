@@ -473,6 +473,9 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
   absl::Mutex mu;
   absl::FixedArray<std::atomic<char>> bytes(
       region_.size().in_pages().raw_num());
+  for (auto& b : bytes) {
+    b.store(0, std::memory_order_relaxed);
+  }
 
   MemorySimulation simulation(mu, p_.first_page(), absl::MakeSpan(bytes));
 
@@ -485,20 +488,22 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
 
   absl::Mutex state_mu;
   struct FuzzAlloc {
-    int tid;
+    int owner;
     Range r;
   };
   std::vector<FuzzAlloc> allocs;
 
   ThreadManager threads;
   threads.Start(kThreads, [&](int tid) {
+    // 0 means free, so thread IDs are shifted by 1.
+    const int owner = tid + 1;
     switch (absl::Uniform(rngs[tid], 0, 4)) {
       case 0: {
         const size_t n =
             absl::Uniform(rngs[tid], 1u, region_.size().in_pages().raw_num());
 
         FuzzAlloc f;
-        f.tid = tid;
+        f.owner = owner;
         f.r.n = Length(n);
         bool from_released;
         {
@@ -510,8 +515,8 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
 
         const size_t base = (f.r.p - p_.first_page()).raw_num();
         for (size_t i = 0; i < n; ++i) {
-          const int old_val =
-              bytes[base + i].exchange(tid, std::memory_order_acq_rel);
+          const int old_val = bytes[base + i].exchange(
+              static_cast<char>(owner), std::memory_order_acq_rel);
           TC_CHECK_EQ(old_val, 0);
         }
 
@@ -540,11 +545,12 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
         for (size_t i = 0; i < f.r.n.raw_num(); ++i) {
           const int old_val =
               bytes[base + i].exchange(0, std::memory_order_acq_rel);
-          TC_CHECK_EQ(old_val, f.tid);
+          TC_CHECK_EQ(old_val, f.owner);
         }
 
+        const bool release = absl::Bernoulli(rngs[tid], 0.5);
         absl::MutexLock l(mu);
-        region_.Put(f.r, false);
+        region_.Put(f.r, release);
         break;
       }
       case 2: {
@@ -559,7 +565,7 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
         const size_t base = (f.r.p - p_.first_page()).raw_num();
         for (size_t i = 0; i < f.r.n.raw_num(); ++i) {
           const int val = bytes[base + i].load(std::memory_order_acquire);
-          TC_CHECK_EQ(val, f.tid);
+          TC_CHECK_EQ(val, f.owner);
         }
 
         break;
@@ -567,9 +573,13 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
       case 3: {
         const Length to_release = Length(
             absl::Uniform(rngs[tid], 0u, region_.size().in_pages().raw_num()));
+        const HugeRegionAdaptiveRelease adaptive =
+            absl::Bernoulli(rngs[tid], 0.5)
+                ? HugeRegionAdaptiveRelease::kEnabled
+                : HugeRegionAdaptiveRelease::kDisabled;
 
         absl::MutexLock l(mu);
-        (void)region_.Release(to_release, HugeRegionAdaptiveRelease::kDisabled);
+        (void)region_.Release(to_release, adaptive);
 
         break;
       }
@@ -579,6 +589,28 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
   absl::SleepFor(absl::Milliseconds(100));
 
   threads.Stop();
+
+  for (const FuzzAlloc& f : allocs) {
+    const size_t base = (f.r.p - p_.first_page()).raw_num();
+    for (size_t i = 0; i < f.r.n.raw_num(); ++i) {
+      const int old_val =
+          bytes[base + i].exchange(0, std::memory_order_acq_rel);
+      TC_CHECK_EQ(old_val, f.owner);
+    }
+    absl::MutexLock l(mu);
+    region_.Put(f.r, /*release=*/false);
+  }
+  while (region_.free_backed() > NHugePages(0)) {
+    absl::MutexLock l(mu);
+    (void)region_.Release(region_.size().in_pages(),
+                          HugeRegionAdaptiveRelease::kDisabled);
+  }
+  EXPECT_EQ(region_.used_pages(), Length(0));
+  EXPECT_EQ(region_.free_backed(), NHugePages(0));
+  EXPECT_EQ(region_.backed(), NHugePages(0));
+  for (const auto& b : bytes) {
+    EXPECT_EQ(b.load(std::memory_order_relaxed), 0);
+  }
 }
 
 class CallbackRelease final : public MemoryModifyFunction {
