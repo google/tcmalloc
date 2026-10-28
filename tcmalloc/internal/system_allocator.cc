@@ -46,11 +46,11 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal::system_allocator_internal {
 
 // Structure for discovering alignment
-union MemoryAligner {
+union ABSL_CACHELINE_ALIGNED MemoryAligner {
   void* p;
   double d;
   size_t s;
-} ABSL_CACHELINE_ALIGNED;
+};
 
 static_assert(sizeof(MemoryAligner) < kHugePageSize,
               "hugepage alignment too small");
