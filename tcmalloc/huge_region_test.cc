@@ -24,6 +24,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -40,6 +41,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/system_allocator.h"
@@ -1294,8 +1296,44 @@ class HugeRegionSetTest
  protected:
   typedef HugeRegion Region;
 
-  HugeRegionSetTest() : set_(/*use_huge_region_more_often=*/GetParam()) {
+  HugeRegionSetTest()
+      : set_(/*use_huge_region_more_often=*/GetParam(),
+             ResetAndMakeFakeClock()) {
     next_ = HugePageContaining(nullptr);
+  }
+
+  static constexpr double kFakeClockFreq = 1000.0;  // 1 tick == 1 ms.
+  static int64_t fake_clock_ticks_;
+  static int64_t FakeClockNow() { return fake_clock_ticks_; }
+  static double FakeClockFreq() { return kFakeClockFreq; }
+  static Clock ResetAndMakeFakeClock() {
+    fake_clock_ticks_ = 0;
+    return Clock{.now = FakeClockNow, .freq = FakeClockFreq};
+  }
+
+  void AdvanceClock(absl::Duration d) {
+    fake_clock_ticks_ += absl::ToInt64Milliseconds(d);
+  }
+
+  std::string PrintToString() const {
+    std::string buf(2 << 20, '\0');
+    Printer out(&buf[0], buf.size());
+    set_.Print(out);
+    TC_CHECK_LE(out.SpaceRequired(), buf.size());
+    buf.resize(strlen(buf.c_str()));
+    return buf;
+  }
+
+  std::string PrintInPbtxtToString() const {
+    std::string buf(2 << 20, '\0');
+    Printer out(&buf[0], buf.size());
+    {
+      PbtxtRegion region(out, kTop);
+      set_.PrintInPbtxt(region);
+    }
+    TC_CHECK_LE(out.SpaceRequired(), buf.size());
+    buf.resize(out.SpaceRequired());
+    return buf;
   }
 
   std::unique_ptr<Region> GetRegion() {
@@ -1318,6 +1356,8 @@ class HugeRegionSetTest
     Length n;
   };
 };
+
+int64_t HugeRegionSetTest::fake_clock_ticks_ = 0;
 
 TEST_P(HugeRegionSetTest, Release) {
   absl::BitGen rng;
@@ -1700,6 +1740,80 @@ TEST_P(HugeRegionSetTest, GetPageAllocationStatus) {
   }
 
   ASSERT_TRUE(set_.MaybePut(Range(p, Length(7))));
+}
+
+TEST_P(HugeRegionSetTest, TimeSeriesMinMaxWindow) {
+  EXPECT_THAT(PrintToString(),
+              testing::HasSubstr(
+                  "HugeRegionSet: recent usage range: 0 min - 0 curr - 0 max "
+                  "MiB\nHugeRegionSet: recent free backed range: 0 min - 0 "
+                  "curr - 0 max MiB"));
+
+  auto r1 = GetRegion();
+  set_.Contribute(r1.get());
+
+  const Length kHalfHp = kPagesPerHugePage / 2;
+  PageId p1, p2, p3;
+  bool from_released = false;
+
+  // Epoch 0 (t = 0ms): allocate 0.5 HP + 4 HP, backing 5 hugepages in use.
+  ASSERT_TRUE(set_.MaybeGet(kHalfHp, &p1, &from_released));
+  EXPECT_TRUE(from_released);
+  ASSERT_TRUE(set_.MaybeGet(NHugePages(4).in_pages(), &p2, &from_released));
+  EXPECT_TRUE(from_released);
+
+  // Epoch 1 (t = 1000ms): free the 4 HP allocation, leaving 1 HP in use and
+  // 4 HP free-backed when lazy release is enabled (or 0 when eagerly unbacked).
+  AdvanceClock(absl::Seconds(1));
+  ASSERT_TRUE(set_.MaybePut(Range(p2, NHugePages(4).in_pages())));
+
+  if (!UseHugeRegionMoreOften()) {
+    const std::string pbtxt = PrintInPbtxtToString();
+    EXPECT_THAT(pbtxt, testing::HasSubstr("huge_region_usage_history {"));
+    ASSERT_TRUE(set_.MaybePut(Range(p1, kHalfHp)));
+    return;
+  }
+
+  // Epoch 2 (t = 2000ms): allocate 2 HP from free-backed pages (3 HP in use,
+  // 2 HP free-backed), release the remaining 2 HP free-backed pages, and then
+  // free p3 so 1 HP remains in use and 2 HP remain free-backed.
+  AdvanceClock(absl::Seconds(1));
+  ASSERT_TRUE(set_.MaybeGet(NHugePages(2).in_pages(), &p3, &from_released));
+  EXPECT_FALSE(from_released);
+  EXPECT_EQ(
+      set_.ReleasePages(Length::max(), HugeRegionAdaptiveRelease::kEnabled,
+                        /*hit_limit=*/true),
+      NHugePages(2).in_pages());
+  ASSERT_TRUE(set_.MaybePut(Range(p3, NHugePages(2).in_pages())));
+
+  const std::string text = PrintToString();
+  EXPECT_THAT(text, testing::HasSubstr(absl::StrFormat(
+                        "HugeRegionSet: recent usage range: %zu min - %zu curr "
+                        "- %zu max MiB",
+                        NHugePages(1).in_mib(), NHugePages(1).in_mib(),
+                        NHugePages(5).in_mib())));
+  EXPECT_THAT(
+      text,
+      testing::HasSubstr(absl::StrFormat(
+          "HugeRegionSet: recent free backed range: 0 min - %zu curr - %zu max "
+          "MiB",
+          NHugePages(2).in_mib(), NHugePages(4).in_mib())));
+  EXPECT_THAT(text, testing::HasSubstr("HugeRegionSet: Usage timeseries "));
+  EXPECT_THAT(text,
+              testing::HasSubstr("HugeRegionSet: Free backed timeseries "));
+
+  // Advance across 605 one-second epochs (> 600 slots) with a 1 HP pulse so
+  // the initial 5 HP usage peak and 0 / 4 HP free-backed extrema roll off the
+  // 10-minute window.
+  for (int epoch = 0; epoch < 605; ++epoch) {
+    AdvanceClock(absl::Seconds(1));
+    PageId p;
+    ASSERT_TRUE(set_.MaybeGet(kPagesPerHugePage, &p, &from_released));
+    EXPECT_FALSE(from_released);
+    ASSERT_TRUE(set_.MaybePut(Range(p, kPagesPerHugePage)));
+  }
+
+  ASSERT_TRUE(set_.MaybePut(Range(p1, kHalfHp)));
 }
 
 TEST(HugeRegionNamedVmaTest, NamedVmaNormal) {

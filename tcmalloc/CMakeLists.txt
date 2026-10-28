@@ -1542,6 +1542,7 @@ tcmalloc_cc_test(
     "absl::synchronization"
     "absl::time"
     "tcmalloc::common_8k_pages"
+    "tcmalloc::internal_clock"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_memory_tag"
     "tcmalloc::internal_system_allocator"

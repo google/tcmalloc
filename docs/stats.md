@@ -835,6 +835,8 @@ HugeRegionSet: 1 MiB+ allocations best-fit into 1024 MiB slabs
 HugeRegionSet: 0 total regions
 HugeRegionSet: 0 hugepages backed, 0 backed and free, 0 low water mark free backed, out of 0 total
 HugeRegionSet: 0 pages free in backed region, 0.0000 free
+HugeRegionSet: recent usage range: 0 min - 0 curr - 0 max MiB
+HugeRegionSet: recent free backed range: 0 min - 0 curr - 0 max MiB
 ```
 
 The lines of output indicate:
@@ -847,6 +849,10 @@ The lines of output indicate:
     region cache.
 *   The number of free TCMalloc pages in the regions, and as a ratio of the
     number of backed pages.
+*   The minimum, current, and maximum backed in-use memory in MiB across the
+    regions over the recent 10-minute window.
+*   The minimum, current, and maximum free backed memory in MiB across the
+    regions over the recent 10-minute window.
 
 ### Huge Cache
 

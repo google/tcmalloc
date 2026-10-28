@@ -439,7 +439,7 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
       set_anon_vma_name_(*this),
       filler_(forwarder_.clock(), tag_, unback_without_lock_, collapse_,
               set_anon_vma_name_, forwarder_.subrelease_unbacked_hugepages()),
-      regions_(options.use_huge_region_more_often),
+      regions_(options.use_huge_region_more_often, forwarder_.clock()),
       tracker_allocator_(forwarder_.arena()),
       region_allocator_(forwarder_.arena()),
       vm_allocator_(*this),

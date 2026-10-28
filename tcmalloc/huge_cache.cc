@@ -20,6 +20,7 @@
 #include <tuple>
 
 #include "absl/base/optimization.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/huge_address_map.h"
 #include "tcmalloc/huge_pages.h"
@@ -57,17 +58,18 @@ HugeLength MinMaxTracker<kSlots>::MinOverTime(absl::Duration t) const {
 }
 
 template <size_t kSlots>
-void MinMaxTracker<kSlots>::Print(Printer& out) const {
+void MinMaxTracker<kSlots>::Print(Printer& out, absl::string_view prefix,
+                                  absl::string_view label) const {
   // Prints record_number:time_offset_ms:min_pages:max_pages for each records,
   // from the earliest to the latest.
   const int64_t millis = absl::ToInt64Milliseconds(kEpochLength);
-  out.printf("\nHugeCache: epoch length %lldms, number of records %zu", millis,
+  out.printf("\n%s: epoch length %lldms, number of records %zu", prefix, millis,
              kSlots);
   int written = 0;
   int64_t accumulated_delta_ms = 0;
   timeseries_.Iter([&](size_t offset, size_t epoch_delta, const Extrema& e) {
     if ((written++) % 100 == 0) {
-      out.printf("\nHugeCache: Usage timeseries ");
+      out.printf("\n%s: %s timeseries ", prefix, label);
     }
     accumulated_delta_ms +=
         absl::ToInt64Milliseconds(epoch_delta * kEpochLength);
@@ -77,17 +79,17 @@ void MinMaxTracker<kSlots>::Print(Printer& out) const {
 }
 
 template <size_t kSlots>
-void MinMaxTracker<kSlots>::PrintInPbtxt(PbtxtRegion& hpaa) const {
+void MinMaxTracker<kSlots>::PrintInPbtxt(PbtxtRegion& hpaa,
+                                         absl::string_view region_name) const {
   // Prints content of each non-empty epoch, from oldest to most recent data
-  auto huge_cache_history = hpaa.CreateSubRegion("huge_cache_history");
-  huge_cache_history.PrintI64("window_ms",
-                              absl::ToInt64Milliseconds(kEpochLength));
-  huge_cache_history.PrintI64("epochs", kSlots);
+  auto history = hpaa.CreateSubRegion(region_name);
+  history.PrintI64("window_ms", absl::ToInt64Milliseconds(kEpochLength));
+  history.PrintI64("epochs", kSlots);
   int64_t accumulated_delta_ms = 0;
   timeseries_.Iter([&](size_t offset, size_t epoch_delta, const Extrema& e) {
     accumulated_delta_ms +=
         absl::ToInt64Milliseconds(epoch_delta * kEpochLength);
-    auto m = huge_cache_history.CreateSubRegion("measurements");
+    auto m = history.CreateSubRegion("measurements");
     m.PrintI64("epoch", offset);
     m.PrintI64("time_offset_ms", accumulated_delta_ms);
     m.PrintI64("min_bytes", e.min.in_bytes());
@@ -411,7 +413,7 @@ void HugeCache::Print(Printer& out) {
       "HugeCache: recent cache range: %zu min - %zu curr - %zu max MiB\n",
       cache_min.in_mib(), size_.in_mib(), cache_max.in_mib());
 
-  detailed_tracker_.Print(out);
+  detailed_tracker_.Print(out, "HugeCache", "Usage");
 }
 
 void HugeCache::PrintInPbtxt(PbtxtRegion& hpaa) {
@@ -471,7 +473,7 @@ void HugeCache::PrintInPbtxt(PbtxtRegion& hpaa) {
     usage_stats.PrintI64("current_bytes", size_.in_bytes());
     usage_stats.PrintI64("max_bytes", cache_max.in_bytes());
   }
-  detailed_tracker_.PrintInPbtxt(hpaa);
+  detailed_tracker_.PrintInPbtxt(hpaa, "huge_cache_history");
 }
 
 }  // namespace tcmalloc_internal

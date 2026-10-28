@@ -25,9 +25,11 @@
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/strings/str_format.h"
+#include "absl/time/time.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_page_options.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
@@ -169,11 +171,15 @@ class HugeRegion : public TList<HugeRegion>::Elem {
 template <typename Region>
 class HugeRegionSet {
  public:
-  explicit HugeRegionSet(HugeRegionUsageOption use_huge_region_more_often)
+  explicit HugeRegionSet(HugeRegionUsageOption use_huge_region_more_often,
+                         Clock clock)
       : n_(0),
         use_huge_region_more_often_(use_huge_region_more_often),
+        backed_huge_pages_(NHugePages(0)),
         free_backed_count_(NHugePages(0)),
-        lowater_free_backed_(NHugePages(0)) {}
+        lowater_free_backed_(NHugePages(0)),
+        usage_tracker_(clock, kTimeseriesWindow),
+        free_backed_tracker_(clock, kTimeseriesWindow) {}
 
   // If available, return a range of n free pages, setting *from_released =
   // true iff the returned range is currently unbacked.
@@ -220,6 +226,22 @@ class HugeRegionSet {
 
  private:
   static constexpr double kFractionToReleaseFromRegion = 0.1;
+  static constexpr absl::Duration kTimeseriesWindow = absl::Minutes(10);
+  static constexpr size_t kTimeseriesEpochs = 600;
+
+  [[nodiscard]] static HugeLength RegionBacked(const Region& r) {
+    return Region::size() - HLFromPages(r.unmapped_pages());
+  }
+
+  [[nodiscard]] HugeLength in_use_huge_pages() const {
+    TC_ASSERT_GE(backed_huge_pages_, free_backed_count_);
+    return backed_huge_pages_ - free_backed_count_;
+  }
+
+  void ReportStats() {
+    usage_tracker_.Report(in_use_huge_pages());
+    free_backed_tracker_.Report(free_backed_count_);
+  }
 
   void Fix(Region* absl_nonnull r) {
     // We've changed r's fragmentation--move it through the list to the
@@ -277,8 +299,11 @@ class HugeRegionSet {
   HugeRegionUsageOption use_huge_region_more_often_;
   // Sorted by longest_free increasing.
   TList<Region> list_;
+  HugeLength backed_huge_pages_;
   HugeLength free_backed_count_;
   HugeLength lowater_free_backed_;
+  MinMaxTracker<kTimeseriesEpochs> usage_tracker_;
+  MinMaxTracker<kTimeseriesEpochs> free_backed_tracker_;
 };
 
 // REQUIRES: r.len() == size(); r unbacked.
@@ -599,15 +624,20 @@ template <typename Region>
 inline bool HugeRegionSet<Region>::MaybeGet(Length n, PageId* absl_nonnull page,
                                             bool* absl_nonnull from_released) {
   for (Region* region : list_) {
-    HugeLength before = region->free_backed();
+    const HugeLength free_backed_before = region->free_backed();
+    const HugeLength backed_before = RegionBacked(*region);
     if (region->MaybeGet(n, page, from_released)) {
-      HugeLength after = region->free_backed();
-      TC_ASSERT_LE(after, before);
-      HugeLength diff = before - after;
+      const HugeLength free_backed_after = region->free_backed();
+      const HugeLength backed_after = RegionBacked(*region);
+      TC_ASSERT_LE(free_backed_after, free_backed_before);
+      TC_ASSERT_GE(backed_after, backed_before);
+      const HugeLength diff = free_backed_before - free_backed_after;
       TC_ASSERT_GE(free_backed_count_, diff);
       free_backed_count_ -= diff;
+      backed_huge_pages_ += backed_after - backed_before;
       lowater_free_backed_ = std::min(lowater_free_backed_, free_backed_count_);
       Fix(region);
+      ReportStats();
       return true;
     }
   }
@@ -623,12 +653,19 @@ inline bool HugeRegionSet<Region>::MaybePut(Range r) {
   const bool release = !UseHugeRegionMoreOften();
   for (Region* region : list_) {
     if (region->contains(r.p)) {
-      HugeLength before = region->free_backed();
+      const HugeLength free_backed_before = region->free_backed();
+      const HugeLength backed_before = RegionBacked(*region);
       region->Put(r, release);
-      HugeLength after = region->free_backed();
-      TC_ASSERT_GE(after, before);
-      free_backed_count_ += (after - before);
+      const HugeLength free_backed_after = region->free_backed();
+      const HugeLength backed_after = RegionBacked(*region);
+      TC_ASSERT_GE(free_backed_after, free_backed_before);
+      TC_ASSERT_LE(backed_after, backed_before);
+      free_backed_count_ += (free_backed_after - free_backed_before);
+      const HugeLength unbacked = backed_before - backed_after;
+      TC_ASSERT_GE(backed_huge_pages_, unbacked);
+      backed_huge_pages_ -= unbacked;
       Fix(region);
+      ReportStats();
       return true;
     }
   }
@@ -640,8 +677,13 @@ inline bool HugeRegionSet<Region>::MaybePut(Range r) {
 template <typename Region>
 inline void HugeRegionSet<Region>::Contribute(Region* region) {
   n_++;
+  const HugeLength backed = RegionBacked(*region);
+  backed_huge_pages_ += backed;
   free_backed_count_ += region->free_backed();
   AddToList(region);
+  if (backed > NHugePages(0)) {
+    ReportStats();
+  }
 }
 
 template <typename Region>
@@ -681,8 +723,13 @@ inline Length HugeRegionSet<Region>::ReleasePages(
 
   HugeLength released_hl = HLFromPages(released);
   TC_ASSERT_LE(released_hl, free_backed_count_);
+  TC_ASSERT_LE(released_hl, backed_huge_pages_);
   free_backed_count_ -= released_hl;
+  backed_huge_pages_ -= released_hl;
   lowater_free_backed_ = free_backed_count_;
+  if (released_hl > NHugePages(0)) {
+    ReportStats();
+  }
 
   return released;
 }
@@ -702,6 +749,8 @@ inline void HugeRegionSet<Region>::Print(Printer& out) const {
     total_backed += region->backed();
     total_free_backed += region->free_backed();
   }
+  TC_ASSERT_EQ(total_backed, backed_huge_pages_);
+  TC_ASSERT_EQ(total_free_backed, free_backed_count_);
 
   out.printf(
       "HugeRegionSet: %v hugepages backed, %v backed and free, "
@@ -715,6 +764,25 @@ inline void HugeRegionSet<Region>::Print(Printer& out) const {
              in_pages > Length(0) ? static_cast<double>(total_free.raw_num()) /
                                         static_cast<double>(in_pages.raw_num())
                                   : 0.0);
+
+  const HugeLength usage = in_use_huge_pages();
+  const HugeLength usage_min = usage_tracker_.MinOverTime(kTimeseriesWindow);
+  const HugeLength usage_max = usage_tracker_.MaxOverTime(kTimeseriesWindow);
+  out.printf(
+      "HugeRegionSet: recent usage range: %zu min - %zu curr - %zu max MiB\n",
+      usage_min.in_mib(), usage.in_mib(), usage_max.in_mib());
+
+  const HugeLength free_min =
+      free_backed_tracker_.MinOverTime(kTimeseriesWindow);
+  const HugeLength free_max =
+      free_backed_tracker_.MaxOverTime(kTimeseriesWindow);
+  out.printf(
+      "HugeRegionSet: recent free backed range: %zu min - %zu curr - %zu max "
+      "MiB\n",
+      free_min.in_mib(), free_backed_count_.in_mib(), free_max.in_mib());
+
+  usage_tracker_.Print(out, "HugeRegionSet", "Usage");
+  free_backed_tracker_.Print(out, "HugeRegionSet", "Free backed");
 }
 
 template <typename Region>
@@ -727,6 +795,30 @@ inline void HugeRegionSet<Region>::PrintInPbtxt(PbtxtRegion& hpaa) const {
     auto detail = hpaa.CreateSubRegion("huge_region_details");
     region->PrintInPbtxt(detail);
   }
+
+  const HugeLength usage = in_use_huge_pages();
+  const HugeLength usage_min = usage_tracker_.MinOverTime(kTimeseriesWindow);
+  const HugeLength usage_max = usage_tracker_.MaxOverTime(kTimeseriesWindow);
+  {
+    auto usage_stats = hpaa.CreateSubRegion("huge_region_usage_stats");
+    usage_stats.PrintI64("min_bytes", usage_min.in_bytes());
+    usage_stats.PrintI64("current_bytes", usage.in_bytes());
+    usage_stats.PrintI64("max_bytes", usage_max.in_bytes());
+  }
+
+  const HugeLength free_min =
+      free_backed_tracker_.MinOverTime(kTimeseriesWindow);
+  const HugeLength free_max =
+      free_backed_tracker_.MaxOverTime(kTimeseriesWindow);
+  {
+    auto free_stats = hpaa.CreateSubRegion("huge_region_free_backed_stats");
+    free_stats.PrintI64("min_bytes", free_min.in_bytes());
+    free_stats.PrintI64("current_bytes", free_backed_count_.in_bytes());
+    free_stats.PrintI64("max_bytes", free_max.in_bytes());
+  }
+
+  usage_tracker_.PrintInPbtxt(hpaa, "huge_region_usage_history");
+  free_backed_tracker_.PrintInPbtxt(hpaa, "huge_region_free_backed_history");
 }
 
 template <typename Region>

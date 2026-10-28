@@ -24,6 +24,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -630,6 +631,51 @@ TEST_F(GetStatsTest, Latency) {
   }
   EXPECT_LT(stats_elapsed, absl::Seconds(1));
   EXPECT_LT(pbtxt_elapsed, absl::Seconds(1));
+}
+
+TEST_F(GetStatsTest, HugeRegionTimeseries) {
+  if (tcmalloc_internal::kSanitizerPresent) {
+    return;
+  }
+
+  const std::string initial = MallocExtension::GetStats();
+  if (!absl::StrContains(initial, "HugePageAwareAllocator")) {
+    return;
+  }
+
+  // Allocate enough >1-hugepage buffers (each ~2.1 MiB, donating ~1.9 MiB of
+  // slack) to cross HugePageAwareAllocator's 64 MiB donated-slack threshold so
+  // at least one HugeRegion is contributed and used.
+  constexpr size_t kAllocSize = 2100 * 1024;
+  constexpr int kNumAllocs = 40;
+  std::vector<void*> ptrs;
+  ptrs.reserve(kNumAllocs);
+  for (int i = 0; i < kNumAllocs; ++i) {
+    void* p = ::operator new(kAllocSize);
+    ASSERT_NE(p, nullptr);
+    ptrs.push_back(p);
+  }
+  for (int i = 0; i < kNumAllocs / 2; ++i) {
+    sized_delete(ptrs[i], kAllocSize);
+    ptrs[i] = nullptr;
+  }
+
+  const std::string text = MallocExtension::GetStats();
+  EXPECT_THAT(text, HasSubstr("HugeRegionSet: recent usage range:"));
+  EXPECT_THAT(text, HasSubstr("HugeRegionSet: recent free backed range:"));
+  EXPECT_THAT(text, HasSubstr("HugeRegionSet: Usage timeseries "));
+
+  const std::string pbtxt = GetStatsInPbTxt();
+  EXPECT_THAT(pbtxt, HasSubstr("huge_region_usage_stats {"));
+  EXPECT_THAT(pbtxt, HasSubstr("huge_region_free_backed_stats {"));
+  EXPECT_THAT(pbtxt, HasSubstr("huge_region_usage_history {"));
+  EXPECT_THAT(pbtxt, HasSubstr("huge_region_free_backed_history {"));
+
+  for (void* p : ptrs) {
+    if (p != nullptr) {
+      sized_delete(p, kAllocSize);
+    }
+  }
 }
 
 }  // namespace

@@ -69,8 +69,9 @@ class MinMaxTracker {
       : kEpochLength(w / kSlots), timeseries_(clock, kEpochLength) {}
 
   void Report(HugeLength val);
-  void Print(Printer& out) const;
-  void PrintInPbtxt(PbtxtRegion& hpaa) const;
+  void Print(Printer& out, absl::string_view prefix,
+             absl::string_view label) const;
+  void PrintInPbtxt(PbtxtRegion& hpaa, absl::string_view region_name) const;
 
   // If t < kEpochLength, these functions return statistics for last epoch. The
   // granularity is kEpochLength (rounded up).

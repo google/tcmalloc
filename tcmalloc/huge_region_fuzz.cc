@@ -588,7 +588,9 @@ struct State {
       : start(HugePageContaining(MakeTaggedAddress(MemoryTag::kNormal))),
         set(use_huge_region_more_often
                 ? HugeRegionUsageOption::kUseForAllLargeAllocs
-                : HugeRegionUsageOption::kDefault) {
+                : HugeRegionUsageOption::kDefault,
+            Clock{.now = absl::base_internal::CycleClock::Now,
+                  .freq = absl::base_internal::CycleClock::Frequency}) {
     output.resize(1 << 20);
     unback.release_callback_ = [](Range) {};
   }
