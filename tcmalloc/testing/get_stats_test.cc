@@ -189,6 +189,7 @@ TEST_F(GetStatsTest, Pbtxt) {
                        "tcmalloc_release_drained_slab_metadata: ",
                        Parameters::release_drained_slab_metadata() ? "true"
                                                                    : "false")));
+  EXPECT_THAT(buf, HasSubstr("tcmalloc_reobserve_hugepage_backed: false"));
 
   EXPECT_THAT(buf, HasSubstr(absl::StrCat(
                        "tcmalloc_cfl_subbucket_prioritization: ",
@@ -257,6 +258,10 @@ TEST_F(GetStatsTest, Parameters) {
       Parameters::prefer_backed_filler_pages() ==
       tcmalloc_internal::PreferBackedPages::kEnabled;
   Parameters::set_prefer_backed_filler_pages(false);
+  const bool old_reobserve_hugepage_backed =
+      Parameters::reobserve_hugepage_backed() ==
+      tcmalloc_internal::ReobserveHugepageBacked::kEnabled;
+  Parameters::set_reobserve_hugepage_backed(false);
   const hot_cold_t old_min_hot_access_hint = Parameters::min_hot_access_hint();
   ScopedMadviseSampledAllocations s(MadviseSampledAllocations::kDisabled);
   ASSERT_NE(&TCMalloc_Internal_GetBackSmallAllocations, nullptr);
@@ -390,6 +395,8 @@ TEST_F(GetStatsTest, Parameters) {
                                  tcmalloc_internal::ReleaseStalePages::kEnabled
                              ? 1
                              : 0)));
+    EXPECT_THAT(buf,
+                HasSubstr(R"(PARAMETER tcmalloc_reobserve_hugepage_backed 0)"));
 
     EXPECT_THAT(buf, HasSubstr(absl::StrCat(
                          "PARAMETER tcmalloc_release_drained_slab_metadata ",
@@ -426,6 +433,7 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_preserve_donated_on_collapse(true);
   Parameters::set_collapse_released_hugepages(true);
   Parameters::set_prefer_backed_filler_pages(true);
+  Parameters::set_reobserve_hugepage_backed(true);
   Parameters::set_min_hot_access_hint(hot_cold_t{3});
   Parameters::set_madvise_sampled_allocations(
       MadviseSampledAllocations::kEnabled);
@@ -474,6 +482,8 @@ TEST_F(GetStatsTest, Parameters) {
         buf, HasSubstr(R"(PARAMETER tcmalloc_collapse_released_hugepages 1)"));
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_prefer_backed_filler_pages 1)"));
+    EXPECT_THAT(buf,
+                HasSubstr(R"(PARAMETER tcmalloc_reobserve_hugepage_backed 1)"));
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_madvise_sampled_allocations 1)"));
     EXPECT_THAT(buf,
@@ -511,6 +521,8 @@ TEST_F(GetStatsTest, Parameters) {
                 HasSubstr(R"(tcmalloc_collapse_released_hugepages: true)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_prefer_backed_filler_pages: true)"));
+    EXPECT_THAT(pbtxt,
+                HasSubstr(R"(tcmalloc_reobserve_hugepage_backed: true)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 3)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_madvise_sampled_allocations: true)"));
@@ -531,6 +543,7 @@ TEST_F(GetStatsTest, Parameters) {
       old_preserve_donated_on_collapse);
   Parameters::set_collapse_released_hugepages(old_collapse_released_hugepages);
   Parameters::set_prefer_backed_filler_pages(old_prefer_backed_filler_pages);
+  Parameters::set_reobserve_hugepage_backed(old_reobserve_hugepage_backed);
   Parameters::set_min_hot_access_hint(old_min_hot_access_hint);
   TCMalloc_Internal_SetBackSmallAllocations(old_back_small_allocations);
 }
