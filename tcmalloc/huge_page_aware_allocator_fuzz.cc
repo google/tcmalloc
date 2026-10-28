@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -617,6 +618,32 @@ struct SetUsageLimitPressure {
   }
 };
 
+struct SetMinFreeBytesToBreakDenseHugepage {
+  size_t value;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink,
+                            const SetMinFreeBytesToBreakDenseHugepage& s) {
+    absl::Format(&sink, "SetMinFreeBytesToBreakDenseHugepage{.value=%v}",
+                 s.value);
+  }
+};
+
+struct SetMinFreeBytesToBreakSparseHugepage {
+  size_t value;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink,
+                            const SetMinFreeBytesToBreakSparseHugepage& s) {
+    absl::Format(&sink, "SetMinFreeBytesToBreakSparseHugepage{.value=%v}",
+                 s.value);
+  }
+};
+
 struct Instruction;
 
 template <typename Sink>
@@ -639,7 +666,8 @@ using ParamOp = std::variant<
     SetBackSizeThresholdBytes, ReentrantSubprogram, SetEnableUnfilteredCollapse,
     SetReleaseMaxFillerPages, SetPreferBackedFillerPages,
     SetEnableReleaseStalePages, SetCollapseReleasedHugepages,
-    SetMadvNoHugepageHugeRegions, UpdateBitmaps, SetUsageLimitPressure>;
+    SetMadvNoHugepageHugeRegions, UpdateBitmaps, SetUsageLimitPressure,
+    SetMinFreeBytesToBreakDenseHugepage, SetMinFreeBytesToBreakSparseHugepage>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -1331,6 +1359,15 @@ void SetUsageLimitPressure::Perform(State& state) const {
   state.usage_limit_pressure = Length(pages);
 }
 
+void SetMinFreeBytesToBreakDenseHugepage::Perform(State& state) const {
+  state.allocator.forwarder().min_free_bytes_to_break_dense_hugepage.set(value);
+}
+
+void SetMinFreeBytesToBreakSparseHugepage::Perform(State& state) const {
+  state.allocator.forwarder().min_free_bytes_to_break_sparse_hugepage.set(
+      value);
+}
+
 void UpdateBitmaps::Perform(State& state) const {
   if (hugepage_backed_set) {
     state.is_hugepage_backed = hugepage_backed_val;
@@ -1503,7 +1540,21 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
           fuzztest::OneOf(
               fuzztest::Just(uint16_t{0}),
               fuzztest::InRange<uint16_t>(
-                  1, static_cast<uint16_t>(kPagesPerHugePage.raw_num())))));
+                  1, static_cast<uint16_t>(kPagesPerHugePage.raw_num())))),
+      fuzztest::Map(
+          [](size_t value) {
+            return ChangeParam{
+                SetMinFreeBytesToBreakDenseHugepage{.value = value}};
+          },
+          fuzztest::OneOf(fuzztest::Just<size_t>(0),
+                          fuzztest::InRange<size_t>(1, 2 * kHugePageSize))),
+      fuzztest::Map(
+          [](size_t value) {
+            return ChangeParam{
+                SetMinFreeBytesToBreakSparseHugepage{.value = value}};
+          },
+          fuzztest::OneOf(fuzztest::Just<size_t>(0),
+                          fuzztest::InRange<size_t>(1, 2 * kHugePageSize))));
 
   if (depth <= 0) {
     return fuzztest::OneOf(
@@ -2132,6 +2183,10 @@ TEST(HugePageAwareAllocatorTest, PrinterTest) {
             "SetPreserveDonatedOnCollapse{.value=true}");
   EXPECT_EQ(absl::StrCat(SetUsageLimitPressure{.pages = 3}),
             "SetUsageLimitPressure{.pages=3}");
+  EXPECT_EQ(absl::StrCat(SetMinFreeBytesToBreakDenseHugepage{.value = 65536}),
+            "SetMinFreeBytesToBreakDenseHugepage{.value=65536}");
+  EXPECT_EQ(absl::StrCat(SetMinFreeBytesToBreakSparseHugepage{.value = 131072}),
+            "SetMinFreeBytesToBreakSparseHugepage{.value=131072}");
 }
 
 // Regression tests for the three lock-drop interleavings while collapsing a

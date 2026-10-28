@@ -242,6 +242,10 @@ TEST(StaticForwarderTest, Parameters) {
             Parameters::huge_region_adaptive_release());
   EXPECT_EQ(ProdForwarder::madvise_cold_regions_nohugepage(),
             Parameters::madvise_cold_regions_nohugepage());
+  EXPECT_EQ(ProdForwarder::min_free_bytes_to_break_dense_hugepage(),
+            Parameters::min_free_bytes_to_break_dense_hugepage());
+  EXPECT_EQ(ProdForwarder::min_free_bytes_to_break_sparse_hugepage(),
+            Parameters::min_free_bytes_to_break_sparse_hugepage());
   EXPECT_EQ(ProdForwarder::per_cpu_caches_dynamic_slab_enabled(),
             Parameters::per_cpu_caches_dynamic_slab_enabled());
   EXPECT_EQ(ProdForwarder::per_cpu_caches_dynamic_slab_grow_threshold(),
@@ -264,6 +268,19 @@ TEST(StaticForwarderTest, Parameters) {
             Parameters::track_broken_hugepages());
   EXPECT_EQ(ProdForwarder::fix_max_capacity_bug(),
             Parameters::fix_max_capacity_bug());
+
+  EXPECT_EQ(TCMalloc_Internal_GetMinFreeBytesToBreakDenseHugepage(), 0);
+  EXPECT_EQ(TCMalloc_Internal_GetMinFreeBytesToBreakSparseHugepage(), 0);
+  Parameters::set_min_free_bytes_to_break_dense_hugepage(131072);
+  Parameters::set_min_free_bytes_to_break_sparse_hugepage(65536);
+  EXPECT_EQ(ProdForwarder::min_free_bytes_to_break_dense_hugepage(), 131072);
+  EXPECT_EQ(ProdForwarder::min_free_bytes_to_break_sparse_hugepage(), 65536);
+  EXPECT_EQ(TCMalloc_Internal_GetMinFreeBytesToBreakDenseHugepage(), 131072);
+  EXPECT_EQ(TCMalloc_Internal_GetMinFreeBytesToBreakSparseHugepage(), 65536);
+  TCMalloc_Internal_SetMinFreeBytesToBreakDenseHugepage(0);
+  TCMalloc_Internal_SetMinFreeBytesToBreakSparseHugepage(0);
+  EXPECT_EQ(ProdForwarder::min_free_bytes_to_break_dense_hugepage(), 0);
+  EXPECT_EQ(ProdForwarder::min_free_bytes_to_break_sparse_hugepage(), 0);
 }
 
 class StaticForwarderSpanTest : public testing::TestWithParam<size_t> {

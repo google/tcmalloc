@@ -207,22 +207,27 @@ struct Release {
   absl::Duration long_interval;
   uint16_t desired_pages;
   bool release_partial_allocs;
+  uint16_t min_free_pages_to_break_dense = 1;
+  uint16_t min_free_pages_to_break_sparse = 1;
 
   void Perform(State& state) const;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Release& r) {
-    absl::Format(&sink,
-                 "Release{.hit_limit=%v, .use_peak_interval=%v, "
-                 ".peak_interval=absl::Nanoseconds(%v), "
-                 ".short_interval=absl::Nanoseconds(%v), "
-                 ".long_interval=absl::Nanoseconds(%v), .desired_pages=%d, "
-                 ".release_partial_allocs=%v}",
-                 r.hit_limit, r.use_peak_interval,
-                 absl::ToInt64Nanoseconds(r.peak_interval),
-                 absl::ToInt64Nanoseconds(r.short_interval),
-                 absl::ToInt64Nanoseconds(r.long_interval), r.desired_pages,
-                 r.release_partial_allocs);
+    absl::Format(
+        &sink,
+        "Release{.hit_limit=%v, .use_peak_interval=%v, "
+        ".peak_interval=absl::Nanoseconds(%v), "
+        ".short_interval=absl::Nanoseconds(%v), "
+        ".long_interval=absl::Nanoseconds(%v), .desired_pages=%d, "
+        ".release_partial_allocs=%v, .min_free_pages_to_break_dense=%d, "
+        ".min_free_pages_to_break_sparse=%d}",
+        r.hit_limit, r.use_peak_interval,
+        absl::ToInt64Nanoseconds(r.peak_interval),
+        absl::ToInt64Nanoseconds(r.short_interval),
+        absl::ToInt64Nanoseconds(r.long_interval), r.desired_pages,
+        r.release_partial_allocs, r.min_free_pages_to_break_dense,
+        r.min_free_pages_to_break_sparse);
   }
 };
 
@@ -406,7 +411,7 @@ void AbslStringify(Sink& sink, const ReentrantSubprogram& r) {
   absl::Format(&sink, "ReentrantSubprogram{.subprogram={%s}}",
                absl::StrJoin(r.subprogram, ", ",
                              [](std::string* out, const Instruction& i) {
-                               absl::StrAppend(out, absl::StrCat(i));
+                               absl::StrAppend(out, i);
                              }));
 }
 
@@ -925,7 +930,14 @@ void Release::Perform(State& state) const {
         desired, skip_subrelease_intervals,
         release_partial_allocs ? ReleasePartialAllocPages::kEnabled
                                : ReleasePartialAllocPages::kDisabled,
-        hit_limit);
+        hit_limit,
+        MinFreePagesToBreak{
+            .dense = Length(std::clamp<size_t>(min_free_pages_to_break_dense, 1,
+                                               kPagesPerHugePage.raw_num())),
+            .sparse =
+                Length(std::clamp<size_t>(min_free_pages_to_break_sparse, 1,
+                                          kPagesPerHugePage.raw_num())),
+        });
     state.DrainFullyFreedTrackers();
   }
   if (state.depth == 0 && runs_before == state.reentrant_runs) {
@@ -1008,9 +1020,11 @@ void MemoryLimitHitRelease::Perform(State& state) const {
   const size_t runs_before = state.reentrant_runs;
   {
     PageHeapSpinLockHolder l;
-    released = state.filler.ReleasePages(desired_len, SkipSubreleaseIntervals{},
-                                         ReleasePartialAllocPages::kDisabled,
-                                         /*hit_limit=*/true);
+    released = state.filler.ReleasePages(
+        desired_len, SkipSubreleaseIntervals{},
+        ReleasePartialAllocPages::kDisabled,
+        /*hit_limit=*/true,
+        MinFreePagesToBreak{.dense = Length(1), .sparse = Length(1)});
     state.DrainFullyFreedTrackers();
   }
   // As in Release::Perform, the bounds hold only when no subprogram ran while
@@ -1176,13 +1190,16 @@ fuzztest::Domain<Instruction> GetInstructionDomain(int depth) {
                     fuzztest::Arbitrary<Deallocate>()),
       fuzztest::Map(
           [](bool hl, bool upi, absl::Duration pi, absl::Duration si,
-             absl::Duration li, uint16_t dp, bool rpa) {
-            return Instruction{Release{hl, upi, pi, si, li, dp, rpa}};
+             absl::Duration li, uint16_t dp, bool rpa, uint16_t mfp_dense,
+             uint16_t mfp_sparse) {
+            return Instruction{
+                Release{hl, upi, pi, si, li, dp, rpa, mfp_dense, mfp_sparse}};
           },
           fuzztest::Arbitrary<bool>(), fuzztest::Arbitrary<bool>(),
           NonNegativeDurationDomain(), NonNegativeDurationDomain(),
           NonNegativeDurationDomain(), fuzztest::Arbitrary<uint16_t>(),
-          fuzztest::Arbitrary<bool>()),
+          fuzztest::Arbitrary<bool>(), fuzztest::Arbitrary<uint16_t>(),
+          fuzztest::Arbitrary<uint16_t>()),
       fuzztest::Map(
           [](absl::Duration d) { return Instruction{AdvanceClock{d}}; },
           AnyDurationDomain()),
@@ -1668,7 +1685,8 @@ TEST(HugePageFillerTest, InstructionStringify) {
               ".peak_interval=absl::Nanoseconds(1000000000), "
               ".short_interval=absl::Nanoseconds(2000000000), "
               ".long_interval=absl::Nanoseconds(3000000000), .desired_pages=4, "
-              ".release_partial_allocs=true}");
+              ".release_partial_allocs=true, .min_free_pages_to_break_dense=1, "
+              ".min_free_pages_to_break_sparse=1}");
   }
   {
     Instruction inst = GatherStats{.summary_only = true};

@@ -99,6 +99,10 @@ class FakeHugePageStaticForwarder : private Parameters {
       Parameters::background_release_rate()};
   FakeParameter<bool> release_max_filler_pages{
       Parameters::release_max_filler_pages()};
+  FakeParameter<size_t> min_free_bytes_to_break_dense_hugepage{
+      Parameters::min_free_bytes_to_break_dense_hugepage()};
+  FakeParameter<size_t> min_free_bytes_to_break_sparse_hugepage{
+      Parameters::min_free_bytes_to_break_sparse_hugepage()};
   FakeParameter<PreferBackedPages> prefer_backed_filler_pages{
       Parameters::prefer_backed_filler_pages()};
   FakeParameter<ReleaseStalePages> release_stale_pages{

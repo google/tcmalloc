@@ -303,7 +303,8 @@ TEST_F(HugePageTreatmentRealMemoryTest,
               nullptr);
     const Length released = filler_.ReleasePages(
         released_len, SkipSubreleaseIntervals{},
-        ReleasePartialAllocPages::kEnabled, /*hit_limit=*/false);
+        ReleasePartialAllocPages::kEnabled, /*hit_limit=*/false,
+        MinFreePagesToBreak{.dense = Length(1), .sparse = Length(1)});
     ASSERT_EQ(released, released_len);
   }
 

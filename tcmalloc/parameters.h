@@ -155,6 +155,24 @@ class Parameters {
     return release_max_filler_pages_.load(std::memory_order_relaxed);
   }
 
+  [[nodiscard]] static size_t min_free_bytes_to_break_dense_hugepage() {
+    return min_free_bytes_to_break_dense_hugepage_.load(
+        std::memory_order_relaxed);
+  }
+
+  static void set_min_free_bytes_to_break_dense_hugepage(size_t value) {
+    TCMalloc_Internal_SetMinFreeBytesToBreakDenseHugepage(value);
+  }
+
+  [[nodiscard]] static size_t min_free_bytes_to_break_sparse_hugepage() {
+    return min_free_bytes_to_break_sparse_hugepage_.load(
+        std::memory_order_relaxed);
+  }
+
+  static void set_min_free_bytes_to_break_sparse_hugepage(size_t value) {
+    TCMalloc_Internal_SetMinFreeBytesToBreakSparseHugepage(value);
+  }
+
   [[nodiscard]] static CollapseReleasedHugePages collapse_released_hugepages() {
     return collapse_released_hugepages_.load(std::memory_order_relaxed);
   }
@@ -328,6 +346,9 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetEnableUnfilteredCollapse(bool v);
   friend void ::TCMalloc_Internal_SetHugeRegionAdaptiveReleaseEnabled(bool v);
   friend void ::TCMalloc_Internal_SetReleaseMaxFillerPages(bool v);
+  friend void ::TCMalloc_Internal_SetMinFreeBytesToBreakDenseHugepage(size_t v);
+  friend void ::TCMalloc_Internal_SetMinFreeBytesToBreakSparseHugepage(
+      size_t v);
   friend void ::TCMalloc_Internal_SetTrackBrokenHugepages(bool v);
   friend void ::TCMalloc_Internal_SetPreserveDonatedOnCollapse(bool v);
   friend void ::TCMalloc_Internal_SetCollapseReleasedHugepages(bool v);
@@ -370,6 +391,8 @@ class Parameters {
   static std::atomic<int64_t> skip_subrelease_cold_short_interval_ns_;
   static std::atomic<int64_t> skip_subrelease_cold_long_interval_ns_;
   static std::atomic<bool> release_max_filler_pages_;
+  static std::atomic<size_t> min_free_bytes_to_break_dense_hugepage_;
+  static std::atomic<size_t> min_free_bytes_to_break_sparse_hugepage_;
   static std::atomic<bool> release_drained_slab_metadata_;
   static std::atomic<TrackBrokenHugepages> track_broken_hugepages_;
   static std::atomic<PreserveDonatedOnCollapse> preserve_donated_on_collapse_;

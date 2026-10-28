@@ -346,6 +346,10 @@ ABSL_CONST_INIT std::atomic<int64_t>
 #endif
     );
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_max_filler_pages_(false);
+ABSL_CONST_INIT std::atomic<size_t>
+    Parameters::min_free_bytes_to_break_dense_hugepage_(0);
+ABSL_CONST_INIT std::atomic<size_t>
+    Parameters::min_free_bytes_to_break_sparse_hugepage_(0);
 ABSL_CONST_INIT std::atomic<TrackBrokenHugepages>
     Parameters::track_broken_hugepages_(TrackBrokenHugepages::kDisabled);
 ABSL_CONST_INIT std::atomic<PreserveDonatedOnCollapse>
@@ -817,6 +821,28 @@ bool TCMalloc_Internal_GetReleaseMaxFillerPages() {
 void TCMalloc_Internal_SetReleaseMaxFillerPages(bool v) {
   tc_globals.InitIfNecessary();
   Parameters::release_max_filler_pages_.store(v, std::memory_order_relaxed);
+}
+
+size_t TCMalloc_Internal_GetMinFreeBytesToBreakDenseHugepage() {
+  tc_globals.InitIfNecessary();
+  return Parameters::min_free_bytes_to_break_dense_hugepage();
+}
+
+void TCMalloc_Internal_SetMinFreeBytesToBreakDenseHugepage(size_t v) {
+  tc_globals.InitIfNecessary();
+  Parameters::min_free_bytes_to_break_dense_hugepage_.store(
+      v, std::memory_order_relaxed);
+}
+
+size_t TCMalloc_Internal_GetMinFreeBytesToBreakSparseHugepage() {
+  tc_globals.InitIfNecessary();
+  return Parameters::min_free_bytes_to_break_sparse_hugepage();
+}
+
+void TCMalloc_Internal_SetMinFreeBytesToBreakSparseHugepage(size_t v) {
+  tc_globals.InitIfNecessary();
+  Parameters::min_free_bytes_to_break_sparse_hugepage_.store(
+      v, std::memory_order_relaxed);
 }
 
 bool TCMalloc_Internal_GetTrackBrokenHugepages() {
