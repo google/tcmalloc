@@ -23,8 +23,10 @@
 #include "absl/base/const_init.h"
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/spinlock.h"
+#include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/function_ref.h"
 #include "absl/types/span.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
@@ -84,6 +86,14 @@ class MetadataObjectAllocator {
     }
     AllocationGuardSpinLockHolder l(metadata_lock_);
     for (T* p : ptrs) {
+      DeleteMemory(p);
+    }
+  }
+
+  void Delete(absl::FunctionRef<T* absl_nullable()> callback) {
+    AllocationGuardSpinLockHolder l(metadata_lock_);
+    while (T* p = callback()) {
+      p->~T();
       DeleteMemory(p);
     }
   }
