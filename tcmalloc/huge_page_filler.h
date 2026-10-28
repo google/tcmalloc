@@ -927,7 +927,7 @@ class HugePageFiller {
   MemoryTagFunction& set_anon_vma_name_;
   int max_backoff_delay_ ABSL_GUARDED_BY(pageheap_lock) = 1;
   int current_backoff_delay_ ABSL_GUARDED_BY(pageheap_lock) = 0;
-  uint64_t rng_ = 42;
+  ExponentialBiased::State rng_{42};
   SubreleaseUnbackedMode subrelease_unbacked_mode_;
 };
 

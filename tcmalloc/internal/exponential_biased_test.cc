@@ -15,6 +15,7 @@
 #include "tcmalloc/internal/exponential_biased.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -25,30 +26,29 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
-// Testing that NextRandom generates uniform
-// random numbers.
-// Applies the Anderson-Darling test for uniformity
-void TestNextRandom(int n) {
-  uint64_t x = 1;
-  // This assumes that the prng returns 48 bit numbers
-  uint64_t max_prng_value = static_cast<uint64_t>(1) << 48;
+// Testing that NextRandom + GetRandom generates uniform random numbers.
+// Applies the Anderson-Darling test for uniformity.
+void TestNextRandom(size_t n) {
+  ExponentialBiased::State x{1};
+  constexpr double kMaxRandomValue =
+      static_cast<double>(uint64_t{1} << ExponentialBiased::kRandomBits);
   // Initialize
   for (int i = 1; i <= 20; i++) {  // 20 mimics sampler.Init()
     x = ExponentialBiased::NextRandom(x);
   }
-  std::vector<uint64_t> int_random_sample(n);
+  std::vector<uint32_t> int_random_sample(n);
   // Collect samples
-  for (int i = 0; i < n; i++) {
-    int_random_sample[i] = x;
+  for (size_t i = 0; i < n; i++) {
+    int_random_sample[i] = ExponentialBiased::GetRandom(x);
     x = ExponentialBiased::NextRandom(x);
   }
   // First sort them...
   std::sort(int_random_sample.begin(), int_random_sample.end());
   std::vector<double> random_sample(n);
   // Convert them to uniform randoms (in the range [0,1])
-  for (int i = 0; i < n; i++) {
+  for (size_t i = 0; i < n; i++) {
     random_sample[i] =
-        static_cast<double>(int_random_sample[i]) / max_prng_value;
+        static_cast<double>(int_random_sample[i]) / kMaxRandomValue;
   }
   // Now compute the Anderson-Darling statistic
   double ad_pvalue = AndersonDarlingTest(random_sample);
@@ -63,47 +63,58 @@ TEST(ExponentialBiased, TestNextRandom_MultipleValues) {
   TestNextRandom(10000);  // Make sure there's no systematic error
 }
 
-// Test that NextRand is in the right range.  Unfortunately, this is a
-// stochastic test which could miss problems.
+// Test that high bits above kStateBits in a seed do not affect outputs.
 TEST(ExponentialBiased, NextRand_range) {
-  uint64_t one = 1;
-  // The next number should be (one << 48) - 1
-  uint64_t max_value = (one << 48) - 1;
-  uint64_t x = (one << 55);
-  int n = 22;                            // 27;
-  for (int i = 1; i <= (1 << n); i++) {  // 20 mimics sampler.Init()
+  constexpr uint64_t kOne = 1;
+  ExponentialBiased::State x{kOne << 55};
+  ExponentialBiased::State y{0};
+  for (int i = 1; i <= (1 << 22); i++) {
     x = ExponentialBiased::NextRandom(x);
-    ASSERT_LE(x, max_value);
+    y = ExponentialBiased::NextRandom(y);
+    ASSERT_EQ(ExponentialBiased::GetRandom(x), ExponentialBiased::GetRandom(y));
   }
 }
 
 // Tests certain arithmetic operations to make sure they compute what we
-// expect them too (for testing across different platforms)
+// expect them to (for testing across different platforms).
 TEST(ExponentialBiased, arithmetic_1) {
-  uint64_t rnd;  // our 48 bit random number, which we don't trust
-  const uint64_t prng_mod_power = 48;
-  uint64_t one = 1;
-  rnd = one;
-  uint64_t max_value = (one << 48) - 1;
-  for (int i = 1; i <= (1 << 27); i++) {  // 20 mimics sampler.Init()
+  ExponentialBiased::State rnd{1};
+  uint64_t raw = 1;
+  constexpr uint64_t kModMask =
+      (uint64_t{1} << ExponentialBiased::kStateBits) - 1;
+  for (int i = 1; i <= (1 << 27); i++) {
     rnd = ExponentialBiased::NextRandom(rnd);
-    ASSERT_LE(rnd, max_value);
-    double q = (rnd >> (prng_mod_power - 26)) + 1.0;
-    ASSERT_GE(q, 0) << rnd << "  " << prng_mod_power;
+    raw = (UINT64_C(0x5DEECE66D) * raw + 0xB) & kModMask;
+    const uint32_t r = ExponentialBiased::GetRandom(rnd);
+    ASSERT_EQ(r, static_cast<uint32_t>(raw >> 16));
+    double q = (r >> (ExponentialBiased::kRandomBits - 26)) + 1.0;
+    ASSERT_GE(q, 0) << r;
   }
-  // Test some potentially out of bounds value for rnd
+  // Test some potentially out of bounds seed values for rnd.
   for (int i = 1; i < 64; i++) {
-    rnd = one << i;
-    double q = (rnd >> (prng_mod_power - 26)) + 1.0;
-    ASSERT_GE(q, 0) << " rnd=" << rnd << "  i=" << i << " prng_mod_power"
-                    << prng_mod_power;
+    ExponentialBiased::State seed{uint64_t{1} << i};
+    const uint32_t r = ExponentialBiased::GetRandom(seed);
+    double q = (r >> (ExponentialBiased::kRandomBits - 26)) + 1.0;
+    ASSERT_GE(q, 0) << " r=" << r << " i=" << i;
   }
+}
+
+TEST(ExponentialBiased, RandomWrapperMatchesDirectState) {
+  Random rng(42);
+  ExponentialBiased::State state{42};
+  for (int i = 0; i < 100; ++i) {
+    state = ExponentialBiased::NextRandom(state);
+    EXPECT_EQ(rng.Next(), ExponentialBiased::GetRandom(state));
+  }
+  rng.Reset(42);
+  state = ExponentialBiased::NextRandom(ExponentialBiased::State{42});
+  EXPECT_EQ(rng.Next(), ExponentialBiased::GetRandom(state));
 }
 
 TEST(ExponentialBiased, CoinFlip) {
   // Ensure that the low bits contain good randomness and can be as a coin flip.
   for (uint64_t seed = 0; seed < 100; seed++) {
-    uint64_t rnd = seed;
+    ExponentialBiased::State rnd{seed};
     int even = 0;
     constexpr int kIters = 100;
     for (int i = 0; i < 2 * kIters; i++) {
@@ -113,7 +124,7 @@ TEST(ExponentialBiased, CoinFlip) {
       // This fails without GetRandom, which caused issues for guarded page
       // allocator sampling (left-right-alignment decision).
       if (i % 2) {
-        even += ExponentialBiased::GetRandom(rnd) % 2;
+        even += static_cast<int>(ExponentialBiased::GetRandom(rnd) % 2);
       }
     }
     EXPECT_GT(even, kIters / 10) << seed;

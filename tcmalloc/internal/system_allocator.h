@@ -212,7 +212,7 @@ class SystemAllocator {
   mutable absl::base_internal::SpinLock spinlock_{
       absl::base_internal::SCHEDULE_KERNEL_ONLY};
 
-  uintptr_t rnd_ ABSL_GUARDED_BY(spinlock_) = 0;
+  ExponentialBiased::State rnd_ ABSL_GUARDED_BY(spinlock_){0};
   absl::once_flag rnd_flag_;
 
   std::array<uintptr_t, kSecurityPartitions> next_sampled_or_cold_addr_
@@ -870,9 +870,10 @@ uintptr_t SystemAllocator<Topology, NormalPartitions>::RandomMmapHint(
           TC_BUG("Initial mmap() reservation failed (errno=%v, size=%v)", errno,
                  page_size);
         }
+        const uintptr_t seed_value = reinterpret_cast<uintptr_t>(seed);
         munmap(seed, page_size);
         spinlock_.AssertHeld();
-        rnd_ = reinterpret_cast<uintptr_t>(seed);
+        rnd_ = ExponentialBiased::State{seed_value};
       });
 
 #if !defined(ABSL_HAVE_MEMORY_SANITIZER) && !defined(ABSL_HAVE_THREAD_SANITIZER)
@@ -896,12 +897,21 @@ uintptr_t SystemAllocator<Topology, NormalPartitions>::RandomMmapHint(
   // tag.
   alignment = absl::bit_ceil(std::max(alignment, size));
 
-  uintptr_t addr;
-  do {
-    rnd_ = ExponentialBiased::NextRandom(rnd_);
-    addr = rnd_ & kAddrMask & ~(alignment - 1) & ~kTagMask;
-    addr |= static_cast<uintptr_t>(tag) << kTagShift;
-  } while (addr == 0);
+  auto next_addr = [&](uintptr_t mask) ABSL_EXCLUSIVE_LOCKS_REQUIRED(
+                       spinlock_) GOOGLE_MALLOC_SECTION {
+    uintptr_t a;
+    do {
+      rnd_ = ExponentialBiased::NextRandom(rnd_);
+      const uintptr_t rnd_addr =
+          static_cast<uintptr_t>(ExponentialBiased::GetRandom(rnd_))
+          << (ExponentialBiased::kStateBits - ExponentialBiased::kRandomBits);
+      a = rnd_addr & mask & ~(alignment - 1) & ~kTagMask;
+      a |= static_cast<uintptr_t>(tag) << kTagShift;
+    } while (a == 0);
+    return a;
+  };
+
+  uintptr_t addr = next_addr(kAddrMask);
 
 #if defined(ABSL_HAVE_THREAD_SANITIZER)
 #if defined(__x86_64__)
@@ -934,11 +944,7 @@ uintptr_t SystemAllocator<Topology, NormalPartitions>::RandomMmapHint(
   };
 
   for (int i = 0; i < 10 && !reserved_for_app(addr); ++i) {
-    do {
-      rnd_ = ExponentialBiased::NextRandom(rnd_);
-      addr = rnd_ & kHiAppMask & ~(alignment - 1) & ~kTagMask;
-      addr |= static_cast<uintptr_t>(tag) << kTagShift;
-    } while (addr == 0);
+    addr = next_addr(kHiAppMask);
   }
 #endif
 

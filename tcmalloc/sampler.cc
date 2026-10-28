@@ -55,7 +55,7 @@ ABSL_ATTRIBUTE_NOINLINE void Sampler::Init(uint64_t seed) {
   tc_globals.InitIfNecessary();
 
   // Initialize PRNG
-  rnd_ = seed;
+  rnd_ = ExponentialBiased::State{seed};
   // Step it forward 20 times for good measure
   for (int i = 0; i < 20; i++) {
     rnd_ = ExponentialBiased::NextRandom(rnd_);
@@ -100,10 +100,9 @@ ssize_t Sampler::GetGeometricVariable(ssize_t mean) {
   // Take the top 26 bits as the random number
   // (This plus the 1<<58 sampling bound give a max possible step of
   // 5194297183973780480 bytes.)
-  const uint64_t prng_mod_power = 48;  // Number of bits in prng
-  // The uint32_t cast is to prevent a (hard-to-reproduce) NAN
-  // under piii debug for some binaries.
-  double q = static_cast<uint32_t>(rnd_ >> (prng_mod_power - 26)) + 1.0;
+  double q = (ExponentialBiased::GetRandom(rnd_) >>
+              (ExponentialBiased::kRandomBits - 26)) +
+             1.0;
   // Put the computed p-value through the CDF of a geometric.
   double interval = (std::log2(q) - 26) * (-std::log(2.0) * mean);
 

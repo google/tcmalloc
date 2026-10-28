@@ -22,6 +22,7 @@
 #include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
@@ -135,7 +136,7 @@ class Sampler {
   // weight of the first sample after the sampling interval is changed.
   ssize_t sample_interval_;
 
-  uint64_t rnd_;  // Cheap random number generator
+  ExponentialBiased::State rnd_;  // Cheap random number generator
   bool initialized_;
 
   // Bytes until we sample next.

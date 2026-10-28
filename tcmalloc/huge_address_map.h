@@ -20,6 +20,7 @@
 #include "absl/base/attributes.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/metadata_allocator.h"
 
@@ -126,7 +127,7 @@ class HugeAddressMap {
   // Note that we always use the same seed, currently; this isn't very random.
   // In practice we're not worried about adversarial input and this works well
   // enough.
-  uint64_t seed_{0};
+  ExponentialBiased::State seed_{0};
 };
 
 constexpr HugeAddressMap::HugeAddressMap(MetadataAllocator& meta)
