@@ -461,31 +461,54 @@ TEST_F(HugeRegionTest, Reback) {
 class MemorySimulation final : public MemoryModifyFunction {
  public:
   MemorySimulation(absl::Mutex& mu, PageId base,
-                   absl::Span<std::atomic<char>> bytes)
+                   absl::Span<std::atomic<int8_t>> bytes)
       : mu_(mu), base_(base), bytes_(bytes) {}
 
   MemoryModifyStatus operator()(Range r) override
       ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    // TODO(b/73749855): Simulate with unlocking.
     mu_.AssertHeld();
+    // Simulate UnbackHugepages dropping pageheap_lock around the unback
+    // syscall (b/73749855).  Mark each page kUnbacking while unlocked: if
+    // another thread allocates or unbacks an overlapping range before we
+    // finish, its exchange or ours will see a non-zero value and fail.
+    mu_.Unlock();
 
-    size_t index = (r.p - base_).raw_num();
-    for (size_t i = 0, n = r.n.raw_num(); i < n; ++i) {
-      bytes_[index + i].store(0, std::memory_order_release);
+    const size_t index = (r.p - base_).raw_num();
+    const size_t n = r.n.raw_num();
+    for (size_t i = 0; i < n; ++i) {
+      const int old =
+          bytes_[index + i].exchange(kUnbacking, std::memory_order_acq_rel);
+      TC_CHECK_EQ(old, 0);
+    }
+    absl::SleepFor(absl::Microseconds(10));
+    for (size_t i = 0; i < n; ++i) {
+      const int old = bytes_[index + i].exchange(0, std::memory_order_acq_rel);
+      TC_CHECK_EQ(old, static_cast<int>(kUnbacking));
     }
 
-    return {.success = true, .error_number = 0};
+    mu_.Lock();
+    return {.success = success_.load(std::memory_order_relaxed),
+            .error_number = 0};
+  }
+
+  // Whether subsequent unbacks report success.  May be changed concurrently
+  // with an unback in flight.
+  void set_success(bool success) {
+    success_.store(success, std::memory_order_relaxed);
   }
 
  private:
+  static constexpr int8_t kUnbacking = -1;
+
   absl::Mutex& mu_;
   PageId base_;
-  absl::Span<std::atomic<char>> bytes_;
+  absl::Span<std::atomic<int8_t>> bytes_;
+  std::atomic<bool> success_{true};
 };
 
 TEST_F(HugeRegionTest, ReleaseFuzz) {
   absl::Mutex mu;
-  absl::FixedArray<std::atomic<char>> bytes(
+  absl::FixedArray<std::atomic<int8_t>> bytes(
       region_.size().in_pages().raw_num());
   for (auto& b : bytes) {
     b.store(0, std::memory_order_relaxed);
@@ -509,9 +532,9 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
 
   ThreadManager threads;
   threads.Start(kThreads, [&](int tid) {
-    // 0 means free, so thread IDs are shifted by 1.
+    // 0 means free and -1 means kUnbacking, so thread IDs are shifted by 1.
     const int owner = tid + 1;
-    switch (absl::Uniform(rngs[tid], 0, 4)) {
+    switch (absl::Uniform(rngs[tid], 0, 5)) {
       case 0: {
         const size_t n =
             absl::Uniform(rngs[tid], 1u, region_.size().in_pages().raw_num());
@@ -530,7 +553,7 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
         const size_t base = (f.r.p - p_.first_page()).raw_num();
         for (size_t i = 0; i < n; ++i) {
           const int old_val = bytes[base + i].exchange(
-              static_cast<char>(owner), std::memory_order_acq_rel);
+              static_cast<int8_t>(owner), std::memory_order_acq_rel);
           TC_CHECK_EQ(old_val, 0);
         }
 
@@ -597,12 +620,19 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
 
         break;
       }
+      case 4: {
+        // Fail some unbacks, so the rollback path also races with other
+        // threads.
+        simulation.set_success(absl::Bernoulli(rngs[tid], 0.75));
+        break;
+      }
     }
   });
 
   absl::SleepFor(absl::Milliseconds(100));
 
   threads.Stop();
+  simulation.set_success(true);
 
   for (const FuzzAlloc& f : allocs) {
     const size_t base = (f.r.p - p_.first_page()).raw_num();
