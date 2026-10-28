@@ -1423,14 +1423,16 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
   const size_t desired_bytes = desired_increase * size;
   size_t acquired_bytes =
       subtract_at_least(&resize_[cpu].available, size, desired_bytes);
-  if (acquired_bytes < desired_bytes) {
+  if (ABSL_PREDICT_FALSE(acquired_bytes < desired_bytes)) {
     resize_[cpu].per_class[size_class].RecordMiss(
         PerClassMissType::kCapacityTotal);
   }
   if (ABSL_PREDICT_FALSE(acquired_bytes == 0)) {
     return;
   }
-  size_t actual_increase = acquired_bytes / size;
+  size_t actual_increase = ABSL_PREDICT_TRUE(acquired_bytes == desired_bytes)
+                               ? desired_increase
+                               : acquired_bytes / size;
   TC_ASSERT_GT(actual_increase, 0);
   TC_ASSERT_LE(actual_increase, desired_increase);
   // Remember, Grow may not give us all we ask for.

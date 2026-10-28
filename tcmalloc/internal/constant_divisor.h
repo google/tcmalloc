@@ -50,6 +50,7 @@ class ConstantDivisor {
 
   explicit constexpr ConstantDivisor(T d) {
     TC_ASSERT_GT(d, 0);
+    divisor_ = d;
     const int l = absl::bit_width(static_cast<T>(d - 1));
     shift_ = static_cast<uint8_t>(kNumeratorBits + l);
     mul_ = static_cast<MulType>(((WideType{1} << shift_) - 1) / d) + 1;
@@ -63,8 +64,16 @@ class ConstantDivisor {
     return static_cast<T>((static_cast<WideType>(mul_) * n) >> shift_);
   }
 
+  [[nodiscard]] constexpr T mod(T n) const {
+    return static_cast<T>(n - div(n) * divisor_);
+  }
+
   [[nodiscard]] friend constexpr T operator/(T n, const ConstantDivisor& d) {
     return d.div(n);
+  }
+
+  [[nodiscard]] friend constexpr T operator%(T n, const ConstantDivisor& d) {
+    return d.mod(n);
   }
 
  private:
@@ -76,7 +85,52 @@ class ConstantDivisor {
                                       absl::uint128>;
 
   MulType mul_ = 0;
+  T divisor_ = 0;
   uint8_t shift_ = 0;
+};
+
+// Specialization of ConstantDivisor for runtime-invariant divisors that are
+// guaranteed to be powers of two. Division reduces to a single right shift and
+// modulus to a bitwise mask across the full unsigned range of T.
+template <typename T>
+class ConstantPowerOfTwoDivisor {
+  static_assert(
+      std::is_unsigned_v<T> && sizeof(T) <= sizeof(uint64_t),
+      "ConstantPowerOfTwoDivisor requires an unsigned integer type <= 64 bits");
+
+ public:
+  using value_type = T;
+
+  constexpr ConstantPowerOfTwoDivisor() = default;
+
+  explicit constexpr ConstantPowerOfTwoDivisor(T d) {
+    TC_ASSERT(absl::has_single_bit(d));
+    shift_ = static_cast<uint8_t>(absl::countr_zero(d));
+  }
+
+  [[nodiscard]] constexpr T div(T n) const {
+    TC_ASSERT_NE(shift_, kInvalidShift);
+    return static_cast<T>(n >> shift_);
+  }
+
+  [[nodiscard]] constexpr T mod(T n) const {
+    TC_ASSERT_NE(shift_, kInvalidShift);
+    return static_cast<T>(n & ((T{1} << shift_) - 1));
+  }
+
+  [[nodiscard]] friend constexpr T operator/(
+      T n, const ConstantPowerOfTwoDivisor& d) {
+    return d.div(n);
+  }
+
+  [[nodiscard]] friend constexpr T operator%(
+      T n, const ConstantPowerOfTwoDivisor& d) {
+    return d.mod(n);
+  }
+
+ private:
+  static constexpr uint8_t kInvalidShift = 0xff;
+  uint8_t shift_ = kInvalidShift;
 };
 
 }  // namespace tcmalloc_internal
