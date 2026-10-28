@@ -70,7 +70,7 @@ struct ABSL_CACHELINE_ALIGNED State {
   std::vector<Object> owned;
 
   // Other threads can pass us objects.
-  absl::Mutex ABSL_CACHELINE_ALIGNED lock;
+  ABSL_CACHELINE_ALIGNED absl::Mutex lock;
   std::vector<Object> inbound ABSL_GUARDED_BY(lock);
 };
 
