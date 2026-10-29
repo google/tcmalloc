@@ -67,7 +67,7 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TCMALLOC_SONIC_FIX_MAX_CAPACITY_BUG_ABLATION, "TCMALLOC_SONIC_FIX_MAX_CAPACITY_BUG_ABLATION"},
     {Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS, "TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01, /*rollout_salt=*/"", /*rollout_inverted=*/true},
     {Experiment::TCMALLOC_SONIC_PREFER_BACKED_FILLER_PAGES, "TCMALLOC_SONIC_PREFER_BACKED_FILLER_PAGES", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
-    {Experiment::TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE, "TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE"},
+    {Experiment::TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE, "TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
     {Experiment::TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE, "TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
     {Experiment::TCMALLOC_SONIC_SPAN_BITMAP, "TCMALLOC_SONIC_SPAN_BITMAP"},
     {Experiment::TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES, "TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
