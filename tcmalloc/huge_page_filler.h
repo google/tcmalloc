@@ -1164,14 +1164,12 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
                                                      int64_t now) {
   TC_ASSERT_EQ(pt->nallocs(), 0);
   TC_ASSERT(!pt->BeingReleased());
-  --size_;
   ClearWasReleased(pt);
   if (pt->released()) {
     const Length free_pages = kPagesPerHugePage;
     const Length released_pages = pt->released_pages();
     TC_ASSERT_GE(free_pages, released_pages);
     TC_ASSERT_GE(unmapped_, released_pages);
-    unmapped_ -= released_pages;
 
     if (free_pages > released_pages) {
       // pt is partially released.  As the rest of the hugepage-aware
@@ -1179,6 +1177,12 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
       // rest of the hugepage.  This simplifies subsequent accounting by
       // allowing us to work with hugepage-granularity, rather than needing to
       // retain pt's state indefinitely.
+      const Length unmapped = free_pages - released_pages;
+      const AccessDensityPrediction type =
+          pt->HasDenseSpans() ? AccessDensityPrediction::kDense
+                              : AccessDensityPrediction::kSparse;
+      ++n_in_flight_release_[type];
+      unmapped_ += unmapped;
       bool success =
           unback_without_lock_(HugeRange(pt->location(), NHugePages(1)))
               .success;
@@ -1187,16 +1191,22 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
       // earlier time below would read as a clock regression to the time series
       // tracker, which discards its demand history in response.
       now = clock_.now();
+      TC_ASSERT_GT(n_in_flight_release_[type], NHugePages(0));
+      --n_in_flight_release_[type];
+      TC_ASSERT_GE(unmapped_, free_pages);
+      unmapped_ -= free_pages;
 
       if (ABSL_PREDICT_TRUE(success)) {
-        const Length unmapped = free_pages - released_pages;
         unmapping_unaccounted_ += unmapped;
         subrelease_stats_.total_pages_subreleased += unmapped;
       } else {
         pt->ResetReleased();
       }
+    } else {
+      unmapped_ -= released_pages;
     }
   }
+  --size_;
 
   RecordLifetime(pt, now);
   UpdateFillerStatsTracker(now);

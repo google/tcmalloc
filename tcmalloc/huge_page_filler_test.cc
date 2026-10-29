@@ -1587,6 +1587,32 @@ TEST_F(FillerTest, ParkedTrackerNameResetOnceAfterConcurrentTreatment) {
   EXPECT_FALSE(set_anon_vma_name_.LastCallNamed());
 }
 
+TEST_F(FillerTest, StatsConsistentDuringFullyFreedTrackerUnback) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(1));
+  EXPECT_EQ(ReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(1));
+  ASSERT_TRUE(a.pt->released());
+
+  bool hook_ran = false;
+  BackingStats during{};
+  Length free_in_partial;
+  blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    pageheap_lock.lock();
+    hook_ran = true;
+    during = filler_.stats();
+    free_in_partial = filler_.FreePagesInPartialAllocs();
+    pageheap_lock.unlock();
+  };
+  const HugeLength expected_hp = hp_contained_;
+  Delete(a);
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+  ASSERT_TRUE(hook_ran);
+  EXPECT_EQ(during.system_bytes, expected_hp.in_bytes());
+  EXPECT_EQ(during.free_bytes, 0);
+  EXPECT_EQ(during.unmapped_bytes, expected_hp.in_bytes());
+  EXPECT_EQ(free_in_partial, Length(0));
+}
+
 // A hugepage that left the released state (was_released) and is released
 // again by a treatment leaves the previously-released count, as it does when
 // ReleasePages releases from it.

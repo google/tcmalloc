@@ -193,9 +193,9 @@ class HugeCache {
 
   [[nodiscard]] BackingStats stats() const {
     BackingStats s;
-    s.system_bytes = (usage() + size()).in_bytes();
+    s.system_bytes = (usage() + size() + unbacking_).in_bytes();
     s.free_bytes = size().in_bytes();
-    s.unmapped_bytes = 0;
+    s.unmapped_bytes = unbacking_.in_bytes();
     return s;
   }
 
@@ -227,6 +227,7 @@ class HugeCache {
 
   HugeAddressMap cache_;
   HugeLength size_{NHugePages(0)};
+  HugeLength unbacking_{NHugePages(0)};
 
   HugeLength limit_{NHugePages(10)};
 

@@ -170,6 +170,37 @@ TEST_P(HugeCacheTest, Release) {
   EXPECT_EQ(NHugePages(4), cache_.ReleaseCachedPages(NHugePages(200)));
 }
 
+TEST_P(HugeCacheTest, StatsDuringUnback) {
+  bool from;
+  HugeRange r = cache_.Get(NHugePages(3), &from);
+  ASSERT_TRUE(from);
+  Release(r);
+  ASSERT_EQ(NHugePages(3), cache_.size());
+
+  const BackingStats before = cache_.stats();
+  EXPECT_EQ(before.system_bytes, NHugePages(3).in_bytes());
+  EXPECT_EQ(before.free_bytes, NHugePages(3).in_bytes());
+  EXPECT_EQ(before.unmapped_bytes, 0);
+
+  EXPECT_CALL(mock_unback_,
+              Unback(r.start().first_page(), 2 * kPagesPerHugePage))
+      .WillOnce([&](PageId p, Length len) {
+        const BackingStats during = cache_.stats();
+        EXPECT_EQ(during.system_bytes, before.system_bytes);
+        EXPECT_EQ(during.free_bytes, NHugePages(1).in_bytes());
+        EXPECT_EQ(during.unmapped_bytes, NHugePages(2).in_bytes());
+        EXPECT_EQ(during.free_bytes + during.unmapped_bytes,
+                  before.free_bytes + before.unmapped_bytes);
+        return MemoryModifyStatus{.success = true, .error_number = 0};
+      });
+  EXPECT_EQ(NHugePages(2), cache_.ReleaseCachedPages(NHugePages(2)));
+
+  const BackingStats after = cache_.stats();
+  EXPECT_EQ(after.system_bytes, NHugePages(1).in_bytes());
+  EXPECT_EQ(after.free_bytes, NHugePages(1).in_bytes());
+  EXPECT_EQ(after.unmapped_bytes, 0);
+}
+
 TEST_P(HugeCacheTest, ReleaseFailure) {
   bool from;
   const HugeLength one = NHugePages(1);
