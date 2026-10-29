@@ -671,6 +671,7 @@ class FillerTest : public testing::Test {
       PreserveDonatedOnCollapse::kDisabled;
   CollapseReleasedHugePages collapse_released_ =
       CollapseReleasedHugePages::kDisabled;
+  FillerAppendOnFree append_on_free_ = FillerAppendOnFree::kDisabled;
 
   void TreatHugepageTrackers(
       EnableCollapse enable_collapse,
@@ -711,7 +712,8 @@ class FillerTest : public testing::Test {
     PageTracker* pt;
     {
       PageHeapSpinLockHolder l;
-      pt = filler_.Put(p.pt, Range(p.p, p.n), p.span_alloc_info);
+      pt = filler_.Put(p.pt, Range(p.p, p.n), p.span_alloc_info,
+                       append_on_free_);
     }
     total_allocated_ -= p.n;
     if (pt != nullptr) {
@@ -814,6 +816,102 @@ class FillerTestWithSubreleaseUnbacked : public FillerTest {
       : FillerTest(SubreleaseUnbackedMode::kEnabled) {}
 };
 
+// With FillerAppendOnFree enabled, a hugepage that just had pages returned to
+// it is appended to its tracker list, so among hugepages that tie on the list's
+// ordering keys we prefer to allocate from the one that has not recently had
+// pages freed.  With it disabled, the hugepage is prepended and becomes the
+// next allocation target.
+class FillerAppendOnFreeTest
+    : public FillerTest,
+      public ::testing::WithParamInterface<FillerAppendOnFree> {
+ public:
+  FillerAppendOnFreeTest() { append_on_free_ = GetParam(); }
+};
+
+TEST_P(FillerAppendOnFreeTest, PutListPlacement) {
+  randomize_density_ = false;
+  const bool append = GetParam() == FillerAppendOnFree::kEnabled;
+  // Sparse: A and B each have longest_free_range == 2 and nallocs == 1, so
+  // they share a list, with B (contributed last) at the front.  Allocating one
+  // page moves B to another list; freeing it brings B back either behind A
+  // (append) or in front of A (prepend).
+  {
+    constexpr SpanAllocInfo kSparse = {
+        .objects_per_span = 1, .density = AccessDensityPrediction::kSparse};
+    const Length n = kPagesPerHugePage - Length(2);
+    PAlloc a = AllocateWithSpanAllocInfo(n, kSparse);
+    PAlloc b = AllocateWithSpanAllocInfo(n, kSparse);
+    ASSERT_NE(a.pt, b.pt);
+    PAlloc b2 = AllocateWithSpanAllocInfo(Length(1), kSparse);
+    ASSERT_EQ(b2.pt, b.pt);
+    EXPECT_FALSE(Delete(b2));
+    PAlloc probe = AllocateWithSpanAllocInfo(Length(1), kSparse);
+    EXPECT_EQ(probe.pt, append ? a.pt : b.pt);
+    EXPECT_FALSE(Delete(probe));
+    EXPECT_TRUE(Delete(a));
+    EXPECT_TRUE(Delete(b));
+  }
+  // Dense: fill A then B completely (both leave the lists), then free one page
+  // from each so both land in the nallocs == kPagesPerHugePage - 1 list.  B was
+  // freed last, so it is behind A (append) or in front of A (prepend).
+  {
+    constexpr SpanAllocInfo kDense = {
+        .objects_per_span = 64, .density = AccessDensityPrediction::kDense};
+    std::vector<PAlloc> a =
+        AllocateVectorWithSpanAllocInfo(kPagesPerHugePage, kDense);
+    std::vector<PAlloc> b =
+        AllocateVectorWithSpanAllocInfo(kPagesPerHugePage, kDense);
+    ASSERT_NE(a.front().pt, b.front().pt);
+    EXPECT_FALSE(Delete(a.back()));
+    EXPECT_FALSE(Delete(b.back()));
+    PAlloc probe = AllocateWithSpanAllocInfo(Length(1), kDense);
+    EXPECT_EQ(probe.pt, append ? a.front().pt : b.front().pt);
+    EXPECT_FALSE(Delete(probe));
+    a.pop_back();
+    b.pop_back();
+    EXPECT_TRUE(DeleteVector(a));
+    EXPECT_TRUE(DeleteVector(b));
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(All, FillerAppendOnFreeTest,
+                         ::testing::Values(FillerAppendOnFree::kDisabled,
+                                           FillerAppendOnFree::kEnabled),
+                         [](const auto& info) {
+                           return info.param == FillerAppendOnFree::kEnabled
+                                      ? "Append"
+                                      : "Prepend";
+                         });
+
+// Flipping FillerAppendOnFree back and forth on a live filler takes effect on
+// the next Put, with no residual effect from the previous setting.
+TEST_F(FillerTest, PutListPlacementToggle) {
+  randomize_density_ = false;
+  constexpr SpanAllocInfo kSparse = {
+      .objects_per_span = 1, .density = AccessDensityPrediction::kSparse};
+  const Length n = kPagesPerHugePage - Length(2);
+
+  auto round = [&](FillerAppendOnFree mode) {
+    append_on_free_ = mode;
+    PAlloc a = AllocateWithSpanAllocInfo(n, kSparse);
+    PAlloc b = AllocateWithSpanAllocInfo(n, kSparse);
+    ASSERT_NE(a.pt, b.pt);
+    PAlloc b2 = AllocateWithSpanAllocInfo(Length(1), kSparse);
+    ASSERT_EQ(b2.pt, b.pt);
+    EXPECT_FALSE(Delete(b2));
+    PAlloc probe = AllocateWithSpanAllocInfo(Length(1), kSparse);
+    EXPECT_EQ(probe.pt, mode == FillerAppendOnFree::kEnabled ? a.pt : b.pt);
+    EXPECT_FALSE(Delete(probe));
+    EXPECT_TRUE(Delete(a));
+    EXPECT_TRUE(Delete(b));
+  };
+
+  round(FillerAppendOnFree::kDisabled);
+  round(FillerAppendOnFree::kEnabled);
+  round(FillerAppendOnFree::kDisabled);
+  round(FillerAppendOnFree::kEnabled);
+}
+
 // TODO(b/73749855): Reduce the count of clock_.now() and clock_.freq() calls.
 TEST_F(FillerTest, ClockCalls) {
   SpanAllocInfo info = {.objects_per_span = 1,
@@ -873,7 +971,8 @@ TEST_F(FillerTest, ClockCalls) {
   PageTracker* put_res1;
   {
     PageHeapSpinLockHolder l;
-    put_res1 = filler_.Put(alloc_pt, Range(page2, Length(1)), info);
+    put_res1 =
+        filler_.Put(alloc_pt, Range(page2, Length(1)), info, append_on_free_);
   }
   EXPECT_EQ(put_res1, nullptr);
   EXPECT_EQ(FakeClock::now_calls(), 1);
@@ -885,7 +984,7 @@ TEST_F(FillerTest, ClockCalls) {
   PageTracker* put_res2;
   {
     PageHeapSpinLockHolder l;
-    put_res2 = filler_.Put(pt, Range(page1, Length(1)), info);
+    put_res2 = filler_.Put(pt, Range(page1, Length(1)), info, append_on_free_);
   }
   EXPECT_EQ(put_res2, pt);
   EXPECT_EQ(FakeClock::now_calls(), 1);
@@ -899,7 +998,8 @@ TEST_F(FillerTest, ClockCalls) {
     if (pt->GetTagState().sampled_for_tagging) {
       break;
     }
-    EXPECT_EQ(filler_.Put(pt, Range(page1, Length(1)), info), pt);
+    EXPECT_EQ(filler_.Put(pt, Range(page1, Length(1)), info, append_on_free_),
+              pt);
   }
 
   FakeClock::ResetCalls();
@@ -919,8 +1019,9 @@ TEST_F(FillerTest, ClockCalls) {
 
   {
     PageHeapSpinLockHolder l;
-    put_res1 = filler_.Put(alloc_pt, Range(page2, Length(1)), info);
-    put_res2 = filler_.Put(pt, Range(page1, Length(1)), info);
+    put_res1 =
+        filler_.Put(alloc_pt, Range(page2, Length(1)), info, append_on_free_);
+    put_res2 = filler_.Put(pt, Range(page1, Length(1)), info, append_on_free_);
   }
 
   EXPECT_EQ(put_res1, nullptr);
@@ -947,7 +1048,7 @@ TEST_F(FillerTest, RecordLifetimeEdgeCases) {
     PageTracker* res;
     {
       PageHeapSpinLockHolder l;
-      res = filler_.Put(&pt, Range(page, Length(1)), info);
+      res = filler_.Put(&pt, Range(page, Length(1)), info, append_on_free_);
     }
     EXPECT_EQ(res, &pt);
   };
@@ -993,8 +1094,8 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      1
   PageTracker* res_overflow;
   {
     PageHeapSpinLockHolder l;
-    res_overflow = low_freq_filler.Put(&pt_overflow,
-                                       Range(page_overflow, Length(1)), info);
+    res_overflow = low_freq_filler.Put(
+        &pt_overflow, Range(page_overflow, Length(1)), info, append_on_free_);
   }
   EXPECT_EQ(res_overflow, &pt_overflow);
 }
@@ -1714,7 +1815,8 @@ TEST_F(FillerTest, AllocateDuringRetirementUnback) {
         Length(1), b.span_alloc_info, PreferBackedPages::kDisabled);
     EXPECT_EQ(pt, b.pt);
     EXPECT_FALSE(from_released);
-    EXPECT_EQ(filler_.Put(pt, Range(page, Length(1)), b.span_alloc_info),
+    EXPECT_EQ(filler_.Put(pt, Range(page, Length(1)), b.span_alloc_info,
+                          append_on_free_),
               nullptr);
   };
   EXPECT_TRUE(Delete(a));
@@ -1796,7 +1898,9 @@ TEST_F(FillerTest, PutDuringReleaseDefersFreeingTracker) {
     PageHeapSpinLockHolder l;
     // The tracker is being released, so Put must not hand it back to us even
     // though it is now empty.
-    EXPECT_EQ(filler_.Put(a.pt, Range(a.p, a.n), a.span_alloc_info), nullptr);
+    EXPECT_EQ(
+        filler_.Put(a.pt, Range(a.p, a.n), a.span_alloc_info, append_on_free_),
+        nullptr);
     EXPECT_TRUE(a.pt->empty());
     EXPECT_TRUE(a.pt->BeingReleased());
     EXPECT_EQ(filler_.size(), NHugePages(1));
@@ -1836,9 +1940,9 @@ TEST_F(FillerTest, CandidateFreedDuringRelease) {
     EXPECT_FALSE(other.pt->BeingReleased());
     EXPECT_TRUE(other.pt->PinnedForRelease());
     parked = other.pt;
-    EXPECT_EQ(
-        filler_.Put(other.pt, Range(other.p, other.n), other.span_alloc_info),
-        nullptr);
+    EXPECT_EQ(filler_.Put(other.pt, Range(other.p, other.n),
+                          other.span_alloc_info, append_on_free_),
+              nullptr);
     EXPECT_TRUE(other.pt->empty());
     // Parked, but not yet available: the release still pins it.
     EXPECT_EQ(filler_.FetchFullyFreedTracker(), nullptr);
@@ -1914,7 +2018,9 @@ TEST_F(FillerTest, PutDuringReleaseKeepsAccounting) {
     EXPECT_EQ(r.n, kPagesPerHugePage - Length(2));
     PageHeapSpinLockHolder l;
     EXPECT_TRUE(b.pt->BeingReleased());
-    EXPECT_EQ(filler_.Put(b.pt, Range(b.p, b.n), b.span_alloc_info), nullptr);
+    EXPECT_EQ(
+        filler_.Put(b.pt, Range(b.p, b.n), b.span_alloc_info, append_on_free_),
+        nullptr);
     EXPECT_FALSE(b.pt->fully_freed());
     EXPECT_TRUE(b.pt->BeingReleased());
     EXPECT_EQ(filler_.used_pages(), Length(1));
@@ -1963,8 +2069,12 @@ TEST_F(FillerTest, AllCandidatesFreedDuringRelease) {
     }
     EXPECT_EQ(r.n, kPagesPerHugePage - Length(1));
     PageHeapSpinLockHolder l;
-    EXPECT_EQ(filler_.Put(a.pt, Range(a.p, a.n), a.span_alloc_info), nullptr);
-    EXPECT_EQ(filler_.Put(b.pt, Range(b.p, b.n), b.span_alloc_info), nullptr);
+    EXPECT_EQ(
+        filler_.Put(a.pt, Range(a.p, a.n), a.span_alloc_info, append_on_free_),
+        nullptr);
+    EXPECT_EQ(
+        filler_.Put(b.pt, Range(b.p, b.n), b.span_alloc_info, append_on_free_),
+        nullptr);
     EXPECT_TRUE(a.pt->fully_freed());
     EXPECT_TRUE(b.pt->fully_freed());
     EXPECT_EQ(filler_.FetchFullyFreedTracker(), nullptr);

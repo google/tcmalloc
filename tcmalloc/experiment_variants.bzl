@@ -47,6 +47,12 @@ experiment_variants = [
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_COLLAPSE_RELEASED_HUGEPAGES"},
     },
     {
+        "name": "tcmalloc_filler_append_on_free",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_FILLER_APPEND_ON_FREE"},
+    },
+    {
         "name": "tcmalloc_fix_max_capacity_bug_ablation",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],

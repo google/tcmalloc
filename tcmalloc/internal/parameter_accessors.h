@@ -160,6 +160,9 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetCollapseReleasedHugepages(bool v);
 [[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
 TCMalloc_Internal_GetPreferBackedFillerPages();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetPreferBackedFillerPages(bool v);
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetFillerAppendOnFree();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetFillerAppendOnFree(bool v);
 
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_GetSizeClasses(
     std::vector<tcmalloc::tcmalloc_internal::TracerSizeClassInfo>* absl_nonnull

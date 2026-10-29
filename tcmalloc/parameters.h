@@ -171,6 +171,14 @@ class Parameters {
     TCMalloc_Internal_SetPreferBackedFillerPages(value);
   }
 
+  [[nodiscard]] static FillerAppendOnFree filler_append_on_free() {
+    return filler_append_on_free_.load(std::memory_order_relaxed);
+  }
+
+  static void set_filler_append_on_free(bool value) {
+    TCMalloc_Internal_SetFillerAppendOnFree(value);
+  }
+
   [[nodiscard]] static MadviseRegionsNoHugepage
   madvise_cold_regions_nohugepage() {
     return madvise_cold_regions_nohugepage_.load(std::memory_order_relaxed);
@@ -332,6 +340,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetPreserveDonatedOnCollapse(bool v);
   friend void ::TCMalloc_Internal_SetCollapseReleasedHugepages(bool v);
   friend void ::TCMalloc_Internal_SetPreferBackedFillerPages(bool v);
+  friend void ::TCMalloc_Internal_SetFillerAppendOnFree(bool v);
   friend void ::TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(bool v);
   friend void ::TCMalloc_Internal_SetMadviseSampledAllocations(
       tcmalloc::tcmalloc_internal::MadviseSampledAllocations v);
@@ -374,6 +383,7 @@ class Parameters {
   static std::atomic<TrackBrokenHugepages> track_broken_hugepages_;
   static std::atomic<PreserveDonatedOnCollapse> preserve_donated_on_collapse_;
   static std::atomic<PreferBackedPages> prefer_backed_filler_pages_;
+  static std::atomic<FillerAppendOnFree> filler_append_on_free_;
   static std::atomic<MadviseRegionsNoHugepage> madvise_cold_regions_nohugepage_;
 };
 

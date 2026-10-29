@@ -547,6 +547,17 @@ struct SetPreferBackedFillerPages {
   }
 };
 
+struct SetFillerAppendOnFree {
+  bool value;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetFillerAppendOnFree& s) {
+    absl::Format(&sink, "SetFillerAppendOnFree{.value=%v}", s.value);
+  }
+};
+
 struct SetEnableReleaseStalePages {
   bool value;
 
@@ -637,7 +648,7 @@ using ParamOp = std::variant<
     SetPreserveDonatedOnCollapse, SetReleaseSucceeds, SetCollapseSucceeds,
     SetHugeRegionAdaptiveRelease, SetAllocateSucceeds, SetBackAllocations,
     SetBackSizeThresholdBytes, ReentrantSubprogram, SetEnableUnfilteredCollapse,
-    SetReleaseMaxFillerPages, SetPreferBackedFillerPages,
+    SetReleaseMaxFillerPages, SetPreferBackedFillerPages, SetFillerAppendOnFree,
     SetEnableReleaseStalePages, SetCollapseReleasedHugepages,
     SetMadvNoHugepageHugeRegions, UpdateBitmaps, SetUsageLimitPressure>;
 
@@ -1300,6 +1311,11 @@ void SetPreferBackedFillerPages::Perform(State& state) const {
       value ? PreferBackedPages::kEnabled : PreferBackedPages::kDisabled);
 }
 
+void SetFillerAppendOnFree::Perform(State& state) const {
+  state.allocator.forwarder().filler_append_on_free.set(
+      value ? FillerAppendOnFree::kEnabled : FillerAppendOnFree::kDisabled);
+}
+
 void SetEnableReleaseStalePages::Perform(State& state) const {
   state.allocator.forwarder().release_stale_pages.set(
       value ? ReleaseStalePages::kEnabled : ReleaseStalePages::kDisabled);
@@ -1466,6 +1482,8 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
                     fuzztest::Arbitrary<SetReleaseMaxFillerPages>()),
       fuzztest::Map([](SetPreferBackedFillerPages s) { return ChangeParam{s}; },
                     fuzztest::Arbitrary<SetPreferBackedFillerPages>()),
+      fuzztest::Map([](SetFillerAppendOnFree s) { return ChangeParam{s}; },
+                    fuzztest::Arbitrary<SetFillerAppendOnFree>()),
       fuzztest::Map([](SetEnableReleaseStalePages s) { return ChangeParam{s}; },
                     fuzztest::Arbitrary<SetEnableReleaseStalePages>()),
       fuzztest::Map(

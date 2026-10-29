@@ -189,13 +189,16 @@ struct Allocate {
 struct Deallocate {
   uint32_t tracker_index;
   uint32_t alloc_index;
+  bool append_on_free;
 
   void Perform(State& state) const;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Deallocate& d) {
-    absl::Format(&sink, "Deallocate{.tracker_index=%d, .alloc_index=%d}",
-                 d.tracker_index, d.alloc_index);
+    absl::Format(&sink,
+                 "Deallocate{.tracker_index=%d, .alloc_index=%d, "
+                 ".append_on_free=%v}",
+                 d.tracker_index, d.alloc_index, d.append_on_free);
   }
 };
 
@@ -492,7 +495,8 @@ struct State {
         PageTracker* ret;
         {
           PageHeapSpinLockHolder l;
-          ret = filler.Put(pt, alloc, alloc_info);
+          ret =
+              filler.Put(pt, alloc, alloc_info, FillerAppendOnFree::kDisabled);
         }
         CHECK_EQ(ret != nullptr, v.empty());
       }
@@ -861,7 +865,9 @@ void Deallocate::Perform(State& state) const {
   PageTracker* ret;
   {
     PageHeapSpinLockHolder l;
-    ret = state.filler.Put(pt, alloc, alloc_info);
+    ret = state.filler.Put(pt, alloc, alloc_info,
+                           append_on_free ? FillerAppendOnFree::kEnabled
+                                          : FillerAppendOnFree::kDisabled);
   }
   if (!last_alloc) {
     TC_CHECK_EQ(ret, nullptr);
@@ -1639,9 +1645,12 @@ TEST(HugePageFillerTest, InstructionStringify) {
     EXPECT_THAT(s, Not(HasSubstr("<MAPPING_FUNCTION>")));
   }
   {
-    Instruction inst = Deallocate{.tracker_index = 3, .alloc_index = 4};
+    Instruction inst = Deallocate{
+        .tracker_index = 3, .alloc_index = 4, .append_on_free = false};
     std::string s = absl::StrFormat("%v", inst);
-    EXPECT_EQ(s, "Deallocate{.tracker_index=3, .alloc_index=4}");
+    EXPECT_EQ(s,
+              "Deallocate{.tracker_index=3, .alloc_index=4, "
+              ".append_on_free=false}");
     EXPECT_THAT(s, Not(HasSubstr("<MAPPING_FUNCTION>")));
   }
   {

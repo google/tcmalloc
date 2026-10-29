@@ -164,6 +164,11 @@ void Parameters::InitializeFromExperiments() {
                                       std::memory_order_relaxed);
   }
 
+  if (IsExperimentActive(Experiment::TCMALLOC_SONIC_FILLER_APPEND_ON_FREE)) {
+    filler_append_on_free_.store(FillerAppendOnFree::kEnabled,
+                                 std::memory_order_relaxed);
+  }
+
   if (IsExperimentActive(Experiment::TCMALLOC_RELEASE_FREE_STALE)) {
     release_stale_pages_.store(ReleaseStalePages::kEnabled,
                                std::memory_order_relaxed);
@@ -353,6 +358,8 @@ ABSL_CONST_INIT std::atomic<PreserveDonatedOnCollapse>
         PreserveDonatedOnCollapse::kDisabled);
 ABSL_CONST_INIT std::atomic<PreferBackedPages>
     Parameters::prefer_backed_filler_pages_(PreferBackedPages::kDisabled);
+ABSL_CONST_INIT std::atomic<FillerAppendOnFree>
+    Parameters::filler_append_on_free_(FillerAppendOnFree::kDisabled);
 ABSL_CONST_INIT std::atomic<MadviseRegionsNoHugepage>
     Parameters::madvise_cold_regions_nohugepage_(
         MadviseRegionsNoHugepage::kDisabled);
@@ -871,6 +878,20 @@ void TCMalloc_Internal_SetPreferBackedFillerPages(bool v) {
   Parameters::prefer_backed_filler_pages_.store(
       v ? tcmalloc::tcmalloc_internal::PreferBackedPages::kEnabled
         : tcmalloc::tcmalloc_internal::PreferBackedPages::kDisabled,
+      std::memory_order_relaxed);
+}
+
+bool TCMalloc_Internal_GetFillerAppendOnFree() {
+  tc_globals.InitIfNecessary();
+  return Parameters::filler_append_on_free() ==
+         tcmalloc::tcmalloc_internal::FillerAppendOnFree::kEnabled;
+}
+
+void TCMalloc_Internal_SetFillerAppendOnFree(bool v) {
+  tc_globals.InitIfNecessary();
+  Parameters::filler_append_on_free_.store(
+      v ? tcmalloc::tcmalloc_internal::FillerAppendOnFree::kEnabled
+        : tcmalloc::tcmalloc_internal::FillerAppendOnFree::kDisabled,
       std::memory_order_relaxed);
 }
 
