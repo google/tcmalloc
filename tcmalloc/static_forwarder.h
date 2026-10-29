@@ -91,6 +91,7 @@ class StaticForwarder : private Parameters {
   using Parameters::release_max_filler_pages;
   using Parameters::release_partial_alloc_pages;
   using Parameters::release_stale_pages;
+  using Parameters::reobserve_hugepage_backed;
   using Parameters::subrelease_unbacked_hugepages;
   using Parameters::track_broken_hugepages;
 
