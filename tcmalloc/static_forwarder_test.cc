@@ -18,6 +18,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <limits>
 #include <new>
 #include <random>
 #include <variant>
@@ -66,6 +67,21 @@ using ProdForwarder = StaticForwarder<Static, tc_globals>;
 
 size_t TestBytes(const ArenaStats& stats) {
   return stats.bytes_allocated_per_type[static_cast<size_t>(ArenaAlloc::kTest)];
+}
+
+static BackingStats PageHeapStats() {
+  PageHeapSpinLockHolder l;
+  return tc_globals.page_allocator().stats();
+}
+
+static size_t BackedBytes() {
+  PageHeapSpinLockHolder l;
+  const BackingStats s = tc_globals.page_allocator().stats();
+  return s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
+}
+
+static uint64_t InUseBytes(const BackingStats& s) {
+  return s.system_bytes - s.free_bytes - s.unmapped_bytes;
 }
 
 TEST(StaticForwarderTest, SizeMap) {
@@ -117,7 +133,13 @@ TEST(StaticForwarderTest, AllocCpuCache) {
   constexpr size_t kSize = 64;
   const ArenaStats before = tc_globals.arena().stats();
 
-  void* p = ProdForwarder::AllocCpuCache(kSize, kAlignment);
+  // Hold pageheap_lock to verify that AllocCpuCache does not acquire it and
+  // deadlock on the non-reentrant spinlock.
+  void* p;
+  {
+    PageHeapSpinLockHolder l;
+    p = ProdForwarder::AllocCpuCache(kSize, kAlignment);
+  }
   EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % static_cast<size_t>(kAlignment),
             0);
 
@@ -133,7 +155,13 @@ TEST(StaticForwarderTest, AllocReportedImpending) {
   constexpr size_t kSize = 64;
   const ArenaStats before = tc_globals.arena().stats();
 
-  void* p = ProdForwarder::AllocReportedImpending(kSize, kAlignment);
+  // Hold pageheap_lock to verify that AllocReportedImpending does not acquire
+  // it and deadlock on the non-reentrant spinlock.
+  void* p;
+  {
+    PageHeapSpinLockHolder l;
+    p = ProdForwarder::AllocReportedImpending(kSize, kAlignment);
+  }
   EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % static_cast<size_t>(kAlignment),
             0);
 
@@ -163,6 +191,21 @@ TEST(StaticForwarderTest, ArenaUpdateAllocatedAndNonresident) {
   stats = tc_globals.arena().stats();
   EXPECT_EQ(stats.bytes_allocated, before.bytes_allocated);
   EXPECT_EQ(stats.bytes_nonresident, before.bytes_nonresident);
+
+  // When allocated > nonresident, ArenaUpdateAllocatedAndNonresident must
+  // update arena stats before checking usage limits so ShrinkToUsageLimit sees
+  // the new metadata_bytes() total.
+  const size_t backed_before = BackedBytes();
+  const int64_t soft_hits_before =
+      tc_globals.page_allocator().limit_hits(PageAllocator::kSoft);
+  tc_globals.page_allocator().set_limit(backed_before + kBytes / 2,
+                                        PageAllocator::kSoft);
+  ProdForwarder::ArenaUpdateAllocatedAndNonresident(kBytes, 0);
+  tc_globals.page_allocator().set_limit(std::numeric_limits<size_t>::max(),
+                                        PageAllocator::kSoft);
+  EXPECT_GT(tc_globals.page_allocator().limit_hits(PageAllocator::kSoft),
+            soft_hits_before);
+  ProdForwarder::ArenaUpdateAllocatedAndNonresident(-kBytes, 0);
 }
 
 TEST(StaticForwarderTest, Accessors) {
@@ -483,15 +526,6 @@ class StaticForwarderEnvironment {
   std::vector<SpanData> data_;
   std::vector<Span*> free_spans_;
 };
-
-static BackingStats PageHeapStats() {
-  PageHeapSpinLockHolder l;
-  return tc_globals.page_allocator().stats();
-}
-
-static uint64_t InUseBytes(const BackingStats& s) {
-  return s.system_bytes - s.free_bytes - s.unmapped_bytes;
-}
 
 struct GrowOp {
   template <typename Sink>
