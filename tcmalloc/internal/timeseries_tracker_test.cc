@@ -383,6 +383,29 @@ TEST_F(TimeSeriesTrackerTest, NegativeIntervalIterBackwards) {
   tracker_.IterBackwards(fail_cb, -absl::InfiniteDuration());
 }
 
+TEST(TimeSeriesTest, PowerOfTwoEpochTicks) {
+  TimeSeriesTracker<TimeSeriesTrackerTest::TestEntry, int, 8> tracker{
+      Clock{.now = []() -> int64_t { return 0; },
+            .freq = []() -> double { return 1024.0; }},
+      absl::Seconds(1)};
+
+  tracker.Report(10, 0);
+  tracker.Report(20, 1023);
+  tracker.Report(30, 1024);
+  tracker.Report(40, 3072);
+
+  std::vector<std::vector<int>> all_values;
+  std::vector<size_t> deltas;
+  tracker.Iter([&](size_t, size_t epoch_delta,
+                   const TimeSeriesTrackerTest::TestEntry& e) {
+    deltas.push_back(epoch_delta);
+    all_values.push_back(e.values_);
+  });
+  EXPECT_THAT(all_values, ElementsAre(ElementsAre(10, 20), ElementsAre(30),
+                                      ElementsAre(40)));
+  EXPECT_THAT(deltas, ElementsAre(1, 1, 2));
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

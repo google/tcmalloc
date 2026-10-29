@@ -218,6 +218,50 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_internal_constant_divisor
+  ALIAS
+    tcmalloc::internal_constant_divisor
+  HDRS
+    "constant_divisor.h"
+  DEPS
+    "absl::bits"
+    "absl::int128"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_constant_divisor_test
+  SRCS
+    "constant_divisor_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::random_bit_gen_ref"
+    "absl::random_distributions"
+    "absl::random_random"
+    "tcmalloc::internal_constant_divisor"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_constant_divisor_fuzz
+  SRCS
+    "constant_divisor_fuzz.cc"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "fuzztest::fuzztest"
+    "fuzztest::fuzztest_gtest_main"
+    "tcmalloc::internal_constant_divisor"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_internal_bytes
   ALIAS
     tcmalloc::internal_bytes
@@ -1645,12 +1689,11 @@ tcmalloc_cc_library(
   HDRS
     "timeseries_tracker.h"
   DEPS
-    "absl::bits"
     "absl::core_headers"
     "absl::function_ref"
-    "absl::int128"
     "absl::time"
     "tcmalloc::internal_clock"
+    "tcmalloc::internal_constant_divisor"
     "tcmalloc::internal_logging"
 )
 

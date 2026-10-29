@@ -22,10 +22,9 @@
 
 #include "absl/base/optimization.h"
 #include "absl/functional/function_ref.h"
-#include "absl/numeric/bits.h"
-#include "absl/numeric/int128.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/clock.h"
+#include "tcmalloc/internal/constant_divisor.h"
 #include "tcmalloc/internal/logging.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -51,16 +50,11 @@ class TimeSeriesTracker {
   };
 
   explicit constexpr TimeSeriesTracker(Clock clock, absl::Duration epoch_length)
-      : epoch_length_(epoch_length), clock_(clock) {
+      : epoch_length_(epoch_length),
+        epoch_ticks_divisor_(static_cast<uint64_t>(
+            absl::ToDoubleSeconds(epoch_length_) * clock.freq())),
+        clock_(clock) {
     TC_ASSERT_GT(epoch_length, absl::ZeroDuration());
-    // See comment in GetCurrentEpoch().
-    auto d = static_cast<uint64_t>(absl::ToDoubleSeconds(epoch_length_) *
-                                   clock.freq());
-    div_precision_ = 63 + absl::bit_width(d);
-    epoch_ticks_m_ =
-        static_cast<uint64_t>(
-            (static_cast<absl::uint128>(1) << div_precision_) / d) +
-        1;
     InitTracker();
   }
 
@@ -98,19 +92,9 @@ class TimeSeriesTracker {
 
   // Returns the current epoch number based on the clock.
   [[nodiscard]] int64_t GetCurrentEpoch(int64_t now) const {
-    // This is equivalent to `clock_.now() /
-    // (absl::ToDoubleSeconds(epoch_length_) * clock_.freq())`.  We basically
-    // follow the technique from
-    // https://ridiculousfish.com/blog/posts/labor-of-division-episode-i.html,
-    // except that we use one fewer bit of precision than necessary to always
-    // get the correct answer if the numerator were a 64-bit unsigned number. In
-    // this case, because clock_.now() returns a signed 64-bit number (i.e. max
-    // is <2^63), it shouldn't cause a problem. This way, we don't need to
-    // handle overflow so it's simpler. See also:
-    // https://lemire.me/blog/2019/02/20/more-fun-with-fast-remainders-when-the-divisor-is-a-constant/.
-    return static_cast<int64_t>(static_cast<absl::uint128>(epoch_ticks_m_) *
-                                    std::max<int64_t>(0, now) >>
-                                div_precision_);
+    return static_cast<int64_t>(
+        static_cast<uint64_t>(std::max<int64_t>(0, now)) /
+        epoch_ticks_divisor_);
   }
   [[nodiscard]] int64_t GetCurrentEpoch() const {
     return GetCurrentEpoch(clock_.now());
@@ -151,10 +135,7 @@ class TimeSeriesTracker {
   size_t current_slot_{0};
   // How many epochs did it take to collect all valid data points?
   size_t covered_epochs_{0};
-  // This is the magic constant from
-  // https://ridiculousfish.com/blog/posts/labor-of-division-episode-i.html.
-  uint64_t epoch_ticks_m_;
-  uint8_t div_precision_;
+  ConstantDivisor<uint64_t> epoch_ticks_divisor_;
 
   Clock clock_;
 };

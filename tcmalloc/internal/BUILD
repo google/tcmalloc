@@ -219,6 +219,46 @@ cc_test(
 )
 
 cc_library(
+    name = "constant_divisor",
+    hdrs = ["constant_divisor.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        ":logging",
+        "@com_google_absl//absl/numeric:bits",
+        "@com_google_absl//absl/numeric:int128",
+    ],
+)
+
+cc_test(
+    name = "constant_divisor_test",
+    srcs = ["constant_divisor_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":constant_divisor",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:bit_gen_ref",
+        "@com_google_absl//absl/random:distributions",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "constant_divisor_fuzz",
+    srcs = ["constant_divisor_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS + TCMALLOC_DEFAULT_CXXOPTS,
+    deps = [
+        ":constant_divisor",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+cc_library(
     name = "bytes",
     hdrs = ["bytes.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
@@ -1618,11 +1658,10 @@ cc_library(
     ],
     deps = [
         ":clock",
+        ":constant_divisor",
         ":logging",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/functional:function_ref",
-        "@com_google_absl//absl/numeric:bits",
-        "@com_google_absl//absl/numeric:int128",
         "@com_google_absl//absl/time",
     ],
 )
