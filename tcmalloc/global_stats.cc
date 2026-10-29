@@ -78,6 +78,13 @@ static absl::string_view MadviseString() {
   ABSL_UNREACHABLE();
 }
 
+// Because different fields of stats are computed from state protected
+// by different locks, they may be inconsistent.  Prevent underflow
+// when subtracting to avoid gigantic results.
+static uint64_t StatSub(uint64_t a, uint64_t b) {
+  return (a >= b) ? (a - b) : 0;
+}
+
 // Get stats into "r".  Also, if class_count != NULL, class_count[k]
 // will be set to the total number of objects of size class k in the
 // central cache, transfer cache, and per-thread and per-CPU caches.
@@ -126,17 +133,16 @@ void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
   r.linked_sample_stats = tc_globals.linked_sample_allocator().stats();
   r.tc_stats = ThreadCache::GetStats(&r.thread_bytes, class_count);
 
+  r.arena = tc_globals.arena().stats();
+  r.metadata_bytes = tc_globals.metadata_bytes();
+  r.pagemap_bytes =
+      sizeof(tc_globals.pagemap()) +
+      r.arena
+          .bytes_allocated_per_type[static_cast<size_t>(ArenaAlloc::kPageMap)];
+  r.pagemap_root_size = tc_globals.pagemap().RootSize();
+
   {  // scope
     PageHeapSpinLockHolder l;
-    // TODO(b/207622377):  Arena is thread-safe, but we take the pageheap_lock
-    // to present a consistent view of memory usage.
-    r.arena = tc_globals.arena().stats();
-
-    r.metadata_bytes = tc_globals.metadata_bytes();
-    r.pagemap_bytes = sizeof(tc_globals.pagemap()) +
-                      r.arena.bytes_allocated_per_type[static_cast<size_t>(
-                          ArenaAlloc::kPageMap)];
-    r.pagemap_root_size = tc_globals.pagemap().RootSize();
     r.pageheap = tc_globals.page_allocator().stats();
     r.peak_stats = tc_globals.page_allocator().peak_stats();
     if (small_spans != nullptr) {
@@ -157,35 +163,33 @@ void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
     r.num_released_soft_limit_exceeded = release_stats.soft_limit_exceeded;
     r.num_released_hard_limit_exceeded = release_stats.hard_limit_exceeded;
     r.limit_stats = tc_globals.page_allocator().GetLimitStats();
+  }
 
-    r.per_cpu_bytes = 0;
-    r.sharded_transfer_bytes = 0;
-    r.percpu_metadata_bytes_res = 0;
-    r.percpu_metadata_bytes = 0;
-    if (tc_globals.CpuCacheActive()) {
-      r.per_cpu_bytes = tc_globals.cpu_cache().TotalUsedBytes();
-      r.sharded_transfer_bytes =
-          tc_globals.sharded_transfer_cache().TotalBytes();
+  r.per_cpu_bytes = 0;
+  r.sharded_transfer_bytes = 0;
+  r.percpu_metadata_bytes_res = 0;
+  r.percpu_metadata_bytes = 0;
+  if (tc_globals.CpuCacheActive()) {
+    r.per_cpu_bytes = tc_globals.cpu_cache().TotalUsedBytes();
+    r.sharded_transfer_bytes = tc_globals.sharded_transfer_cache().TotalBytes();
 
-      if (report_residence) {
-        auto percpu_metadata = tc_globals.cpu_cache().MetadataMemoryUsage();
-        r.percpu_metadata_bytes_res = percpu_metadata.resident_size;
-        r.percpu_metadata_bytes = percpu_metadata.virtual_size;
-
-        TC_ASSERT_GE(r.metadata_bytes, r.percpu_metadata_bytes);
-        r.metadata_bytes = r.metadata_bytes - r.percpu_metadata_bytes +
-                           r.percpu_metadata_bytes_res;
-      }
+    if (report_residence) {
+      auto percpu_metadata = tc_globals.cpu_cache().MetadataMemoryUsage();
+      r.percpu_metadata_bytes_res = percpu_metadata.resident_size;
+      r.percpu_metadata_bytes = percpu_metadata.virtual_size;
+      r.metadata_bytes = StatSub(r.metadata_bytes, r.percpu_metadata_bytes) +
+                         r.percpu_metadata_bytes_res;
     }
   }
+
   // We can access the pagemap without holding the pageheap_lock since it
   // is static data, and we are only taking address and size which are
   // constants.
   if (report_residence) {
     auto resident_bytes = tc_globals.pagemap_residence();
     r.pagemap_root_bytes_res = resident_bytes;
-    TC_ASSERT_GE(r.metadata_bytes, r.pagemap_bytes);
-    r.metadata_bytes = r.metadata_bytes - r.pagemap_bytes + resident_bytes;
+    r.metadata_bytes =
+        StatSub(r.metadata_bytes, r.pagemap_bytes) + resident_bytes;
   } else {
     r.pagemap_root_bytes_res = 0;
   }
@@ -193,13 +197,6 @@ void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
 
 void ExtractTCMallocStats(TCMallocStats& r, bool report_residence) {
   ExtractStats(r, nullptr, nullptr, nullptr, nullptr, report_residence);
-}
-
-// Because different fields of stats are computed from state protected
-// by different locks, they may be inconsistent.  Prevent underflow
-// when subtracting to avoid gigantic results.
-static uint64_t StatSub(uint64_t a, uint64_t b) {
-  return (a >= b) ? (a - b) : 0;
 }
 
 // Return approximate number of bytes in use by app.
@@ -1153,13 +1150,11 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   }
 
   if (name == "tcmalloc.metadata_arena_unavailable_bytes") {
-    PageHeapSpinLockHolder l;
     *value = tc_globals.arena().stats().bytes_unavailable;
     return true;
   }
 
   if (name == "tcmalloc.metadata_arena_unallocated_bytes") {
-    PageHeapSpinLockHolder l;
     *value = tc_globals.arena().stats().bytes_unallocated;
     return true;
   }
