@@ -249,14 +249,16 @@ const T& FormatConvert(const T& v) {
 // Print into buffer
 class Printer {
  private:
-  char* buf_;        // Where should we write next
-  size_t left_;      // Space left in buffer (including space for \0)
+  const char* const start_;  // Start of buffer
+  char* buf_;                // Where should we write next
+  size_t left_;              // Space left in buffer (including space for \0)
   size_t required_;  // Space we needed to complete all printf calls up to this
                      // point
 
  public:
   // REQUIRES: "length > 0"
-  Printer(char* buf, size_t length) : buf_(buf), left_(length), required_(0) {
+  Printer(char* buf, size_t length)
+      : start_(buf), buf_(buf), left_(length), required_(0) {
     TC_ASSERT_GT(length, 0u);
     buf[0] = '\0';
   }
@@ -275,7 +277,10 @@ class Printer {
     required_ += r;
 
     if (static_cast<size_t>(r) >= left_) {
-      left_ = 0;
+      if (left_ > 0) {
+        buf_ += left_ - 1;
+        left_ = 0;
+      }
     } else {
       left_ -= r;
       buf_ += r;
@@ -289,6 +294,10 @@ class Printer {
   }
 
   [[nodiscard]] size_t SpaceRequired() const { return required_; }
+
+  [[nodiscard]] absl::string_view view() const {
+    return absl::string_view(start_, buf_ - start_);
+  }
 
  private:
   void AppendPieces(std::initializer_list<absl::string_view> pieces) {

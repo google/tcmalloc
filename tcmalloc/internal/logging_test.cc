@@ -70,25 +70,20 @@ TEST(Printer, RequiredSpace) {
     std::unique_ptr<char[]> buf(new char[length]);
     Printer printer(buf.get(), length);
 
-    auto get_buf = [&]() {
-      return absl::string_view(
-          buf.get(), std::min<int>(length - 1, printer.SpaceRequired()));
-    };
-
     for (int j = 0; j < i; j++) {
       printer.printf("%s", kChunk);
     }
-    EXPECT_EQ(get_buf(), expected);
+    EXPECT_EQ(printer.view(), expected);
     EXPECT_EQ(length - 1, printer.SpaceRequired());
 
     // Go past the end of the buffer.  This should not overrun or affect the
     // existing contents of buf, but we should see SpaceRequired tick up.
     printer.printf("%s", kChunk);
-    EXPECT_EQ(get_buf(), expected);
+    EXPECT_EQ(printer.view(), expected);
     EXPECT_EQ(length - 1 + kChunk.size(), printer.SpaceRequired());
 
     printer.printf("%s", kChunk);
-    EXPECT_EQ(get_buf(), expected);
+    EXPECT_EQ(printer.view(), expected);
     EXPECT_EQ(length - 1 + 2 * kChunk.size(), printer.SpaceRequired());
 
     expected.append(kChunk);
@@ -104,25 +99,20 @@ TEST(Printer, RequiredSpacePieces) {
     std::unique_ptr<char[]> buf(new char[length]);
     Printer printer(buf.get(), length);
 
-    auto get_buf = [&]() {
-      return absl::string_view(
-          buf.get(), std::min<int>(length - 1, printer.SpaceRequired()));
-    };
-
     for (int j = 0; j < i; j++) {
       printer.Append(kChunk, kChunk);
     }
-    EXPECT_EQ(get_buf(), expected);
+    EXPECT_EQ(printer.view(), expected);
     EXPECT_EQ(length - 1, printer.SpaceRequired());
 
     // Go past the end of the buffer.  This should not overrun or affect the
     // existing contents of buf, but we should see SpaceRequired tick up.
     printer.Append(kChunk, kChunk);
-    EXPECT_EQ(get_buf(), expected);
+    EXPECT_EQ(printer.view(), expected);
     EXPECT_EQ(length - 1 + 2 * kChunk.size(), printer.SpaceRequired());
 
     printer.Append(kChunk, kChunk);
-    EXPECT_EQ(get_buf(), expected);
+    EXPECT_EQ(printer.view(), expected);
     EXPECT_EQ(length - 1 + 4 * kChunk.size(), printer.SpaceRequired());
 
     expected.append(kChunk);
@@ -259,6 +249,7 @@ TEST(Printer, NullTerminationAndExactBoundary) {
   Printer p(buf, 5);
   p.Append("abcd");
   EXPECT_EQ(p.SpaceRequired(), 4);
+  EXPECT_EQ(p.view(), "abcd");
   EXPECT_EQ(buf[4], '\0');
   EXPECT_STREQ(buf, "abcd");
   EXPECT_EQ(buf[5], 'X');
@@ -269,6 +260,7 @@ TEST(Printer, NullTerminationAndExactBoundary) {
   Printer p_exact(buf, 4);
   p_exact.Append("abcd");
   EXPECT_EQ(p_exact.SpaceRequired(), 4);
+  EXPECT_EQ(p_exact.view(), "");
   EXPECT_EQ(buf[0], '\0');
   EXPECT_EQ(buf[3], 'X');
 
@@ -277,6 +269,7 @@ TEST(Printer, NullTerminationAndExactBoundary) {
   Printer p_printf(buf, 4);
   p_printf.printf("%s", "abcd");
   EXPECT_EQ(p_printf.SpaceRequired(), 4);
+  EXPECT_EQ(p_printf.view(), "abc");
   EXPECT_EQ(buf[3], '\0');
   EXPECT_STREQ(buf, "abc");
   EXPECT_EQ(buf[4], 'X');

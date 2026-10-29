@@ -1353,7 +1353,7 @@ TEST_P(HugePageAwareAllocatorTest, LargeSmall) {
   // to account for bytes tied up in the cache.
   EXPECT_LE(stats.free_bytes - allocator_->cache()->size().in_bytes(),
             kSmallPages.in_bytes() * kIters)
-      << buffer;
+      << printer.view();
 
   for (AllocationState small : small_allocs) {
     Delete(small, kSpanInfo.objects_per_span);
