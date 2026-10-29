@@ -698,6 +698,9 @@ TEST(PageFlagsTest, TooManyTails) {
               Optional(PageStats{}));
   EXPECT_THAT(s.Get(reinterpret_cast<char*>(kHugePageSize), 3 * kHugePageSize),
               Optional(PageStats{}));
+  EXPECT_THAT(
+      s.Get(reinterpret_cast<char*>(2 * kHugePageSize), 3 * kHugePageSize),
+      std::nullopt);
 
   EXPECT_THAT(s.Get(reinterpret_cast<char*>(3 * kHugePageSize), kHugePageSize),
               Optional(PageStats{}));
@@ -906,6 +909,215 @@ TEST(PageFlagsTest, GetSinglePageBitmapsSuccess) {
   EXPECT_EQ(ret.locked.CountBits(), kHardwarePagesInHugePage / 4);
   EXPECT_EQ(ret.incompressible.CountBits(), kHardwarePagesInHugePage / 8);
   EXPECT_EQ(ret.stale_scan_seconds, kSetScanSeconds);
+}
+
+TEST(PageFlagsTest, PartiallyUnbackedThp) {
+  const size_t kHardwarePageSize = getpagesize();
+  const size_t kPagesPerHugepage = kHugePageSize / kHardwarePageSize;
+  std::vector<uint64_t> data(3 * kPagesPerHugepage, 0);
+
+  // Hugepage 1: partially-subreleased THP on Linux's deferred-split queue.
+  // Page 0 remains PageHead | PageThp (stale + mlocked), page 1 is unbacked
+  // (0), page 2 was refaulted as an incompressible native order-0 page, and
+  // pages 3..511 remain PageTail | PageThp on the original compound folio.
+  data[kPagesPerHugepage] = kPageHead | kPageThp | kPageStale | kPageMlocked;
+  data[kPagesPerHugepage + 1] = 0;
+  data[kPagesPerHugepage + 2] = kPageIncompressible;
+  for (size_t i = 3; i < kPagesPerHugepage; ++i) {
+    data[kPagesPerHugepage + i] = kPageTail | kPageThp;
+  }
+
+  // Hugepage 2: intact incompressible THP to verify multi-batch Seek recovery.
+  data[2 * kPagesPerHugepage] = kPageHead | kPageThp | kPageIncompressible;
+  for (size_t i = 1; i < kPagesPerHugepage; ++i) {
+    data[2 * kPagesPerHugepage + i] = kPageTail | kPageThp;
+  }
+
+  std::string file_path =
+      absl::StrCat(testing::TempDir(), "/partially-unbacked-thp");
+  SetContents(file_path,
+              absl::string_view(reinterpret_cast<const char*>(data.data()),
+                                data.size() * sizeof(uint64_t)));
+
+  PageFlagsFriend s(file_path);
+  constexpr uint64_t kSetScanSeconds = 63;
+  s.SetCachedScanSeconds(kSetScanSeconds);
+
+  // Scanning from a preceding native page exercises ReadMany across page 0, the
+  // interior unbacked/refaulted pages, and the remaining tail pages.
+  const size_t expected_folio_bytes =
+      (kPagesPerHugepage - 2) * kHardwarePageSize;
+  EXPECT_THAT(s.Get(reinterpret_cast<char*>(kHugePageSize - kHardwarePageSize),
+                    kHugePageSize + kHardwarePageSize),
+              Optional(FieldsAre(expected_folio_bytes, expected_folio_bytes,
+                                 kHardwarePageSize, kSetScanSeconds)));
+
+  // Starting mid-hugepage on unbacked interior page 1 spans two ReadMany
+  // batches into Hugepage 2, exercising head rewind + Seek(batch_end_vaddr).
+  EXPECT_THAT(
+      s.Get(reinterpret_cast<char*>(kHugePageSize + kHardwarePageSize),
+            2 * kHugePageSize - kHardwarePageSize),
+      Optional(FieldsAre((kPagesPerHugepage - 3) * kHardwarePageSize,
+                         (kPagesPerHugepage - 3) * kHardwarePageSize,
+                         kHugePageSize + kHardwarePageSize, kSetScanSeconds)));
+
+  // GetSinglePageBitmaps preserves the compound head's staleness across
+  // unbacked/native interior pages while leaving those interior pages clear.
+  auto bitmaps =
+      s.GetSinglePageBitmaps(reinterpret_cast<const void*>(kHugePageSize));
+  EXPECT_EQ(bitmaps.status, absl::StatusCode::kOk);
+  EXPECT_EQ(bitmaps.stale.CountBits(), kPagesPerHugepage - 2);
+  EXPECT_TRUE(bitmaps.stale.GetBit(0));
+  EXPECT_FALSE(bitmaps.stale.GetBit(1));
+  EXPECT_FALSE(bitmaps.stale.GetBit(2));
+  EXPECT_TRUE(bitmaps.stale.GetBit(3));
+}
+
+TEST(PageFlagsTest, UnbackedHeadPage) {
+  const size_t kHardwarePageSize = getpagesize();
+  const size_t kPagesPerHugepage = kHugePageSize / kHardwarePageSize;
+  std::vector<uint64_t> data(3 * kPagesPerHugepage, 0);
+
+  // Hugepage 1: intact stale + mlocked THP.
+  data[kPagesPerHugepage] = kPageHead | kPageThp | kPageStale | kPageMlocked;
+  for (size_t i = 1; i < kPagesPerHugepage; ++i) {
+    data[kPagesPerHugepage + i] = kPageTail | kPageThp;
+  }
+
+  // Hugepage 2: deferred-split THP whose head page was refaulted as a native
+  // stale page, page 1 is unbacked (flushing stale range into ret.stale before
+  // failing), and pages 2..511 remain PageTail | PageThp.
+  data[2 * kPagesPerHugepage] = kPageStale;
+  data[2 * kPagesPerHugepage + 1] = 0;
+  for (size_t i = 2; i < kPagesPerHugepage; ++i) {
+    data[2 * kPagesPerHugepage + i] = kPageTail | kPageThp;
+  }
+
+  std::string file_path =
+      absl::StrCat(testing::TempDir(), "/unbacked-head-page");
+  SetContents(file_path,
+              absl::string_view(reinterpret_cast<const char*>(data.data()),
+                                data.size() * sizeof(uint64_t)));
+
+  PageFlagsFriend s(file_path);
+  // MaybeReadOne seeking from a tail page to a native page at the hugepage
+  // base must fail rather than attributing page 0's flags to pages 2..511.
+  EXPECT_EQ(
+      s.Get(reinterpret_cast<char*>(2 * kHugePageSize + 2 * kHardwarePageSize),
+            kHardwarePageSize),
+      std::nullopt);
+  // ReadMany crossing from intact Hugepage 1 into Hugepage 2 must reset
+  // last_head_read_ at the 2 MiB boundary and fail rather than leaking
+  // Hugepage 1's flags.
+  EXPECT_EQ(s.Get(reinterpret_cast<char*>(kHugePageSize - kHardwarePageSize),
+                  2 * kHugePageSize + kHardwarePageSize),
+            std::nullopt);
+  auto bitmaps =
+      s.GetSinglePageBitmaps(reinterpret_cast<const void*>(2 * kHugePageSize));
+  EXPECT_EQ(bitmaps.status, absl::StatusCode::kFailedPrecondition);
+  EXPECT_EQ(bitmaps.stale.CountBits(), 0);
+}
+
+TEST(PageFlagsTest, NonThpCompoundPages) {
+  const size_t kHardwarePageSize = getpagesize();
+  const size_t kPagesPerHugepage = kHugePageSize / kHardwarePageSize;
+  std::vector<uint64_t> data(3 * kPagesPerHugepage, 0);
+
+  // Hugepage 0: native stale page + unbacked page (flushing ret.stale) followed
+  // by a non-THP compound head.
+  data[0] = kPageStale;
+  data[1] = 0;
+  data[2] = kPageHead | kPageHuge;
+
+  // Hugepage 1: THP head + unbacked page (flushing ret.stale) followed by a
+  // non-THP compound tail.
+  data[kPagesPerHugepage] = kPageHead | kPageThp | kPageStale;
+  data[kPagesPerHugepage + 1] = 0;
+  data[kPagesPerHugepage + 2] = kPageTail | kPageHuge;
+
+  // Hugepage 2: non-THP compound head followed by THP tail (exercises
+  // MaybeReadOne's !PageThp check after rewinding to hugepage base).
+  data[2 * kPagesPerHugepage] = kPageHead | kPageHuge;
+  data[2 * kPagesPerHugepage + 1] = kPageTail | kPageThp;
+
+  std::string file_path = absl::StrCat(testing::TempDir(), "/non-thp-compound");
+  SetContents(file_path,
+              absl::string_view(reinterpret_cast<const char*>(data.data()),
+                                data.size() * sizeof(uint64_t)));
+
+  PageFlagsFriend s(file_path);
+  EXPECT_EQ(s.Get(nullptr, 4 * kHardwarePageSize), std::nullopt);
+  EXPECT_EQ(s.Get(reinterpret_cast<char*>(kHugePageSize - kHardwarePageSize),
+                  5 * kHardwarePageSize),
+            std::nullopt);
+  EXPECT_EQ(
+      s.Get(reinterpret_cast<char*>(2 * kHugePageSize + kHardwarePageSize),
+            kHardwarePageSize),
+      std::nullopt);
+
+  auto bitmaps0 = s.GetSinglePageBitmaps(nullptr);
+  EXPECT_EQ(bitmaps0.status, absl::StatusCode::kFailedPrecondition);
+  EXPECT_EQ(bitmaps0.stale.CountBits(), 0);
+
+  auto bitmaps1 =
+      s.GetSinglePageBitmaps(reinterpret_cast<const void*>(kHugePageSize));
+  EXPECT_EQ(bitmaps1.status, absl::StatusCode::kFailedPrecondition);
+  EXPECT_EQ(bitmaps1.stale.CountBits(), 0);
+}
+
+TEST(PageFlagsTest, DeferredSplitThpKernel) {
+  GTEST_SKIP() << "pageflags not commonly available";
+
+#if ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_MEMORY_SANITIZER || \
+    ABSL_HAVE_THREAD_SANITIZER
+  GTEST_SKIP() << "Skipped under sanitizers.";
+#endif
+
+  const size_t kHardwarePageSize = getpagesize();
+  const size_t kSize = 3 * kHugePageSize;
+  char* p = MmapWithHugepageMisalignment(kSize, /*misalignment=*/0);
+  struct Unmapper {
+    char* ptr;
+    size_t size;
+    ~Unmapper() { CHECK_EQ(munmap(ptr, size), 0) << errno; }
+  } unmap_p{p, kSize};
+  std::memset(p, 0x5a, kSize);
+
+  ASSERT_EQ(madvise(p, kHugePageSize, MADV_NOHUGEPAGE), 0) << errno;
+  if (madvise(p + kHugePageSize, 2 * kHugePageSize, MADV_COLLAPSE) != 0) {
+    GTEST_SKIP() << "MADV_COLLAPSE unavailable or out of hugepages: " << errno;
+  }
+  ASSERT_EQ(madvise(p + kHugePageSize, 2 * kHugePageSize, MADV_NOHUGEPAGE), 0)
+      << errno;
+
+  PageFlags s;
+  char* h1 = p + kHugePageSize;
+  char* h2 = p + 2 * kHugePageSize;
+  if (!s.IsHugepageBacked(h1).value_or(false) ||
+      !s.IsHugepageBacked(h2).value_or(false)) {
+    GTEST_SKIP() << "THP collapse did not materialize compound pages.";
+  }
+
+  // Case 1: Unbacking an interior page splits only the PMD and leaves pages
+  // 2..511 as PageTail | PageThp while page 0 remains PageHead | PageThp.
+  ASSERT_EQ(madvise(h1 + kHardwarePageSize, kHardwarePageSize, MADV_DONTNEED),
+            0)
+      << errno;
+  EXPECT_EQ(s.GetSinglePageBitmaps(h1).status, absl::StatusCode::kOk);
+  EXPECT_THAT(s.Get(h1 - kHardwarePageSize, kHugePageSize + kHardwarePageSize),
+              Optional(PageStats{}));
+  EXPECT_THAT(s.Get(h1 + kHardwarePageSize, kHugePageSize - kHardwarePageSize),
+              Optional(PageStats{}));
+
+  // Case 2: Unbacking the head page leaves page 0 as KPF_NOPAGE while pages
+  // 1..511 remain PageTail | PageThp with no mapped head page in this VMA.
+  ASSERT_EQ(madvise(h2, kHardwarePageSize, MADV_DONTNEED), 0) << errno;
+  EXPECT_EQ(s.Get(h2 + kHardwarePageSize, kHardwarePageSize), std::nullopt);
+  EXPECT_EQ(
+      s.Get(h1 - kHardwarePageSize, 2 * kHugePageSize + kHardwarePageSize),
+      std::nullopt);
+  EXPECT_EQ(s.GetSinglePageBitmaps(h2).status,
+            absl::StatusCode::kFailedPrecondition);
 }
 
 }  // namespace

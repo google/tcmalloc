@@ -134,9 +134,11 @@ class PageFlags final : public PageFlagsBase {
   [[nodiscard]] absl::StatusCode MaybeReadOne(uintptr_t vaddr, uint64_t& flags,
                                               bool& is_huge);
   // This helper reads staleness information for `num_pages` worth of _full_
-  // pages and puts the results into `output`. It continues the read from the
-  // last Seek() or last Read operation.
-  [[nodiscard]] absl::StatusCode ReadMany(int64_t num_pages, PageStats& output);
+  // pages starting at `vaddr` and puts the results into `output`. It continues
+  // the read from the last Seek() or last Read operation, which must leave the
+  // file positioned at `vaddr`.
+  [[nodiscard]] absl::StatusCode ReadMany(uintptr_t vaddr, int64_t num_pages,
+                                          PageStats& output);
 
   static constexpr const char* kKstaledScanSeconds =
       "/sys/kernel/mm/kstaled/scan_seconds";
