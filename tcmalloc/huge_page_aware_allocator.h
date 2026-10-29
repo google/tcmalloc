@@ -766,7 +766,9 @@ template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::DeleteFromHugepage(
     FillerType::Tracker* pt, Range r, bool might_abandon,
     SpanAllocInfo span_alloc_info) {
-  if (ABSL_PREDICT_TRUE(filler_.Put(pt, r, span_alloc_info) == nullptr)) {
+  if (ABSL_PREDICT_TRUE(filler_.Put(pt, r, span_alloc_info,
+                                    forwarder_.filler_append_on_free()) ==
+                        nullptr)) {
     // If this allocation had resulted in a donation to the filler, we record
     // these pages as abandoned.  A fully freed hugepage that the filler parked
     // because a treatment still pins it is not abandoned: nothing else is
@@ -859,7 +861,8 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(
     Length virt_len = kPagesPerHugePage - slack;
     // We may have used the slack, which would prevent us from returning the
     // entire range now.  If filler returned a Tracker, we are fully empty.
-    if (filler_.Put(pt, Range(virt, virt_len), span_alloc_info) == nullptr) {
+    if (filler_.Put(pt, Range(virt, virt_len), span_alloc_info,
+                    forwarder_.filler_append_on_free()) == nullptr) {
       // Note that we abandoned virt_len pages with pt.  These can be reused for
       // other allocations, but this can contribute to excessive slack in the
       // filler.  As in DeleteFromHugepage, a parked fully freed hugepage is

@@ -176,7 +176,8 @@ struct TrackerDeleter {
     std::unique_ptr<PageTracker> emptied;
     {
       PageHeapSpinLockHolder l;
-      emptied.reset(filler->Put(pt, kept_range, info));
+      emptied.reset(
+          filler->Put(pt, kept_range, info, FillerAppendOnFree::kDisabled));
     }
     EXPECT_EQ(emptied.get(), pt);
   }
@@ -299,7 +300,8 @@ TEST_F(HugePageTreatmentRealMemoryTest,
   // SystemAllocator::Release.
   {
     PageHeapSpinLockHolder l;
-    EXPECT_EQ(filler_.Put(pt.get(), Range(rel_page, released_len), info),
+    EXPECT_EQ(filler_.Put(pt.get(), Range(rel_page, released_len), info,
+                          FillerAppendOnFree::kDisabled),
               nullptr);
     const Length released = filler_.ReleasePages(
         released_len, SkipSubreleaseIntervals{},
@@ -336,7 +338,8 @@ TEST_F(HugePageTreatmentRealMemoryTest,
         0)
         << errno;
     *reinterpret_cast<uint8_t*>(extra_free_page.start_addr()) = 0xCD;
-    EXPECT_EQ(filler_.Put(pt.get(), Range(extra_free_page, Length(1)), info),
+    EXPECT_EQ(filler_.Put(pt.get(), Range(extra_free_page, Length(1)), info,
+                          FillerAppendOnFree::kDisabled),
               nullptr);
     EXPECT_TRUE(pt->released());
     EXPECT_EQ(pt->released_pages(), Length(3));

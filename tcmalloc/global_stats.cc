@@ -657,6 +657,11 @@ void DumpStats(Printer& out, int level) {
         Parameters::prefer_backed_filler_pages() == PreferBackedPages::kEnabled
             ? 1
             : 0);
+    out.printf(
+        "PARAMETER tcmalloc_filler_append_on_free %d\n",
+        Parameters::filler_append_on_free() == FillerAppendOnFree::kEnabled
+            ? 1
+            : 0);
     out.printf("PARAMETER tcmalloc_madvise_sampled_allocations %d\n",
                Parameters::madvise_sampled_allocations() ==
                    MadviseSampledAllocations::kEnabled);
@@ -944,6 +949,9 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintBool(
       "tcmalloc_prefer_backed_filler_pages",
       Parameters::prefer_backed_filler_pages() == PreferBackedPages::kEnabled);
+  region.PrintBool(
+      "tcmalloc_filler_append_on_free",
+      Parameters::filler_append_on_free() == FillerAppendOnFree::kEnabled);
   region.PrintI64("profile_sampling_interval",
                   Parameters::profile_sampling_interval());
   region.PrintRaw("percpu_vcpu_type",

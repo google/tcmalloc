@@ -2864,6 +2864,67 @@ TEST_P(HugePageAwareAllocatorTest, PreserveDonatedOnCollapse) {
   }
 }
 
+TEST_P(HugePageAwareAllocatorTest, FillerAppendOnFreeToggle) {
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+  // Fill two hugepages A and B with the same shape: a half-hugepage span, a
+  // span covering the rest but one page, and a single page.  Freeing the
+  // single page from each leaves both with longest_free_range == 1 and the
+  // same allocation count, so they tie on list ordering and only the
+  // prepend/append choice in Put decides which one the next allocation hits.
+  constexpr Length kHalf = kPagesPerHugePage / 2;
+  constexpr Length kRest = kPagesPerHugePage - kHalf - Length(1);
+  AllocationState a1 = New(kHalf, kSpanInfo);
+  AllocationState a2 = New(kRest, kSpanInfo);
+  AllocationState a3 = New(Length(1), kSpanInfo);
+  AllocationState b1 = New(kHalf, kSpanInfo);
+  AllocationState b2 = New(kRest, kSpanInfo);
+  AllocationState b3 = New(Length(1), kSpanInfo);
+  const HugePage a = HugePageContaining(a1.r.p);
+  const HugePage b = HugePageContaining(b1.r.p);
+  ASSERT_NE(a, b);
+  ASSERT_EQ(HugePageContaining(a2.r.p), a);
+  ASSERT_EQ(HugePageContaining(a3.r.p), a);
+  ASSERT_EQ(HugePageContaining(b2.r.p), b);
+  ASSERT_EQ(HugePageContaining(b3.r.p), b);
+
+  // Frees the single page from A and then from B, so B is the most recently
+  // freed-into hugepage, then checks which hugepage a one-page allocation
+  // lands on.  That allocation and one more refill A and B to full for the
+  // next round.
+  auto round = [&](FillerAppendOnFree mode) {
+    allocator_->forwarder().filler_append_on_free.set(mode);
+    Delete(a3, 1);
+    Delete(b3, 1);
+    AllocationState first = New(Length(1), kSpanInfo);
+    AllocationState second = New(Length(1), kSpanInfo);
+    // Prepend: B (freed last) is at the front of the list.  Append: B is
+    // behind A.  Either way the second allocation takes the other hugepage.
+    const HugePage expected = mode == FillerAppendOnFree::kEnabled ? a : b;
+    EXPECT_EQ(HugePageContaining(first.r.p), expected);
+    ASSERT_NE(HugePageContaining(first.r.p), HugePageContaining(second.r.p));
+    if (HugePageContaining(first.r.p) == a) {
+      a3 = first;
+      b3 = second;
+    } else {
+      a3 = second;
+      b3 = first;
+    }
+  };
+
+  // Flip the parameter back and forth on the live allocator.
+  round(FillerAppendOnFree::kDisabled);
+  round(FillerAppendOnFree::kEnabled);
+  round(FillerAppendOnFree::kDisabled);
+  round(FillerAppendOnFree::kEnabled);
+
+  Delete(a1, 1);
+  Delete(a2, 1);
+  Delete(a3, 1);
+  Delete(b1, 1);
+  Delete(b2, 1);
+  Delete(b3, 1);
+}
+
 TEST_P(HugePageAwareAllocatorTest, PreferBackedFillerPages) {
   allocator_->forwarder().hpaa_subrelease.set(true);
   allocator_->forwarder().release_partial_alloc_pages.set(

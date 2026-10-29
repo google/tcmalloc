@@ -546,11 +546,14 @@ class HugePageFiller {
   // Marks r as usable by new allocations into *pt; returns pt if that hugepage
   // is now empty (nullptr otherwise.)
   //
+  // append_on_free controls whether pt is re-listed at the back (kEnabled) or
+  // the front (kDisabled) of its tracker list; see FillerAppendOnFree.
+  //
   // REQUIRES: pt is owned by this object (has been Contribute()), and
   // {pt, Range{p, n}} was the result of a previous TryGet.
-  [[nodiscard]] TrackerType* absl_nullable Put(TrackerType* absl_nonnull pt,
-                                               Range r,
-                                               SpanAllocInfo span_alloc_info)
+  [[nodiscard]] TrackerType* absl_nullable Put(
+      TrackerType* absl_nonnull pt, Range r, SpanAllocInfo span_alloc_info,
+      FillerAppendOnFree append_on_free)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Contributes a tracker to the filler. If "donated," then the tracker is
@@ -768,11 +771,12 @@ class HugePageFiller {
       }
       return dense.GetLeast(listindex);
     }
-    void Add(TrackerType* pt, size_t listindex, AccessDensityPrediction type) {
+    void Add(TrackerType* pt, size_t listindex, AccessDensityPrediction type,
+             bool prepend) {
       if (type == AccessDensityPrediction::kSparse) {
-        sparse.Add(pt, listindex, /*prepend=*/true);
+        sparse.Add(pt, listindex, prepend);
       } else {
-        dense.Add(pt, listindex, /*prepend=*/true);
+        dense.Add(pt, listindex, prepend);
       }
     }
     void Remove(TrackerType* pt, size_t listindex,
@@ -833,8 +837,10 @@ class HugePageFiller {
 
   // RemoveFromFillerList pt from the appropriate PageTrackerList.
   void RemoveFromFillerList(TrackerType* absl_nonnull pt);
-  // Put pt in the appropriate PageTrackerList.
-  void AddToFillerList(TrackerType* absl_nonnull pt);
+  // Put pt in the appropriate PageTrackerList.  If prepend is true, pt goes to
+  // the front of its list and becomes the next allocation target among
+  // hugepages in that list; otherwise it is placed at the back.
+  void AddToFillerList(TrackerType* absl_nonnull pt, bool prepend);
   // Retires a tracker that has become empty.  Returns pt if the caller now owns
   // it; returns nullptr if pt was parked on fully_freed_trackers_ because a
   // concurrent operation still holds a pointer to it.  May drop and reacquire
@@ -1082,7 +1088,7 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info,
     pt->SetLastAllocationTime(now);
   }
   const auto page_allocation = pt->Get(n, span_alloc_info, prefer_backed);
-  AddToFillerList(pt);
+  AddToFillerList(pt, /*prepend=*/true);
   pages_allocated_[type] += n;
 
   // If it was in a released state earlier, and is about to be full again,
@@ -1135,7 +1141,8 @@ inline void HugePageFiller<TrackerType>::ClearWasReleased(TrackerType* pt) {
 // Range(p, n)} was the result of a previous TryGet.
 template <class TrackerType>
 inline TrackerType* HugePageFiller<TrackerType>::Put(
-    TrackerType* pt, Range r, SpanAllocInfo span_alloc_info) {
+    TrackerType* pt, Range r, SpanAllocInfo span_alloc_info,
+    FillerAppendOnFree append_on_free) {
   const int64_t now = clock_.now();
   RemoveFromFillerList(pt);
   pt->Put(r, span_alloc_info);
@@ -1153,7 +1160,13 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(
   if (ABSL_PREDICT_FALSE(pt->fully_freed() && !pt->BeingReleased())) {
     return HandleFullyFreedTracker(pt, now);
   }
-  AddToFillerList(pt);
+  // With append_on_free enabled, append rather than prepend: a hugepage that
+  // just had pages returned to it is more likely to have more returned, so we
+  // would rather fill one that has not recently had pages freed and let this
+  // one empty out.  Prepending (as TryGet does) would make it the next
+  // allocation target in its list.
+  AddToFillerList(pt,
+                  /*prepend=*/append_on_free == FillerAppendOnFree::kDisabled);
   UpdateFillerStatsTracker(now);
   return nullptr;
 }
@@ -1204,7 +1217,7 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
     // A concurrent operation that dropped pageheap_lock still holds a pointer
     // to pt.  Park it until the last pin is cleared (FetchFullyFreedTracker),
     // which also resets its VMA name: the pinning treatment may still name it.
-    AddToFillerList(pt);
+    AddToFillerList(pt, /*prepend=*/true);
     return nullptr;
   }
   if (pt->GetTagState().sampled_for_tagging) {
@@ -1236,7 +1249,7 @@ inline void HugePageFiller<TrackerType>::Contribute(
     if (type == AccessDensityPrediction::kDense) {
       pt->SetHasDenseSpans();
     }
-    AddToFillerList(pt);
+    AddToFillerList(pt, /*prepend=*/true);
   }
 
   ++size_;
@@ -1312,7 +1325,7 @@ inline Length HugePageFiller<TrackerType>::ReleaseFreeFromTracker(
   // tracker as partially released rather than placing it on a list.
   RemoveFromFillerList(pt);
   pt->SetBeingReleased(true);
-  AddToFillerList(pt);
+  AddToFillerList(pt, /*prepend=*/true);
 
   // Account the pages about to be unbacked as unmapped before dropping
   // pageheap_lock.  Anything that inspects the filler meanwhile
@@ -1347,7 +1360,7 @@ inline Length HugePageFiller<TrackerType>::ReleaseFreeFromTracker(
     return ret;
   }
 
-  AddToFillerList(pt);
+  AddToFillerList(pt, /*prepend=*/true);
   // If the candidate we just released from previously had was_released set,
   // clear it. was_released is tracked only for pages that aren't in
   // released state.
@@ -1932,7 +1945,7 @@ inline void HugePageFiller<TrackerType>::OnCollapseSuccess(
       preserve_donated_on_collapse == PreserveDonatedOnCollapse::kEnabled) {
     DonateToFillerList(pt);
   } else {
-    AddToFillerList(pt);
+    AddToFillerList(pt, /*prepend=*/true);
   }
 }
 
@@ -1946,7 +1959,7 @@ inline Length HugePageFiller<TrackerType>::HandleUnbackedHugePage(
   subrelease_stats_.total_pages_subreleased += unmapped_length;
   unmapped_ += unmapped_length;
   unmapping_unaccounted_ += unmapped_length;
-  AddToFillerList(tracker);
+  AddToFillerList(tracker, /*prepend=*/true);
   if (tracker->released()) {
     ClearWasReleased(tracker);
   }
@@ -2505,7 +2518,8 @@ HugePageFiller<TrackerType>::FetchFullyFreedTracker() {
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
+inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt,
+                                                         bool prepend) {
   Length longest = pt->longest_free_range();
   TC_ASSERT_LE(longest, kPagesPerHugePage);
 
@@ -2541,12 +2555,12 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
   if (!pt->released() &&
       (pt->unbroken() ||
        subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kDisabled)) {
-    regular_alloc_.Add(pt, i, type);
+    regular_alloc_.Add(pt, i, type, prepend);
   } else if (pt->free_pages() <= pt->released_pages()) {
-    regular_alloc_released_.Add(pt, i, type);
+    regular_alloc_released_.Add(pt, i, type, prepend);
     n_used_released_[type] += pt->used_pages();
   } else {
-    regular_alloc_partial_released_.Add(pt, i, type);
+    regular_alloc_partial_released_.Add(pt, i, type, prepend);
     n_used_partial_released_[type] += pt->used_pages();
   }
 }

@@ -29,6 +29,7 @@ enum class Experiment : int {
   TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION,  // TODO: b/205153285 - Complete experiment.
   TCMALLOC_RELEASE_FREE_STALE,  // TODO: b/527473378 - Complete experiment.
   TCMALLOC_SONIC_COLLAPSE_RELEASED_HUGEPAGES,  // TODO: b/435718337 - Complete experiment.
+  TCMALLOC_SONIC_FILLER_APPEND_ON_FREE,  // TODO: b/579425486 - Complete experiment.
   TCMALLOC_SONIC_FIX_MAX_CAPACITY_BUG_ABLATION,  // TODO: b/577007348 - Complete experiment.
   TCMALLOC_SONIC_PREFER_BACKED_FILLER_PAGES,  // TODO: b/539704318 - Complete experiment.
   TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE,  // TODO: b/572530574 - Complete experiment.
@@ -63,6 +64,7 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION, "TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION"},
     {Experiment::TCMALLOC_RELEASE_FREE_STALE, "TCMALLOC_RELEASE_FREE_STALE"},
     {Experiment::TCMALLOC_SONIC_COLLAPSE_RELEASED_HUGEPAGES, "TCMALLOC_SONIC_COLLAPSE_RELEASED_HUGEPAGES", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
+    {Experiment::TCMALLOC_SONIC_FILLER_APPEND_ON_FREE, "TCMALLOC_SONIC_FILLER_APPEND_ON_FREE"},
     {Experiment::TCMALLOC_SONIC_FIX_MAX_CAPACITY_BUG_ABLATION, "TCMALLOC_SONIC_FIX_MAX_CAPACITY_BUG_ABLATION"},
     {Experiment::TCMALLOC_SONIC_PREFER_BACKED_FILLER_PAGES, "TCMALLOC_SONIC_PREFER_BACKED_FILLER_PAGES", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
     {Experiment::TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE, "TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
