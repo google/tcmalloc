@@ -1814,6 +1814,7 @@ tcmalloc_cc_test(
     "GTest::gmock_main"
     "GTest::gmock"
     "absl::base"
+    "absl::string_view"
     "absl::time"
     "tcmalloc::common_8k_pages"
     "tcmalloc::internal_logging"
