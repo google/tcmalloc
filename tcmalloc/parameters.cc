@@ -304,6 +304,18 @@ ABSL_CONST_INIT std::atomic<ReleaseStalePages> Parameters::release_stale_pages_(
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_drained_slab_metadata_(
     true);
 
+static std::atomic<bool>& fix_max_capacity_bug_enabled() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{true};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (IsExperimentActive(
+            Experiment::TCMALLOC_SONIC_FIX_MAX_CAPACITY_BUG_ABLATION)) {
+      v.store(false, std::memory_order_relaxed);
+    }
+  });
+  return v;
+}
+
 // Configures short and long intervals to zero by default. We expect to set them
 // to the non-zero durations once the feature is no longer experimental.
 ABSL_CONST_INIT std::atomic<int64_t>
@@ -412,6 +424,10 @@ HugeRegionUsageOption Parameters::huge_region_option() {
   return use_huge_region_more_often()
              ? HugeRegionUsageOption::kUseForAllLargeAllocs
              : HugeRegionUsageOption::kDefault;
+}
+
+bool Parameters::fix_max_capacity_bug() {
+  return fix_max_capacity_bug_enabled().load(std::memory_order_relaxed);
 }
 
 HeapPartitioningMode Parameters::heap_partitioning_mode() {
@@ -903,6 +919,16 @@ void TCMalloc_Internal_SetReleaseDrainedSlabMetadata(bool v) {
   tc_globals.InitIfNecessary();
   Parameters::release_drained_slab_metadata_.store(v,
                                                    std::memory_order_relaxed);
+}
+
+bool TCMalloc_Internal_GetFixMaxCapacityBug() {
+  return tcmalloc::tcmalloc_internal::fix_max_capacity_bug_enabled().load(
+      std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetFixMaxCapacityBug(bool v) {
+  tcmalloc::tcmalloc_internal::fix_max_capacity_bug_enabled().store(
+      v, std::memory_order_relaxed);
 }
 }  // extern "C"
 

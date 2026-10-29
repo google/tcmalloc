@@ -32,6 +32,8 @@
 #include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/experiment.h"
+#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
@@ -195,6 +197,10 @@ TEST_F(GetStatsTest, Pbtxt) {
                                    CflSubbucketPrioritization::kEnabled
                            ? "true"
                            : "false")));
+
+  EXPECT_THAT(buf, HasSubstr(absl::StrCat(
+                       "tcmalloc_fix_max_capacity_bug: ",
+                       Parameters::fix_max_capacity_bug() ? "true" : "false")));
 
   sized_delete(alloc, kSize);
 }
@@ -396,6 +402,10 @@ TEST_F(GetStatsTest, Parameters) {
                                      CflSubbucketPrioritization::kEnabled
                              ? 1
                              : 0)));
+
+    EXPECT_THAT(buf, HasSubstr(absl::StrCat(
+                         "PARAMETER tcmalloc_fix_max_capacity_bug ",
+                         Parameters::fix_max_capacity_bug() ? 1 : 0)));
   }
 
   Parameters::set_hpaa_subrelease(true);

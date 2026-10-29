@@ -78,6 +78,7 @@ class StaticForwarder : private Parameters {
   using Parameters::filler_skip_subrelease_cold_short_interval;
   using Parameters::filler_skip_subrelease_long_interval;
   using Parameters::filler_skip_subrelease_short_interval;
+  using Parameters::fix_max_capacity_bug;
   using Parameters::hpaa_subrelease;
   using Parameters::huge_region_adaptive_release;
   using Parameters::madvise_cold_regions_nohugepage;

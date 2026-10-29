@@ -717,6 +717,8 @@ void DumpStats(Printer& out, int level) {
                 central_freelist_internal::CflSubbucketPrioritization::kEnabled
             ? 1
             : 0);
+    out.printf("PARAMETER tcmalloc_fix_max_capacity_bug %d\n",
+               Parameters::fix_max_capacity_bug());
   }
 }
 
@@ -991,6 +993,9 @@ void DumpStatsInPbtxt(Printer& out, int level) {
       "tcmalloc_cfl_subbucket_prioritization",
       Parameters::cfl_subbucket_prioritization() ==
           central_freelist_internal::CflSubbucketPrioritization::kEnabled);
+
+  region.PrintBool("tcmalloc_fix_max_capacity_bug",
+                   Parameters::fix_max_capacity_bug());
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,

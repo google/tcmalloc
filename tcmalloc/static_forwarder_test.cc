@@ -262,6 +262,8 @@ TEST(StaticForwarderTest, Parameters) {
             Parameters::subrelease_unbacked_hugepages());
   EXPECT_EQ(ProdForwarder::track_broken_hugepages(),
             Parameters::track_broken_hugepages());
+  EXPECT_EQ(ProdForwarder::fix_max_capacity_bug(),
+            Parameters::fix_max_capacity_bug());
 }
 
 class StaticForwarderSpanTest : public testing::TestWithParam<size_t> {

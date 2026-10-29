@@ -416,6 +416,8 @@ class TestStaticForwarder : private Parameters {
     return release_drained_slab_metadata_;
   }
 
+  bool fix_max_capacity_bug() const { return fix_max_capacity_bug_; }
+
   size_t arena_reported_nonresident_bytes_ = 0;
   int64_t arena_reported_impending_bytes_ = 0;
   size_t shrink_to_usage_limit_calls_ = 0;
@@ -426,6 +428,7 @@ class TestStaticForwarder : private Parameters {
   std::optional<SizeMap> size_map_;
   bool release_drained_slab_metadata_ = false;
   size_t active_partitions_ = 1u;
+  bool fix_max_capacity_bug_ = true;
 
  private:
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;

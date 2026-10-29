@@ -282,6 +282,8 @@ class Parameters {
     return release_drained_slab_metadata_.load(std::memory_order_relaxed);
   }
 
+  [[nodiscard]] static bool fix_max_capacity_bug();
+
   [[nodiscard]] static HeapPartitioningMode heap_partitioning_mode();
 
   // TODO: b/527473378 - Remove this function once the experiment is cleaned up.

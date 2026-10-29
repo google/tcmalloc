@@ -1592,6 +1592,9 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
     // target. next_capacity_index records a temporary index in max_capacity.
     int next_capacity_index = max_capacity_index;
     int target = (to_grow * growth_factor) >> relative_shift;
+    if (forwarder_.fix_max_capacity_bug()) {
+      target = std::max(target, 1);
+    }
     int shrunk = 0;
 
     // Loop until we found enough capacity from other size classes, or if we run
@@ -1600,6 +1603,9 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
       size_t size_class_to_shrink = miss_stats[shrink_index].size_class;
       int batch_size = forwarder_.num_objects_to_move(size_class_to_shrink) >>
                        relative_shift;
+      if (forwarder_.fix_max_capacity_bug()) {
+        batch_size = std::max(batch_size, 1);
+      }
       size_t cap =
           max_capacity_[size_class_to_shrink].load(std::memory_order_relaxed);
       --shrink_index;
@@ -1608,16 +1614,24 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
       // class.
       if (cap <= batch_size) continue;
 
-      int to_shrink = std::min(target, batch_size);
       // Do not shrink such that max capacity falls below batch_size.
-      to_shrink = std::min<size_t>(to_shrink, cap - batch_size);
+      int to_shrink;
+      if (forwarder_.fix_max_capacity_bug()) {
+        to_shrink = std::min<size_t>(target, cap - batch_size);
+      } else {
+        to_shrink = std::min(target, batch_size);
+        to_shrink = std::min<size_t>(to_shrink, cap - batch_size);
+      }
       if (to_shrink == 0) continue;
 
+      // Store the shrinking of size_class_to_shrink (the growth of
+      // size_class_to_grow will happen after the loop).
       TC_ASSERT_LT(next_capacity_index, kNumClasses);
       TC_ASSERT_LT(next_capacity_index, max_capacity.size());
       max_capacity[next_capacity_index] = PerSizeClassMaxCapacity{
           .size_class = size_class_to_shrink, .max_capacity = cap - to_shrink};
       ++next_capacity_index;
+
       target -= to_shrink;
       shrunk += to_shrink;
     }
@@ -1630,6 +1644,7 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
     size_t cap =
         max_capacity_[size_class_to_grow].load(std::memory_order_relaxed);
     TC_ASSERT_LT(next_capacity_index, kNumClasses);
+    TC_ASSERT_LT(next_capacity_index, max_capacity.size());
     max_capacity[next_capacity_index] = PerSizeClassMaxCapacity{
         .size_class = size_class_to_grow, .max_capacity = cap + shrunk};
     ++next_capacity_index;

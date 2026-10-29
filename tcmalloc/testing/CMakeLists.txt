@@ -689,6 +689,7 @@ tcmalloc_cc_test_variants(
     "absl::optional"
     "absl::strings"
     "absl::time"
+    "tcmalloc::experiment"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::malloc_extension"
