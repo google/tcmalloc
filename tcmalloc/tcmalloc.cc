@@ -231,13 +231,21 @@ static void PrintStats(int level) {
 
 extern "C" void MallocExtension_Internal_GetStats(std::string* ret) {
   size_t shift = std::max<size_t>(22, absl::bit_width(ret->capacity()) - 1);
+  // Release any existing buffer in *ret up front (and leave *ret empty if all
+  // retries truncate).
+  *ret = std::string();
   for (; shift < 24; shift++) {
     const size_t size = 1 << shift;
-    // Double ret's size until we succeed in writing the buffer without
-    // truncation.
+    // Double the buffer size until we succeed in writing without truncation.
+    //
+    // Write into a loop-scoped string rather than resizing *ret in place:
+    // absl::StringResizeAndOverwrite allocates the new buffer before freeing an
+    // existing one, whereas destroying `s` at the end of a failed iteration
+    // frees the 4 MiB buffer before the 8 MiB retry allocates.
+    std::string s;
     bool success = false;
     absl::StringResizeAndOverwrite(
-        *ret, size - 1,
+        s, size - 1,
         [&](char* buffer,
             size_t buffer_size) ABSL_ATTRIBUTE_ALWAYS_INLINE -> size_t {
           size_t written_size = TCMalloc_Internal_GetStats(buffer, buffer_size);
@@ -248,6 +256,7 @@ extern "C" void MallocExtension_Internal_GetStats(std::string* ret) {
           return 0;
         });
     if (success) {
+      *ret = std::move(s);
       return;
     }
   }
