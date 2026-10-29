@@ -119,6 +119,7 @@ void WildPointerRealloc(uintptr_t ptr, size_t new_size) {
 
 TEST(MemoryErrorsFuzzTest, WildPointerReallocRegression) {
   WildPointerRealloc(4406726867650173363ull, 1);
+  WildPointerRealloc(0, 9223372036988993536ull);
 }
 
 FUZZ_TEST(MemoryErrorsFuzzTest, WildPointerRealloc)
