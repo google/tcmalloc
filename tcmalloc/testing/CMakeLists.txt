@@ -1102,6 +1102,24 @@ tcmalloc_cc_test_variants(
     "tcmalloc::internal_percpu"
 )
 
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_testing_cpu_cache_size_test
+  SRCS
+    "cpu_cache_size_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::strings"
+    "absl::time"
+    "tcmalloc::internal_sysinfo"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_test_allocator_harness"
+    "tcmalloc::testing_testutil"
+    "tcmalloc::testing_thread_manager"
+)
+
 tcmalloc_cc_test(
   NAME
     tcmalloc_testing_parallel_test

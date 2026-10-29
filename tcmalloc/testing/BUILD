@@ -1186,6 +1186,27 @@ create_tcmalloc_testsuite(
     ],
 )
 
+create_tcmalloc_testsuite(
+    name = "cpu_cache_size_test",
+    srcs = ["cpu_cache_size_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
+    deps = [
+        ":test_allocator_harness",
+        ":testutil",
+        ":thread_manager",
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:sysinfo",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_test(
     name = "parallel_test",
     srcs = ["parallel_test.cc"],
