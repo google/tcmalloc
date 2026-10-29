@@ -14,8 +14,12 @@
 
 #include "tcmalloc/malloc_hook.h"
 
+#include <cstddef>
+#include <optional>
+
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
+#include "absl/base/optimization.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/hook_list.h"
 #include "tcmalloc/malloc_hook_invoke.h"
@@ -115,7 +119,35 @@ bool MallocHook::RemoveSampledDeleteHook(SampledDeleteHook hook) {
   return tcmalloc_internal::sampled_delete_hooks_.Remove(hook);
 }
 
-
-
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
+
+#if (defined(ABSL_HAVE_ADDRESS_SANITIZER) ||   \
+     defined(ABSL_HAVE_MEMORY_SANITIZER) ||    \
+     defined(ABSL_HAVE_THREAD_SANITIZER) ||    \
+     defined(ABSL_HAVE_HWADDRESS_SANITIZER) || \
+     defined(ABSL_HAVE_DATAFLOW_SANITIZER) ||  \
+     defined(ABSL_HAVE_LEAK_SANITIZER))
+#include <sanitizer/allocator_interface.h>
+
+extern "C" {
+// __sanitizer_malloc_hook and __sanitizer_free_hook are called
+// by (de)allocation functions in sanitizer runtimes.
+void __sanitizer_malloc_hook(const volatile void* ptr, size_t size) {
+  if (ABSL_PREDICT_FALSE(!tcmalloc::tcmalloc_internal::new_hooks_.empty())) {
+    tcmalloc::MallocHook::InvokeNewHook(
+        {const_cast<void*>(ptr), size, size,
+         tcmalloc::HookMemoryMutable::kImmutable});
+  }
+}
+
+void __sanitizer_free_hook(const volatile void* ptr) {
+  if (ABSL_PREDICT_FALSE(!tcmalloc::tcmalloc_internal::delete_hooks_.empty())) {
+    tcmalloc::MallocHook::InvokeDeleteHook(
+        {const_cast<void*>(ptr), std::nullopt,
+         __sanitizer_get_allocated_size_fast(ptr),
+         tcmalloc::HookMemoryMutable::kImmutable});
+  }
+}
+}  // extern "C"
+#endif
