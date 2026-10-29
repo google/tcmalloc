@@ -34,6 +34,7 @@
 #include "absl/time/time.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
+#include "tcmalloc/global_stats.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
@@ -217,6 +218,41 @@ TEST_F(GetStatsTest, ArenaTypeStats) {
   EXPECT_THAT(text,
               ContainsRegex(R"(MALLOC:     PageMap:\s+[0-9]+\.[0-9]{3} MiB)"));
   EXPECT_THAT(text, Not(HasSubstr("Test:")));
+}
+
+TEST_F(GetStatsTest, MetadataResidencyPreservesArenaPageMapBytes) {
+  if (tcmalloc_internal::kSanitizerPresent) {
+    GTEST_SKIP() << "Running under sanitizers";
+  }
+
+  ScopedBackgroundProcessActionsEnabled background(false);
+
+  tcmalloc_internal::TCMallocStats stats_no_res;
+  tcmalloc_internal::ExtractTCMallocStats(stats_no_res,
+                                          /*report_residence=*/false);
+  tcmalloc_internal::TCMallocStats stats_res;
+  tcmalloc_internal::ExtractTCMallocStats(stats_res,
+                                          /*report_residence=*/true);
+
+  const size_t arena_pagemap_bytes =
+      stats_res.arena.bytes_allocated_per_type[static_cast<size_t>(
+          tcmalloc_internal::ArenaAlloc::kPageMap)];
+  EXPECT_GT(arena_pagemap_bytes, 0);
+  EXPECT_EQ(stats_res.pagemap_bytes,
+            stats_res.pagemap_root_size + arena_pagemap_bytes);
+
+  const uint64_t nonres_metadata =
+      (stats_res.percpu_metadata_bytes - stats_res.percpu_metadata_bytes_res) +
+      (stats_res.pagemap_root_size - stats_res.pagemap_root_bytes_res);
+  EXPECT_EQ(stats_res.metadata_bytes + nonres_metadata,
+            stats_no_res.metadata_bytes);
+  EXPECT_GE(stats_res.metadata_bytes, arena_pagemap_bytes +
+                                          stats_res.pagemap_root_bytes_res +
+                                          stats_res.percpu_metadata_bytes_res);
+  EXPECT_EQ(tcmalloc_internal::VirtualMemoryUsed(stats_res) + nonres_metadata,
+            tcmalloc_internal::VirtualMemoryUsed(stats_no_res));
+  EXPECT_EQ(tcmalloc_internal::PhysicalMemoryUsed(stats_res) + nonres_metadata,
+            tcmalloc_internal::PhysicalMemoryUsed(stats_no_res));
 }
 
 TEST_F(GetStatsTest, Parameters) {
