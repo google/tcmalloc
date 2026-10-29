@@ -53,12 +53,6 @@ experiment_variants = [
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_FIX_MAX_CAPACITY_BUG_ABLATION"},
     },
     {
-        "name": "tcmalloc_madv_nohugepage_regions",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_DISABLE_EXPERIMENTS": "TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS"},
-    },
-    {
         "name": "tcmalloc_prefer_backed_filler_pages",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],

@@ -164,11 +164,6 @@ void Parameters::InitializeFromExperiments() {
                                       std::memory_order_relaxed);
   }
 
-  if (IsExperimentActive(Experiment::TCMALLOC_SONIC_MADV_NOHUGEPAGE_REGIONS)) {
-    madvise_cold_regions_nohugepage_.store(MadviseRegionsNoHugepage::kEnabled,
-                                           std::memory_order_relaxed);
-  }
-
   if (IsExperimentActive(Experiment::TCMALLOC_RELEASE_FREE_STALE)) {
     release_stale_pages_.store(ReleaseStalePages::kEnabled,
                                std::memory_order_relaxed);
