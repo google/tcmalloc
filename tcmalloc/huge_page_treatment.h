@@ -612,7 +612,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       // that is unbacking it.  Either way it is off the filler lists; leave it
       // alone.
       if (tracker->fully_freed() || tracker->BeingReleased()) {
-        tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
+        Unpin(*tracker);
         continue;
       }
       if (entry.tracker_state.maybe_hugepage_backed &&
@@ -627,13 +627,14 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       }
       tracker->SetHugePageResidencyState(entry.tracker_state);
       if (entry.tracker_state.maybe_hugepage_backed) {
-        tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
+        Unpin(*tracker);
         continue;
       }
 
       // HandleReleaseFree drops pageheap_lock, so the kCollapse pin stays set
       // across it: a concurrent Put that empties tracker then parks it rather
-      // than returning it underneath us.
+      // than returning it underneath us, and any Put during that lock drop
+      // sets freed_since_selected() before HandleUnbackedHugePage.
       if (!entry.tracker_state.swapped.IsZero()) {
         // TODO: b/425749361 - Clear swapped bit for pages that were freed.
         Length released_length = page_filler_.HandleReleaseFree(tracker);
@@ -647,12 +648,13 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
           treatment_stats_.treated_pages_stale_subreleased += released_length;
         }
       }
-      tracker->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
       if (tracker->fully_freed()) {
+        Unpin(*tracker);
         continue;
       }
 
-      if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled) {
+      if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled &&
+          !tracker->freed_since_selected()) {
         Length released_length = page_filler_.HandleUnbackedHugePage(
             tracker, entry.tracker_state.unbacked);
         if (released_length > Length(0)) {
@@ -660,6 +662,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
               released_length;
         }
       }
+      Unpin(*tracker);
     }
   }
 
@@ -686,11 +689,18 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
 
  private:
   // Keeps tracker from being freed while pageheap_lock is dropped, and starts
-  // tracking releases from it over that window.
+  // tracking releases and frees on it over that window.
   static void Pin(PageTracker& tracker)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     tracker.SetDontFreeTracker(HugePageTreatmentType::kCollapse);
     tracker.ClearReleasedSinceSelected();
+    tracker.ClearFreedSinceSelected();
+  }
+
+  static void Unpin(PageTracker& tracker)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    tracker.ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
+    tracker.ClearFreedSinceSelected();
   }
 
   [[nodiscard]] bool TryUserspaceCollapse(PageTracker* tracker) {

@@ -229,8 +229,15 @@ class FakeResidency : public Residency {
     PageId p = PageIdContaining(addr);
     HugePage hp = HugePageContaining(p);
     EXPECT_TRUE(residency_bitmaps_.contains(hp.start_addr()));
-    return residency_bitmaps_[hp.start_addr()];
+    SinglePageBitmaps ret = residency_bitmaps_[hp.start_addr()];
+    if (unlocked_hook_ != nullptr) {
+      unlocked_hook_(addr);
+    }
+    return ret;
   };
+
+  // Runs during GetUnbackedAndSwappedBitmaps, while pageheap_lock is dropped.
+  std::function<void(const void*)> unlocked_hook_;
 
   void SetUnbackedAndSwappedBitmaps(const void* addr,
                                     const Bitmap<kMaxResidencyBits>& unbacked,
@@ -3747,6 +3754,129 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedDonated) {
   EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_unbacked_subreleased,
             Length(1));
   DeleteVector(p1);
+}
+
+// Pages that were observed as unbacked in Treat() while pageheap_lock was
+// dropped may be allocated (or already allocated), faulted in, and freed back
+// to the tracker before Restore() runs. Restore() must skip unbacked
+// subrelease on a tracker that had pages freed during treatment.
+TEST_F(FillerTestWithSubreleaseUnbacked,
+       SubreleaseUnbackedSkipsTrackerWithPagesFreedDuringTreat) {
+  randomize_density_ = false;
+  PAlloc kept = Allocate(kPagesPerHugePage - Length(8));
+  PAlloc alloc_before_treat =
+      AllocateWithSpanAllocInfo(Length(4), kept.span_alloc_info);
+  PAlloc alloc_during_treat =
+      AllocateWithSpanAllocInfo(Length(4), kept.span_alloc_info);
+  PageTracker* pt = kept.pt;
+  ASSERT_EQ(alloc_before_treat.pt, pt);
+  ASSERT_EQ(alloc_during_treat.pt, pt);
+
+  // Leave a 4-page free hole at alloc_during_treat before treatment.
+  Delete(alloc_during_treat);
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(kept.p.start_addr(),
+                               /*is_hugepage_backed=*/false);
+  Bitmap<kMaxResidencyBits> unbacked, swapped;
+  unbacked.SetRange(0, kMaxResidencyBits);
+  residency.SetUnbackedAndSwappedBitmaps(kept.p.start_addr(), unbacked,
+                                         swapped);
+  pageflags.SetStaleBitmap(kept.p.start_addr(), {});
+
+  // After Treat() snapshots residency with pageheap_lock dropped:
+  // 1. Allocate, back, and free the 4-page hole (alloc_during_treat).
+  // 2. Back and free the 4-page span that was already allocated before
+  //    treatment selected the tracker (alloc_before_treat).
+  residency.unlocked_hook_ = [&](const void*) {
+    PAlloc reallocated =
+        AllocateWithSpanAllocInfo(Length(4), kept.span_alloc_info);
+    EXPECT_EQ(reallocated.pt, pt);
+    EXPECT_EQ(reallocated.p, alloc_during_treat.p);
+    Delete(reallocated);
+    Delete(alloc_before_treat);
+  };
+
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+
+  // Because pages were freed to pt while it was selected for treatment,
+  // unbacked subrelease must skip pt so the 8 backed free pages stay
+  // unreleased.
+  EXPECT_EQ(pt->released_pages(), Length(0));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+  EXPECT_EQ(filler_.subrelease_stats().total_pages_subreleased, Length(0));
+  EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_unbacked_subreleased,
+            Length(0));
+
+  // Because the 8 backed free pages were not falsely marked released, their
+  // simulated page contents remain intact until an explicit subrelease unbacks
+  // them.
+  EXPECT_NE(*GetFakePage(alloc_before_treat.p), 0);
+  EXPECT_NE(*GetFakePage(alloc_during_treat.p), 0);
+  EXPECT_EQ(ReleasePages(Length(8)), Length(8));
+  EXPECT_EQ(*GetFakePage(alloc_before_treat.p), 0);
+  EXPECT_EQ(*GetFakePage(alloc_during_treat.p), 0);
+  EXPECT_EQ(pt->released_pages(), Length(8));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(8));
+
+  EXPECT_TRUE(Delete(kept));
+}
+
+// Restore() drops pageheap_lock again inside HandleReleaseFree() when
+// releasing swapped or stale pages before calling HandleUnbackedHugePage().
+// A tracker that has pages freed during that second unlocked window must also
+// be skipped by HandleUnbackedHugePage().
+TEST_F(FillerTestWithSubreleaseUnbacked,
+       SubreleaseUnbackedSkipsTrackerWithPagesFreedDuringRestoreReleaseFree) {
+  randomize_density_ = false;
+  PAlloc kept = Allocate(kPagesPerHugePage - Length(6));
+  PAlloc freed_in_restore =
+      AllocateWithSpanAllocInfo(Length(4), kept.span_alloc_info);
+  PAlloc stale_free =
+      AllocateWithSpanAllocInfo(Length(2), kept.span_alloc_info);
+  PageTracker* pt = kept.pt;
+  ASSERT_EQ(freed_in_restore.pt, pt);
+  ASSERT_EQ(stale_free.pt, pt);
+
+  Delete(stale_free);
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(kept.p.start_addr(),
+                               /*is_hugepage_backed=*/false);
+  Bitmap<kMaxResidencyBits> unbacked, swapped, stale;
+  unbacked.SetRange(0, kMaxResidencyBits);
+  stale.SetRange(0, kMaxResidencyBits);
+  residency.SetUnbackedAndSwappedBitmaps(kept.p.start_addr(), unbacked,
+                                         swapped);
+  pageflags.SetStaleBitmap(kept.p.start_addr(), stale);
+
+  // While Restore()'s HandleReleaseFree() drops pageheap_lock to unback
+  // stale_free, free freed_in_restore (which was allocated and faulted in
+  // after Treat()'s pagemap snapshot).
+  blocking_unback_without_lock_.unlocked_hook_ = [&](Range) {
+    blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+    Delete(freed_in_restore);
+  };
+
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kEnabled, &pageflags, &residency);
+  blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+
+  // HandleReleaseFree() unbacked stale_free (2 pages), and
+  // HandleUnbackedHugePage() must skip the 4 pages of freed_in_restore.
+  EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_stale_subreleased,
+            Length(2));
+  EXPECT_EQ(GetHugePageTreatmentStats().treated_pages_unbacked_subreleased,
+            Length(0));
+  EXPECT_EQ(pt->released_pages(), Length(2));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(2));
+
+  EXPECT_TRUE(Delete(kept));
 }
 
 // This test makes sure that we continue releasing from regular (non-partial)

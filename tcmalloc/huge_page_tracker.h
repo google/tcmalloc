@@ -316,6 +316,18 @@ class PageTracker : public TList<PageTracker>::Elem {
     hugepage_residency_state_.released_since_selected = false;
   }
 
+  // Called by a treatment pass when it pins or unpins this tracker under
+  // pageheap_lock; Put sets this flag if any pages are freed while the tracker
+  // is pinned so unbacked subrelease skips the tracker when its residency
+  // snapshot may be stale.
+  void ClearFreedSinceSelected() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    freed_since_selected_ = false;
+  }
+  [[nodiscard]] bool freed_since_selected() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return freed_since_selected_;
+  }
+
   void SetBeingCollapsed(bool value) {
     hugepage_residency_state_.being_collapsed = value;
   }
@@ -463,6 +475,12 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   HugePageResidencyState hugepage_residency_state_;
 
+  // Set when pages are freed via Put while HugePageTreatmentType::kCollapse
+  // holds a pin on this tracker. Any free page that was faulted in after a
+  // treatment pass read /proc/self/pagemap and then returned to this tracker
+  // before Restore() must have passed through Put during this window.
+  bool freed_since_selected_ = false;
+
   [[nodiscard]] bool ReleasePages(Range r, MemoryModifyFunction& unback) {
     bool success = unback(r).success;
     if (ABSL_PREDICT_TRUE(success)) {
@@ -567,6 +585,9 @@ inline PageTracker::HardwarePageResidencyInfo PageTracker::CountInfoInHugePage(
 inline void PageTracker::Put(Range r, SpanAllocInfo span_alloc_info) {
   Length index = r.p - location_.first_page();
   tracker_.Unmark(index.raw_num(), r.n.raw_num());
+  if (ABSL_PREDICT_FALSE(PinnedByTreatment(HugePageTreatmentType::kCollapse))) {
+    freed_since_selected_ = true;
+  }
   TC_ASSERT_GE(num_objects_, span_alloc_info.objects_per_span);
   num_objects_ -= span_alloc_info.objects_per_span;
 }
@@ -626,15 +647,17 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
 }
 
 inline Length PageTracker::MarkSubreleased(const PageBitmap& unbacked) {
+  // The residency bitmap was captured outside pageheap_lock. Skip this tracker
+  // if any page was freed via Put() since it was selected for treatment, as a
+  // page may have been allocated and faulted in after /proc/self/pagemap was
+  // read.
+  if (ABSL_PREDICT_FALSE(freed_since_selected_)) {
+    return Length(0);
+  }
+
   // tracker_'s bits are set for allocated pages and clear for free pages.
   const PageBitmap& used = tracker_.bits();
 
-  // TODO(b/525422238): The residency bitmap was captured outside of the
-  // lock. So, in a rare case, it's possible that the page was allocated,
-  // backed and then freed. So, the free page here is actually backed.
-  // While we currently ignore this case (resulting in underestimating
-  // RSS), we can potentially fix this by re-investigating the bitmaps
-  // and marking the pages back to backed to eventually fix this.
   auto to_release = (~used) & (~released_by_page_) & unbacked;
   released_by_page_ = released_by_page_ | to_release;
 
