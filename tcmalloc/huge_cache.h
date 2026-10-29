@@ -19,8 +19,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <algorithm>
-#include <limits>
 #include <optional>
 
 #include "absl/base/attributes.h"
@@ -35,8 +33,8 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/metadata_allocator.h"
+#include "tcmalloc/internal/min_max_tracker.h"
 #include "tcmalloc/internal/system_allocator.h"
-#include "tcmalloc/internal/timeseries_tracker.h"
 #include "tcmalloc/stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -59,56 +57,6 @@ class MemoryTagFunction {
 
   virtual void operator()(Range r, std::optional<absl::string_view> name) = 0;
 };
-
-// Track the extreme values of a HugeLength value over the past
-// kWindow (time ranges approximate.)
-template <size_t kSlots = 16>
-class MinMaxTracker {
- public:
-  explicit constexpr MinMaxTracker(Clock clock, absl::Duration w)
-      : kEpochLength(w / kSlots), timeseries_(clock, kEpochLength) {}
-
-  void Report(HugeLength val);
-  void Print(Printer& out, absl::string_view prefix,
-             absl::string_view label) const;
-  void PrintInPbtxt(PbtxtRegion& hpaa, absl::string_view region_name) const;
-
-  // If t < kEpochLength, these functions return statistics for last epoch. The
-  // granularity is kEpochLength (rounded up).
-  [[nodiscard]] HugeLength MaxOverTime(absl::Duration t) const;
-  [[nodiscard]] HugeLength MinOverTime(absl::Duration t) const;
-
- private:
-  const absl::Duration kEpochLength;
-
-  static constexpr HugeLength kMaxVal =
-      NHugePages(std::numeric_limits<size_t>::max());
-  struct Extrema {
-    HugeLength min, max;
-
-    [[nodiscard]] static Extrema Nil() {
-      Extrema e;
-      e.max = NHugePages(0);
-      e.min = kMaxVal;
-      return e;
-    }
-
-    void Report(HugeLength n) {
-      max = std::max(max, n);
-      min = std::min(min, n);
-    }
-
-    [[nodiscard]] bool empty() const { return (*this == Nil()); }
-
-    [[nodiscard]] bool operator==(const Extrema& other) const;
-  };
-
-  TimeSeriesTracker<Extrema, HugeLength, kSlots> timeseries_;
-};
-
-// Explicit instantiations are defined in huge_cache.cc.
-extern template class MinMaxTracker<>;
-extern template class MinMaxTracker<600>;
 
 class HugeCache {
  public:
@@ -257,11 +205,11 @@ class HugeCache {
 
   void UpdateSize(HugeLength size);
 
-  MinMaxTracker<600> detailed_tracker_;
+  MinMaxTracker<HugeLength, 600> detailed_tracker_;
 
-  MinMaxTracker<> usage_tracker_;
-  MinMaxTracker<> off_peak_tracker_;
-  MinMaxTracker<> size_tracker_;
+  MinMaxTracker<HugeLength> usage_tracker_;
+  MinMaxTracker<HugeLength> off_peak_tracker_;
+  MinMaxTracker<HugeLength> size_tracker_;
 
   HugeLength total_fast_unbacked_{NHugePages(0)};
   HugeLength total_periodic_unbacked_{NHugePages(0)};

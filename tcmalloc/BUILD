@@ -334,6 +334,7 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:memory_stats",
         "//tcmalloc/internal:memory_tag",
         "//tcmalloc/internal:metadata_allocator",
+        "//tcmalloc/internal:min_max_tracker",
         "//tcmalloc/internal:mincore",
         "//tcmalloc/internal:numa",
         "//tcmalloc/internal:optimization",

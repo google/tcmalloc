@@ -1607,6 +1607,38 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_internal_min_max_tracker
+  ALIAS
+    tcmalloc::internal_min_max_tracker
+  HDRS
+    "min_max_tracker.h"
+  DEPS
+    "absl::string_view"
+    "absl::time"
+    "tcmalloc::internal_clock"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_timeseries_tracker"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_min_max_tracker_test
+  SRCS
+    "min_max_tracker_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::time"
+    "tcmalloc::internal_clock"
+    "tcmalloc::internal_hardware_pages"
+    "tcmalloc::internal_min_max_tracker"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_internal_timeseries_tracker
   ALIAS
     tcmalloc::internal_timeseries_tracker

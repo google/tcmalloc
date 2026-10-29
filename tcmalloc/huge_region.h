@@ -34,6 +34,7 @@
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
+#include "tcmalloc/internal/min_max_tracker.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
@@ -302,8 +303,8 @@ class HugeRegionSet {
   HugeLength backed_huge_pages_;
   HugeLength free_backed_count_;
   HugeLength lowater_free_backed_;
-  MinMaxTracker<kTimeseriesEpochs> usage_tracker_;
-  MinMaxTracker<kTimeseriesEpochs> free_backed_tracker_;
+  MinMaxTracker<HugeLength, kTimeseriesEpochs> usage_tracker_;
+  MinMaxTracker<HugeLength, kTimeseriesEpochs> free_backed_tracker_;
 };
 
 // REQUIRES: r.len() == size(); r unbacked.

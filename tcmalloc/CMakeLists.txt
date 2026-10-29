@@ -358,6 +358,7 @@ tcmalloc_cc_library_variants(
     "tcmalloc::internal_memory_stats"
     "tcmalloc::internal_memory_tag"
     "tcmalloc::internal_metadata_allocator"
+    "tcmalloc::internal_min_max_tracker"
     "tcmalloc::internal_mincore"
     "tcmalloc::internal_numa"
     "tcmalloc::internal_optimization"

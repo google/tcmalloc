@@ -1580,6 +1580,36 @@ cc_library(
 )
 
 cc_library(
+    name = "min_max_tracker",
+    hdrs = ["min_max_tracker.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":clock",
+        ":config",
+        ":logging",
+        ":timeseries_tracker",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/time",
+    ],
+)
+
+cc_test(
+    name = "min_max_tracker_test",
+    srcs = ["min_max_tracker_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":clock",
+        ":hardware_pages",
+        ":min_max_tracker",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "timeseries_tracker",
     hdrs = ["timeseries_tracker.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
