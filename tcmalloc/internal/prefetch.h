@@ -97,6 +97,29 @@ inline void PrefetchWNta(const void* addr) {
   __builtin_prefetch(addr, 1, 0);
 #endif
 }
+#if defined(__aarch64__)
+// AArch64-only helpers that name the exact PRFM operation emitted
+// (PLD/PST = prefetch for load/store, L<n> = target cache level, KEEP =
+// temporal). On Clang, __builtin_arm_prefetch(addr, rw, cache_level,
+// retention_policy, is_data) lowers directly to PRFM and keeps addressing-mode
+// folding, which inline asm would defeat.
+inline void PrefetchArmPldl1Keep(const void* addr) {
+#if defined(__clang__)
+  __builtin_arm_prefetch(addr, /*rw=*/0, /*cache_level=*/0,
+                         /*retention_policy=*/0, /*is_data=*/1);
+#else
+  asm volatile("prfm pldl1keep, [%0]" : : "r"(addr));
+#endif
+}
+inline void PrefetchArmPstl2Keep(const void* addr) {
+#if defined(__clang__)
+  __builtin_arm_prefetch(addr, /*rw=*/1, /*cache_level=*/1,
+                         /*retention_policy=*/0, /*is_data=*/1);
+#else
+  asm volatile("prfm pstl2keep, [%0]" : : "r"(addr));
+#endif
+}
+#endif  // defined(__aarch64__)
 #else
 inline void PrefetchT0(const void*) {}
 inline void PrefetchT1(const void*) {}

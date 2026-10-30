@@ -732,6 +732,16 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchSlabMemory(uintptr_t ptr) {
   PrefetchWT0(reinterpret_cast<void*>(ptr));
 }
 
+#if defined(__aarch64__)
+// Pop only reads the slab slot it prefetches (it holds the object returned by
+// a later Pop), so on aarch64 use a load prefetch to avoid requesting the line
+// in a unique state.
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchSlabMemoryForPop(
+    uintptr_t ptr) {
+  PrefetchArmPldl1Keep(reinterpret_cast<void*>(ptr));
+}
+#endif  // defined(__aarch64__)
+
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
 // Note: These helpers must be "static inline" to avoid ODR violations due to
 // different labels emitted in TCMALLOC_RSEQ_PROLOGUE.
@@ -861,7 +871,14 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchNextObject(
   // details.
   //
   // TODO(b/214608320): Evaluate prefetch for write.
+#if defined(__aarch64__)
+  // The next object is usually written soon after it is returned, so request
+  // it with store intent, staged in L2 rather than L1D: it is only consumed by
+  // the next Pop of this size class, which may be many allocations away.
+  PrefetchArmPstl2Keep(prefetch_target);
+#else
   __builtin_prefetch(prefetch_target, 0, 3);
+#endif
 }
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
@@ -961,7 +978,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
 
   // The next pop will be from current-2, but because we prefetch the previous
   // element we've already just read that, so prefetch current-3.
-  PrefetchSlabMemory(current_plus_slabs_addr - 3 * sizeof(void*));
+  PrefetchSlabMemoryForPop(current_plus_slabs_addr - 3 * sizeof(void*));
   PrefetchNextObject(prefetch);
   return AssumeNotNull(result);
 underflow_path:
