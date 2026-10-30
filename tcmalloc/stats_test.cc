@@ -22,11 +22,16 @@
 
 #include "gtest/gtest.h"
 #include "absl/base/internal/cycleclock.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/arena.h"
+#include "tcmalloc/common.h"
+#include "tcmalloc/global_stats.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
@@ -175,6 +180,87 @@ TEST(ClockTest, ClockTicks) {
   const absl::Duration measured = absl::Seconds(a - b);
   EXPECT_LE(actual * 0.99, measured) << actual;
   EXPECT_GE(actual * 1.01, measured) << actual;
+}
+
+TEST(GlobalStatsTest, ExtractStatsClampsUnderConcurrentArenaShrink) {
+  tc_globals.InitIfNecessary();
+  {
+    PageHeapSpinLockHolder l;
+    (void)tc_globals.arena().Alloc(ArenaAlloc::kPageMap, sizeof(tc_globals),
+                                   kAlignment);
+  }
+  const ArenaStats before = tc_globals.arena().stats();
+  const int64_t shrink = static_cast<int64_t>(before.bytes_allocated);
+  tc_globals.arena().UpdateAllocatedAndNonresident(-shrink, 0);
+
+  TCMallocStats stats;
+  ExtractTCMallocStats(stats, /*report_residence=*/true);
+  tc_globals.arena().UpdateAllocatedAndNonresident(shrink, 0);
+
+  EXPECT_GE(stats.metadata_bytes, stats.pagemap_root_bytes_res);
+  EXPECT_LE(stats.metadata_bytes, before.bytes_allocated + sizeof(tc_globals));
+}
+
+TEST(GlobalStatsTest, ArenaPropertiesDoNotAcquirePageHeapLock) {
+  tc_globals.InitIfNecessary();
+  size_t metadata = 0;
+  size_t unavailable = 0;
+  size_t unallocated = 0;
+  constexpr absl::string_view kMetadata = "tcmalloc.metadata_bytes";
+  constexpr absl::string_view kUnavailable =
+      "tcmalloc.metadata_arena_unavailable_bytes";
+  constexpr absl::string_view kUnallocated =
+      "tcmalloc.metadata_arena_unallocated_bytes";
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(
+        GetNumericProperty(kMetadata.data(), kMetadata.size(), &metadata));
+    EXPECT_TRUE(GetNumericProperty(kUnavailable.data(), kUnavailable.size(),
+                                   &unavailable));
+    EXPECT_TRUE(GetNumericProperty(kUnallocated.data(), kUnallocated.size(),
+                                   &unallocated));
+  }
+  EXPECT_GT(metadata, unavailable + unallocated);
+}
+
+TEST(GlobalStatsTest, ExtractStatsSubtractsOnlyPageMapRootSize) {
+  tc_globals.InitIfNecessary();
+  TCMallocStats without_residence;
+  TCMallocStats with_residence;
+  ExtractTCMallocStats(without_residence, /*report_residence=*/false);
+  ExtractTCMallocStats(with_residence, /*report_residence=*/true);
+
+  const size_t pagemap_arena_bytes =
+      with_residence.arena
+          .bytes_allocated_per_type[static_cast<size_t>(ArenaAlloc::kPageMap)];
+  EXPECT_GT(pagemap_arena_bytes, 0);
+  const size_t expected_nonresident_root_and_slab =
+      (with_residence.pagemap_root_size -
+       with_residence.pagemap_root_bytes_res) +
+      (with_residence.percpu_metadata_bytes -
+       with_residence.percpu_metadata_bytes_res);
+  EXPECT_EQ(without_residence.metadata_bytes - with_residence.metadata_bytes,
+            expected_nonresident_root_and_slab);
+}
+
+TEST(GlobalStatsTest, CachePropertiesDoNotAcquirePageHeapLock) {
+  tc_globals.InitIfNecessary();
+  constexpr absl::string_view kProperties[] = {
+      "tcmalloc.central_cache_free",
+      "tcmalloc.cpu_free",
+      "tcmalloc.sharded_transfer_cache_free",
+      "tcmalloc.current_total_thread_cache_bytes",
+      "tcmalloc.thread_cache_free",
+      "tcmalloc.thread_cache_count",
+      "tcmalloc.local_bytes",
+      "tcmalloc.transfer_cache_free",
+  };
+  PageHeapSpinLockHolder l;
+  for (const absl::string_view property : kProperties) {
+    size_t value = 0;
+    EXPECT_TRUE(GetNumericProperty(property.data(), property.size(), &value))
+        << property;
+  }
 }
 
 }  // namespace
