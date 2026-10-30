@@ -578,6 +578,14 @@ struct State {
 
   std::vector<std::unique_ptr<HugeRegion>> regions;
   std::vector<Range> allocs;
+  std::optional<Range> in_flight;
+  // ReleasePages subtracts unbacked hugepages from set.free_backed() only
+  // after the sweep returns, while each region pre-decrements its own
+  // free_backed() before unback. MaybePut instead increments and immediately
+  // pre-decrements region->free_backed() for the contiguous run emptied by Put
+  // before updating set.free_backed(), leaving no skew during Put's unback.
+  bool in_release_pages = false;
+  HugeLength released_in_sweep = NHugePages(0);
   // The set's low-water mark of free-but-backed hugepages, which bounds an
   // adaptive release: the minimum observed after each successful MaybeGet,
   // reset by ReleasePages.
@@ -592,14 +600,25 @@ struct State {
             Clock{.now = absl::base_internal::CycleClock::Now,
                   .freq = absl::base_internal::CycleClock::Frequency}) {
     output.resize(1 << 20);
-    unback.release_callback_ = [](Range) {};
+    unback.release_callback_ = [this](Range r) {
+      // HugeRegion::Release will drop pageheap_lock around the unback
+      // (b/73749855), so other threads may observe the set here.
+      ASSERT_FALSE(in_flight.has_value());
+      in_flight = r;
+      CheckInvariants();
+      in_flight.reset();
+      if (in_release_pages && unback.unback_success_) {
+        released_in_sweep += HLFromPages(r.n);
+      }
+    };
   }
 
   ~State() {
-    for (const Range& alloc : allocs) {
+    while (!allocs.empty()) {
+      const Range alloc = allocs.back();
+      allocs.pop_back();
       EXPECT_TRUE(set.MaybePut(alloc));
     }
-    allocs.clear();
     for (const auto& region : regions) {
       EXPECT_EQ(region->used_pages(), Length(0));
     }
@@ -630,25 +649,50 @@ struct State {
     Length used, free, unmapped;
     HugeLength free_backed = NHugePages(0);
     for (const auto& region : regions) {
+      ASSERT_LE(region->free_backed(), region->backed());
+      ASSERT_LE(region->backed(), region->size());
+      ASSERT_LE(region->free_backed().in_pages(), region->free_pages());
+      EXPECT_EQ(region->backed().in_pages() + region->unmapped_pages(),
+                HugeRegion::size().in_pages());
+      EXPECT_EQ(region->used_pages() + region->free_pages() +
+                    region->unmapped_pages(),
+                HugeRegion::size().in_pages());
       used += region->used_pages();
       free += region->free_pages();
       unmapped += region->unmapped_pages();
       free_backed += region->free_backed();
     }
 
+    SmallSpanStats small;
+    LargeSpanStats large;
+    set.AddSpanStats(&small, &large);
+    ExpectSpanStats(small, large, free, unmapped);
+
     const BackingStats stats = set.stats();
     EXPECT_EQ(stats.system_bytes,
               (HugeRegion::size() * regions.size()).in_bytes());
     EXPECT_EQ(stats.free_bytes, free.in_bytes());
     EXPECT_EQ(stats.unmapped_bytes, unmapped.in_bytes());
-    EXPECT_EQ(set.free_backed(), free_backed);
+    // HugeRegionSet::ReleasePages subtracts what was unbacked only after the
+    // sweep returns, whereas each region pre-decrements its own free_backed()
+    // before calling unback.
+    HugeLength pending_set_release = released_in_sweep;
+    if (in_release_pages && in_flight.has_value()) {
+      pending_set_release += HLFromPages(in_flight->n);
+    }
+    EXPECT_EQ(set.free_backed(), free_backed + pending_set_release);
 
     Length live;
     for (const Range& alloc : allocs) {
       live += alloc.n;
       EXPECT_LT(RegionIndex(alloc.p), regions.size());
     }
-    EXPECT_EQ(used, live);
+    const Length in_flight_pages =
+        in_flight.has_value() ? in_flight->n : Length(0);
+    EXPECT_EQ(used, live + in_flight_pages);
+    if (in_flight.has_value()) {
+      CheckInFlight(*in_flight);
+    }
 
     // Neither the hugepage before the first region nor the first hugepage
     // past the contributed regions belongs to the set.
@@ -656,6 +700,26 @@ struct State {
     EXPECT_FALSE(set.GetPageAllocationStatus(start - NHugePages(1), pages));
     EXPECT_FALSE(set.GetPageAllocationStatus(
         start + HugeRegion::size() * regions.size(), pages));
+  }
+
+  void CheckInFlight(Range r) {
+    ASSERT_EQ(r.p, HugePageContaining(r.p).first_page());
+    ASSERT_EQ(r.n.raw_num() % kPagesPerHugePage.raw_num(), 0);
+    const size_t i = RegionIndex(r.p);
+    ASSERT_LT(i, regions.size());
+    EXPECT_TRUE(regions[i]->contains(r.p + r.n - Length(1)));
+    for (Length offset; offset < r.n; offset += kPagesPerHugePage) {
+      PageBitmap pages;
+      ASSERT_TRUE(
+          set.GetPageAllocationStatus(HugePageContaining(r.p + offset), pages));
+      ASSERT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()),
+                kPagesPerHugePage.raw_num());
+    }
+    for (const Range& a : allocs) {
+      ASSERT_TRUE(a.p + a.n <= r.p || r.p + r.n <= a.p)
+          << "allocation " << a.p.index() << "+" << a.n.raw_num()
+          << " overlaps unback " << r.p.index() << "+" << r.n.raw_num();
+    }
   }
 };
 
@@ -736,11 +800,15 @@ void ReleasePages::Perform(State& state) const {
   // out of free-but-backed hugepages.
   const Length cap = std::min(to_release, before.in_pages());
 
+  state.in_release_pages = true;
+  state.released_in_sweep = NHugePages(0);
   const Length released = state.set.ReleasePages(
       desired,
       use_adaptive ? HugeRegionAdaptiveRelease::kEnabled
                    : HugeRegionAdaptiveRelease::kDisabled,
       hit_limit);
+  state.in_release_pages = false;
+  state.released_in_sweep = NHugePages(0);
   if (!state.unback.unback_success_) {
     EXPECT_EQ(released, Length(0));
   } else {
@@ -819,6 +887,44 @@ TEST(HugeRegionTest, RegionSetSmoke) {
             ReleasePages{
                 .length = 1 << 20, .use_adaptive = true, .hit_limit = false},
             PrintInPbtxt{},
+        },
+        use_huge_region_more_often);
+  }
+}
+
+// Exercises CheckInvariants and CheckInFlight across multiple unbacks in a
+// single ReleasePages sweep (spanning non-contiguous ranges and multiple
+// regions, both failing and succeeding) and on Put.
+TEST(HugeRegionTest, RegionSetInvariantsDuringUnback) {
+  const uint32_t hp = kPagesPerHugePage.raw_num();
+  const uint32_t region_pages = HugeRegion::size().in_pages().raw_num();
+  for (bool use_huge_region_more_often : {false, true}) {
+    FuzzRegionSet(
+        {
+            Contribute{},
+            Contribute{},
+            // Fill region 0 so subsequent allocations land in region 1.
+            Get{.length = hp},
+            Get{.length = hp},
+            Get{.length = hp},
+            Get{.length = region_pages - 3 * hp},
+            // Allocate two hugepages in region 1.
+            Get{.length = hp},
+            Get{.length = hp},
+            // Free non-contiguous hugepages 0 and 2 in region 0, and hugepage 0
+            // in region 1.  Under kDefault, Put unbacks immediately; under
+            // kUseForAllLargeAllocs, ReleasePages below unbacks them.
+            Put{.index = 0},
+            Put{.index = 1},
+            Put{.index = 2},
+            SetUnbackSuccess{.success = false},
+            ReleasePages{
+                .length = 3 * hp, .use_adaptive = false, .hit_limit = true},
+            ReleasePages{
+                .length = 3 * hp, .use_adaptive = true, .hit_limit = true},
+            SetUnbackSuccess{.success = true},
+            ReleasePages{
+                .length = 3 * hp, .use_adaptive = true, .hit_limit = true},
         },
         use_huge_region_more_often);
   }
