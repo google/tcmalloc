@@ -535,7 +535,9 @@ extern "C" void MallocExtension_Internal_GetProperties(
 }
 
 extern "C" size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu) {
-  if (ABSL_PREDICT_FALSE(!subtle::percpu::IsFast())) return 0;
+  if (ABSL_PREDICT_FALSE(!subtle::percpu::IsFast() || cpu < 0)) {
+    return 0;
+  }
 
   size_t bytes = 0;
   if (tc_globals.CpuCacheActive()) {

@@ -19,6 +19,7 @@
 #include <stddef.h>
 
 #include <map>
+#include <new>
 #include <optional>
 #include <utility>
 
@@ -197,6 +198,19 @@ TEST(MallocExtension, DynamicSlabMallocMetadata) {
   EXPECT_THAT(
       properties["tcmalloc.metadata_bytes"],
       testing::Field(&MallocExtension::Property::value, testing::Gt(0)));
+}
+
+TEST(MallocExtension, ReleaseCpuMemoryOutOfBounds) {
+  if (tcmalloc_internal::kSanitizerPresent) {
+    GTEST_SKIP() << "Running under sanitizers";
+  }
+
+  void* ptr = ::operator new(64);
+  ::operator delete(ptr);
+
+  EXPECT_EQ(MallocExtension::ReleaseCpuMemory(-1), 0);
+  EXPECT_EQ(MallocExtension::ReleaseCpuMemory(NumCPUs()), 0);
+  EXPECT_EQ(MallocExtension::ReleaseCpuMemory(NumCPUs() + 1), 0);
 }
 
 }  // namespace

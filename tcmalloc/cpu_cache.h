@@ -2254,6 +2254,7 @@ inline uint64_t CpuCache<Forwarder>::UsedBytes(int target_cpu) const {
 template <class Forwarder>
 inline bool CpuCache<Forwarder>::HasPopulated(int target_cpu) const {
   TC_ASSERT_GE(target_cpu, 0);
+  TC_ASSERT_LT(target_cpu, NumCPUs());
   return resize_[target_cpu].populated.load(std::memory_order_relaxed);
 }
 
@@ -2391,6 +2392,9 @@ struct DrainHandler {
 
 template <class Forwarder>
 inline uint64_t CpuCache<Forwarder>::Drain(int cpu) {
+  if (ABSL_PREDICT_FALSE(cpu < 0 || cpu >= NumCPUs())) {
+    return 0;
+  }
   AllocationGuardSpinLockHolder h(resize_[cpu].lock);
   return DrainLocksHeld(resize_[cpu].lock, cpu);
 }
