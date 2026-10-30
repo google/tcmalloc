@@ -821,9 +821,15 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
     // Prefetch for writing, as we will issue stores to the PageTracker
     // instance.
     if (pt) {
+#if defined(__aarch64__)
+      PrefetchPstL2Keep(pt);
+      PrefetchPstL2Keep(reinterpret_cast<void*>(
+          reinterpret_cast<uintptr_t>(pt) + ABSL_CACHELINE_SIZE));
+#else
       PrefetchW(pt);
       PrefetchW(reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(pt) +
                                         ABSL_CACHELINE_SIZE));
+#endif
     }
     const MemoryTag tag = GetMemoryTag(ptr);
 #endif

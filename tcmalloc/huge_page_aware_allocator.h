@@ -688,7 +688,11 @@ HugePageAwareAllocator<Forwarder>::New(Length n,
   if (ABSL_PREDICT_TRUE(f)) {
     Range r = f.r;
     // Prefetch for writing, as we anticipate using the memory soon.
+#if defined(__aarch64__)
+    PrefetchPstL2Keep(r.p.start_addr());
+#else
     PrefetchW(r.p.start_addr());
+#endif
     if (ABSL_PREDICT_FALSE(from_released && ShouldBack(r))) {
       forwarder_.Back(r);
     }
@@ -742,7 +746,11 @@ HugePageAwareAllocator<Forwarder>::NewAligned(Length n, Length align,
     Range r = f.r;
     if (from_released) {
       // Prefetch for writing, as we anticipate using the memory soon.
+#if defined(__aarch64__)
+      PrefetchPstL2Keep(r.p.start_addr());
+#else
       PrefetchW(r.p.start_addr());
+#endif
       if (ShouldBack(r)) {
         forwarder_.Back(r);
       }
