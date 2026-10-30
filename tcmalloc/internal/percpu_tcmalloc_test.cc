@@ -472,6 +472,9 @@ TEST_F(TcmallocSlabTest, ResizeMaxCapacities) {
                  [&]() { return max_capacity[kSizeClassToShrink]; }),
       max_capacity[kSizeClassToShrink]);
 
+  size_t large_capacity = slab_.Capacity(kCpu, kSizeClassToGrow);
+  size_t small_capacity = slab_.Capacity(kCpu, kSizeClassToShrink);
+
   for (int i = 0; i < kCapacity; ++i) {
     PerSizeClassMaxCapacity new_max_capacity[2];
     new_max_capacity[0] = PerSizeClassMaxCapacity{
@@ -510,19 +513,22 @@ TEST_F(TcmallocSlabTest, ResizeMaxCapacities) {
     sized_aligned_delete(old_slabs, old_slabs_size,
                          subtle::percpu::SlabAlignment(ToShiftType(kShift)));
 
-    // Make sure that the capacity is zero as UpdateMaxCapacity should
-    // initialize slabs.
-    EXPECT_EQ(slab_.Capacity(kCpu, kSizeClassToGrow), 0);
-    EXPECT_EQ(slab_.Capacity(kCpu, kSizeClassToShrink), 0);
+    // Make sure that the capacity is kept but capped.
+    const size_t grown_capacity = slab_.Capacity(kCpu, kSizeClassToGrow);
+    const size_t shrunk_capacity = slab_.Capacity(kCpu, kSizeClassToShrink);
+    EXPECT_EQ(grown_capacity, large_capacity);
+    EXPECT_EQ(shrunk_capacity, small_capacity - 1);
 
     // Make sure that the slab may grow the available maximum capacity.
     EXPECT_EQ(slab_.Grow(kCpu, kSizeClassToGrow, max_capacity[kSizeClassToGrow],
                          [&]() { return max_capacity[kSizeClassToGrow]; }),
-              max_capacity[kSizeClassToGrow]);
+              max_capacity[kSizeClassToGrow] - grown_capacity);
     EXPECT_EQ(
         slab_.Grow(kCpu, kSizeClassToShrink, max_capacity[kSizeClassToShrink],
                    [&]() { return max_capacity[kSizeClassToShrink]; }),
-        max_capacity[kSizeClassToShrink]);
+        max_capacity[kSizeClassToShrink] - shrunk_capacity);
+    large_capacity = max_capacity[kSizeClassToGrow];
+    small_capacity = max_capacity[kSizeClassToShrink];
   }
 
   EXPECT_EQ(max_capacity[kSizeClassToShrink], 0);

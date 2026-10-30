@@ -606,6 +606,10 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
       cache.ResizeSizeClassMaxCapacities();
     }
 
+    // The capacity should still be the same as before.
+    EXPECT_EQ(cache.GetCapacityOfSizeClass(kCpuId, kLargeClass),
+              base_max_capacity);
+
     const int resized_max_capacity = cache.GetMaxCapacity(kLargeClass);
     EXPECT_EQ(resized_max_capacity,
               base_max_capacity + kGrowthFactor * batch_size_large);
@@ -623,7 +627,8 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
       ops += batch_size_large;
       AllocateThenDeallocate(cache, kCpuId, kLargeClass, ops);
       if (cache.GetCapacityOfSizeClass(kCpuId, kLargeClass) >=
-          base_max_capacity) {
+              base_max_capacity &&
+          ops >= base_max_capacity) {
         break;
       }
     }

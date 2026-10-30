@@ -167,8 +167,8 @@ class TcmallocSlab {
   // capacity needs to be updated.
   // <drain_handler> callback drains the old slab.
   [[nodiscard]] ResizeSlabsInfo UpdateMaxCapacities(
-      void* new_slabs, absl::FunctionRef<size_t(size_t)> capacity,
-      absl::FunctionRef<void(int, uint16_t)> update_capacity,
+      void* new_slabs, absl::FunctionRef<size_t(size_t)> max_capacity,
+      absl::FunctionRef<void(int, uint16_t)> update_max_capacity,
       absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler,
       PerSizeClassMaxCapacity* new_max_capacity, int classes_to_resize);
 
@@ -421,6 +421,15 @@ class TcmallocSlab {
         return 0;
       }
       return (current - begin) + remaining_capacity;
+    }
+
+    // Number of elements currently in this freelist.
+    [[nodiscard]] uint16_t length(uint16_t begin) const {
+      if (current < begin) {
+        // Uninitialized; special case.
+        return 0;
+      }
+      return current - begin;
     }
   };
 
@@ -1334,8 +1343,8 @@ void TcmallocSlab<NumClasses>::DrainOldSlabs(
 
 template <size_t NumClasses>
 ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
-    void* new_slabs, absl::FunctionRef<size_t(size_t)> capacity,
-    absl::FunctionRef<void(int, uint16_t)> update_capacity,
+    void* new_slabs, absl::FunctionRef<size_t(size_t)> max_capacity,
+    absl::FunctionRef<void(int, uint16_t)> update_max_capacity,
     absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler,
     PerSizeClassMaxCapacity* new_max_capacity, int classes_to_resize) {
   const int n_cpus = num_cpus();
@@ -1347,7 +1356,7 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
     // populated should not change while this function runs because the caller
     // should be holding all the CPU resize locks.
     if (!populated(cpu)) continue;
-    InitCpuImpl(new_slabs, shift, cpu, capacity);
+    InitCpuImpl(new_slabs, shift, cpu, max_capacity);
   }
 
   // Phase 1: Stop all CPUs and initialize any CPUs in the new slab that have
@@ -1369,16 +1378,78 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
   for (int i = 0; i < classes_to_resize; ++i) {
     size_t size_class = new_max_capacity[i].size_class;
     size_t cap = new_max_capacity[i].max_capacity;
-    update_capacity(size_class, cap);
+    update_max_capacity(size_class, cap);
   }
 
   // Phase 3: Initialize slabs.
-  InitSlabs(new_slabs, shift, capacity);
+  InitSlabs(new_slabs, shift, max_capacity);
 
-  // Phase 4: Re-start all CPUs.
+  // Phase 4: Copy the old capacities and pointers to the new slabs,
+  // subject to possibly reduced new limits.
+  //
+  // Note that since we are always moving and never copying or dropping,
+  // none of these will change the amount of RAM that we are using,
+  // so we will not need to call back into CpuCache to update the available
+  // counter, nor will we need to worry about going over that limit.
+  for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
+    if (!populated(cpu)) continue;
+
+    void** old_start =
+        reinterpret_cast<void**>(CpuMemoryStart(old_slabs, shift, cpu));
+    void** new_start =
+        reinterpret_cast<void**>(CpuMemoryStart(new_slabs, shift, cpu));
+    for (int size_class = 1; size_class < NumClasses; ++size_class) {
+      uint16_t new_max_capacity = max_capacity(size_class);
+      if (new_max_capacity == 0) {
+        // Nothing to transfer.
+        continue;
+      }
+
+      auto* ohdrp = GetHeader(old_slabs, shift, cpu, size_class);
+      Header ohdr = LoadHeader(ohdrp);
+      uint16_t pointers_in_list = ohdr.length(old_begins[size_class]);
+      if (pointers_in_list == 0 && ohdr.remaining_capacity == 0) {
+        // Nothing to transfer.
+        continue;
+      }
+
+      auto* nhdrp = GetHeader(new_slabs, shift, cpu, size_class);
+      Header nhdr = LoadHeader(nhdrp);
+
+      // First move any elements in the freelist that we can. Note that we also
+      // move them together with their capacities, since we don't update
+      // remaining_capacity on either side.
+      uint16_t elems_to_copy = std::min(pointers_in_list, new_max_capacity);
+      if (elems_to_copy > 0) {
+        memcpy(new_start + nhdr.current,
+               old_start + ohdr.current - elems_to_copy,
+               elems_to_copy * sizeof(*new_start));
+        ohdr.current -= elems_to_copy;
+        nhdr.current += elems_to_copy;
+      }
+
+      // Now transfer any unused capacity that we can. Most of the time, this
+      // will be all capacity in the old slab, leaving it empty, but if it were
+      // close to full capacity and we shrunk this size class, there may be
+      // something left that draining will take care of below.
+      uint16_t capacity_to_move = std::min<uint16_t>(
+          ohdr.remaining_capacity, new_max_capacity - elems_to_copy);
+      if (capacity_to_move > 0) {
+        ohdr.remaining_capacity -= capacity_to_move;
+        nhdr.remaining_capacity += capacity_to_move;
+      }
+
+      StoreHeader(ohdrp, ohdr);
+      StoreHeader(nhdrp, nhdr);
+    }
+  }
+
+  // Phase 5: Re-start all CPUs.
   StartAllCpus();
 
-  // Phase 5: Return pointers from the old slab to the TransferCache.
+  // Phase 6: Return remaining pointers from the old slab to the TransferCache,
+  // and release any remaining capacity back to cpu.available so that it can be
+  // used by Grow() later.
   for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
     if (!populated(cpu)) continue;
     DrainOldSlabs(old_slabs, shift, cpu, old_begins, drain_handler);
