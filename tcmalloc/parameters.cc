@@ -182,6 +182,7 @@ void Parameters::InitializeFromExperiments() {
 }
 
 uint64_t Parameters::heap_size_hard_limit() {
+  tc_globals.InitIfNecessary();
   return tc_globals.page_allocator().limit(PageAllocator::kHard);
 }
 
@@ -711,6 +712,11 @@ void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseShortInterval(
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseShortInterval(
     absl::Duration v) {
+  if (v < absl::ZeroDuration()) {
+    TC_LOG("Ignoring negative skip_subrelease_short_interval: %v ns",
+           absl::ToInt64Nanoseconds(v));
+    return;
+  }
   tc_globals.InitIfNecessary();
   Parameters::skip_subrelease_short_interval_ns_.store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
@@ -724,6 +730,11 @@ void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseLongInterval(
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(
     absl::Duration v) {
+  if (v < absl::ZeroDuration()) {
+    TC_LOG("Ignoring negative skip_subrelease_long_interval: %v ns",
+           absl::ToInt64Nanoseconds(v));
+    return;
+  }
   tc_globals.InitIfNecessary();
   Parameters::skip_subrelease_long_interval_ns_.store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
@@ -737,6 +748,11 @@ void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseColdShortInterval(
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdShortInterval(
     absl::Duration v) {
+  if (v < absl::ZeroDuration()) {
+    TC_LOG("Ignoring negative skip_subrelease_cold_short_interval: %v ns",
+           absl::ToInt64Nanoseconds(v));
+    return;
+  }
   tc_globals.InitIfNecessary();
   Parameters::skip_subrelease_cold_short_interval_ns_.store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
@@ -750,6 +766,11 @@ void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseColdLongInterval(
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdLongInterval(
     absl::Duration v) {
+  if (v < absl::ZeroDuration()) {
+    TC_LOG("Ignoring negative skip_subrelease_cold_long_interval: %v ns",
+           absl::ToInt64Nanoseconds(v));
+    return;
+  }
   tc_globals.InitIfNecessary();
   Parameters::skip_subrelease_cold_long_interval_ns_.store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);

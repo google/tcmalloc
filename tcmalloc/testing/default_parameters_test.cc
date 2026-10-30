@@ -171,6 +171,51 @@ bool TestBackgroundProcessParameters() {
   return true;
 }
 
+bool TestInvalidDurationParameters() {
+  const absl::Duration initial_sleep =
+      MallocExtension::GetBackgroundProcessSleepInterval();
+  MallocExtension::SetBackgroundProcessSleepInterval(absl::Seconds(-1));
+  if (MallocExtension::GetBackgroundProcessSleepInterval() != initial_sleep) {
+    absl::FPrintF(stderr,
+                  "BackgroundProcessSleepInterval after -1s: got %d, want %d\n",
+                  absl::ToInt64Seconds(
+                      MallocExtension::GetBackgroundProcessSleepInterval()),
+                  absl::ToInt64Seconds(initial_sleep));
+    return false;
+  }
+  MallocExtension::SetBackgroundProcessSleepInterval(absl::ZeroDuration());
+  if (MallocExtension::GetBackgroundProcessSleepInterval() != initial_sleep) {
+    absl::FPrintF(stderr,
+                  "BackgroundProcessSleepInterval after 0s: got %d, want %d\n",
+                  absl::ToInt64Seconds(
+                      MallocExtension::GetBackgroundProcessSleepInterval()),
+                  absl::ToInt64Seconds(initial_sleep));
+    return false;
+  }
+
+  MallocExtension::SetSkipSubreleaseShortInterval(absl::Seconds(-1));
+  if (MallocExtension::GetSkipSubreleaseShortInterval() !=
+      kDefaultSkipSubreleaseShortInterval) {
+    absl::FPrintF(
+        stderr, "SkipSubreleaseShortInterval after -1s: got %d, want %d\n",
+        absl::ToInt64Seconds(MallocExtension::GetSkipSubreleaseShortInterval()),
+        absl::ToInt64Seconds(kDefaultSkipSubreleaseShortInterval));
+    return false;
+  }
+
+  MallocExtension::SetSkipSubreleaseLongInterval(absl::Seconds(-1));
+  if (MallocExtension::GetSkipSubreleaseLongInterval() !=
+      kDefaultSkipSubreleaseLongInterval) {
+    absl::FPrintF(
+        stderr, "SkipSubreleaseLongInterval after -1s: got %d, want %d\n",
+        absl::ToInt64Seconds(MallocExtension::GetSkipSubreleaseLongInterval()),
+        absl::ToInt64Seconds(kDefaultSkipSubreleaseLongInterval));
+    return false;
+  }
+
+  return true;
+}
+
 }  // namespace
 }  // namespace tcmalloc
 
@@ -185,6 +230,7 @@ int main() {
   success = success & tcmalloc::TestMaxPerCpuCacheSize();
   success = success & tcmalloc::TestMaxTotalThreadCacheBytes();
   success = success & tcmalloc::TestBackgroundProcessParameters();
+  success = success & tcmalloc::TestInvalidDurationParameters();
 
   if (success) {
     fprintf(stderr, "PASS");

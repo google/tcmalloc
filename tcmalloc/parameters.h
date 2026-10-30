@@ -220,11 +220,18 @@ class Parameters {
         background_process_sleep_interval_ns_.load(std::memory_order_relaxed));
   }
   static void set_background_process_sleep_interval(absl::Duration value) {
+    if (value <= absl::ZeroDuration()) {
+      TC_LOG("Ignoring non-positive background_process_sleep_interval: %v ns",
+             absl::ToInt64Nanoseconds(value));
+      return;
+    }
     background_process_sleep_interval_ns_.store(absl::ToInt64Nanoseconds(value),
                                                 std::memory_order_relaxed);
   }
 
   static void set_filler_skip_subrelease_short_interval(absl::Duration value) {
+    if (value >= absl::ZeroDuration()) {
+    }
     TCMalloc_Internal_SetHugePageFillerSkipSubreleaseShortInterval(value);
   }
 
@@ -234,6 +241,8 @@ class Parameters {
   }
 
   static void set_filler_skip_subrelease_long_interval(absl::Duration value) {
+    if (value >= absl::ZeroDuration()) {
+    }
     TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(value);
   }
 
@@ -244,6 +253,8 @@ class Parameters {
 
   static void set_filler_skip_subrelease_cold_short_interval(
       absl::Duration value) {
+    if (value >= absl::ZeroDuration()) {
+    }
     TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdShortInterval(value);
   }
 
@@ -255,6 +266,8 @@ class Parameters {
 
   static void set_filler_skip_subrelease_cold_long_interval(
       absl::Duration value) {
+    if (value >= absl::ZeroDuration()) {
+    }
     TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdLongInterval(value);
   }
 
