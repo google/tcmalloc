@@ -256,7 +256,7 @@ struct State {
   ~State() {
     reentrant_stack.clear();
     for (const auto& alloc : allocs) {
-      region.Put(alloc, false);
+      region.Put(alloc, false, [] {});
     }
     allocs.clear();
     EXPECT_EQ(region.used_pages(), Length(0));
@@ -361,7 +361,7 @@ void Deallocate::Perform(State& state) const {
   using std::swap;
   swap(state.allocs[target_index], state.allocs.back());
   state.allocs.pop_back();
-  state.region.Put(alloc, release);
+  state.region.Put(alloc, release, [] {});
 }
 
 void Release::Perform(State& state) const {
@@ -369,8 +369,10 @@ void Release::Perform(State& state) const {
   const HugeLength max_expected =
       std::min(state.region.free_backed(), HLFromPages(len));
   const HugeLength actual = state.region.Release(
-      len, adaptive_release ? HugeRegionAdaptiveRelease::kEnabled
-                            : HugeRegionAdaptiveRelease::kDisabled);
+      len,
+      adaptive_release ? HugeRegionAdaptiveRelease::kEnabled
+                       : HugeRegionAdaptiveRelease::kDisabled,
+      [] {});
   if (!state.unback.unback_success_) {
     TC_CHECK_EQ(actual, NHugePages(0));
     return;

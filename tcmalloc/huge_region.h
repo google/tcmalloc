@@ -24,6 +24,7 @@
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
+#include "absl/functional/function_ref.h"
 #include "absl/strings/str_format.h"
 #include "absl/time/time.h"
 #include "tcmalloc/huge_cache.h"
@@ -76,15 +77,21 @@ class HugeRegion : public TList<HugeRegion>::Elem {
 
   // Return r for new allocations.
   // If release=true, release any hugepages made empty as a result.
+  // `on_longest_free_changed` is invoked with pageheap_lock held around each
+  // unback batch after marking and after unmarking the batch in `tracker_`.
   // REQUIRES: Range{p, n} was the result of a previous MaybeGet.
-  void Put(Range r, bool release);
+  void Put(Range r, bool release,
+           absl::FunctionRef<void()> on_longest_free_changed);
 
   // Release <desired> number of pages from free-and-backed hugepages from the
   // region. If adaptive_release is true, we scan the hugepages in reverse order
   // to select candidates for release. This order is opposite to the allocation
   // order, so we hope to release pages that won't be soon allocated.
-  [[nodiscard]] HugeLength Release(Length desired,
-                                   HugeRegionAdaptiveRelease adaptive_release);
+  // `on_longest_free_changed` is invoked with pageheap_lock held around each
+  // unback batch after marking and after unmarking the batch in `tracker_`.
+  [[nodiscard]] HugeLength Release(
+      Length desired, HugeRegionAdaptiveRelease adaptive_release,
+      absl::FunctionRef<void()> on_longest_free_changed);
 
   // Is p located in this region?
   [[nodiscard]] bool contains(PageId p) const { return location_.contains(p); }
@@ -132,8 +139,16 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   [[nodiscard]] BackingStats stats() const;
 
   // We don't define this as operator< because it's a rather specialized order.
+  //
+  // Ties on longest_free() are broken by start address so regions have a
+  // strict total order: resorting a region across a transient mark/unmark
+  // returns it to its exact position among tied peers rather than moving it
+  // ahead of them and terminating ReleasePages' reverse list_ walk early.
   [[nodiscard]] bool BetterToAllocThan(const HugeRegion* rhs) const {
-    return longest_free() < rhs->longest_free();
+    if (longest_free() != rhs->longest_free()) {
+      return longest_free() < rhs->longest_free();
+    }
+    return location_.start() < rhs->location_.start();
   }
 
  private:
@@ -151,9 +166,11 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // *from_released is set to true iff r is currently unbacked
   void Inc(Range r, bool* from_released);
   // If release is true, unback any hugepage that becomes empty.
-  void Dec(Range r, bool release);
+  void Dec(Range r, bool release,
+           absl::FunctionRef<void()> on_longest_free_changed);
 
-  HugeLength UnbackHugepages(const Bitmap<kNumHugePages>& maybe_unback);
+  HugeLength UnbackHugepages(const Bitmap<kNumHugePages>& maybe_unback,
+                             absl::FunctionRef<void()> on_longest_free_changed);
 
   // How many pages are used in each hugepage?
   Length pages_used_[kNumHugePages];
@@ -298,7 +315,8 @@ class HugeRegionSet {
 
   size_t n_;
   HugeRegionUsageOption use_huge_region_more_often_;
-  // Sorted by longest_free increasing.
+  // Sorted by BetterToAllocThan (longest_free() increasing, ties broken by
+  // start address).
   TList<Region> list_;
   HugeLength backed_huge_pages_;
   HugeLength free_backed_count_;
@@ -347,11 +365,12 @@ inline bool HugeRegion::MaybeGet(Length n, PageId* absl_nonnull p,
 }
 
 // If release=true, release any hugepages made empty as a result.
-inline void HugeRegion::Put(Range r, bool release) {
+inline void HugeRegion::Put(Range r, bool release,
+                            absl::FunctionRef<void()> on_longest_free_changed) {
   Length index = r.p - location_.start().first_page();
   tracker_.Unmark(index.raw_num(), r.n.raw_num());
 
-  Dec(r, release);
+  Dec(r, release, on_longest_free_changed);
 }
 
 // Release hugepages that are unused but backed.
@@ -360,7 +379,8 @@ inline void HugeRegion::Put(Range r, bool release) {
 // sophisticated mechanism similar to Filler/Cache, that accounts for a recent
 // peak while releasing pages.
 inline HugeLength HugeRegion::Release(
-    Length desired, HugeRegionAdaptiveRelease adaptive_release) {
+    Length desired, HugeRegionAdaptiveRelease adaptive_release,
+    absl::FunctionRef<void()> on_longest_free_changed) {
   const Length free_yet_backed = free_backed_count_.in_pages();
   const Length to_release = std::min(desired, free_yet_backed);
   if (to_release == Length(0)) return NHugePages(0);
@@ -391,7 +411,7 @@ inline HugeLength HugeRegion::Release(
     release_target += count;
     if (release_target == needed) break;
   }
-  return UnbackHugepages(should_unback);
+  return UnbackHugepages(should_unback, on_longest_free_changed);
 }
 
 inline void HugeRegion::AddSpanStats(SmallSpanStats* small,
@@ -521,7 +541,8 @@ inline void HugeRegion::Inc(Range r, bool* from_released) {
   *from_released = should_back;
 }
 
-inline void HugeRegion::Dec(Range r, bool release) {
+inline void HugeRegion::Dec(Range r, bool release,
+                            absl::FunctionRef<void()> on_longest_free_changed) {
   Bitmap<kNumHugePages> should_unback;
   while (r.n > Length(0)) {
     const HugePage hp = HugePageContaining(r.p);
@@ -541,12 +562,13 @@ inline void HugeRegion::Dec(Range r, bool release) {
     r.n -= here;
   }
   if (release) {
-    UnbackHugepages(should_unback);
+    UnbackHugepages(should_unback, on_longest_free_changed);
   }
 }
 
 inline HugeLength HugeRegion::UnbackHugepages(
-    const Bitmap<kNumHugePages>& maybe_unback) {
+    const Bitmap<kNumHugePages>& maybe_unback,
+    absl::FunctionRef<void()> on_longest_free_changed) {
   HugeLength released = NHugePages(0);
   size_t i = 0;
   while (i < kNumHugePages) {
@@ -585,6 +607,10 @@ inline HugeLength HugeRegion::UnbackHugepages(
     free_backed_count_ -= hl;
     unreleasable_hugepages_.SetRange(i, j - i);
 
+    // Marking the batch may depress longest_free(); resort the region in
+    // HugeRegionSet::list_ before unback_ can drop pageheap_lock.
+    on_longest_free_changed();
+
     if (ABSL_PREDICT_TRUE(unback_(HugeRange(p, hl)).success)) {
       nbacked_ -= hl;
       total_unbacked_ += hl;
@@ -609,6 +635,7 @@ inline HugeLength HugeRegion::UnbackHugepages(
 
     tracker_.Unmark(NHugePages(i).in_pages().raw_num(),
                     hl.in_pages().raw_num());
+    on_longest_free_changed();
 
     i = j;
   }
@@ -656,7 +683,7 @@ inline bool HugeRegionSet<Region>::MaybePut(Range r) {
     if (region->contains(r.p)) {
       const HugeLength free_backed_before = region->free_backed();
       const HugeLength backed_before = RegionBacked(*region);
-      region->Put(r, release);
+      region->Put(r, release, [&]() GOOGLE_MALLOC_SECTION { Fix(region); });
       const HugeLength free_backed_after = region->free_backed();
       const HugeLength backed_after = RegionBacked(*region);
       TC_ASSERT_GE(free_backed_after, free_backed_before);
@@ -706,18 +733,39 @@ inline Length HugeRegionSet<Region>::ReleasePages(
     Length region_target = to_release - released;
 
     Length region_released =
-        region.Release(region_target, use_adaptive).in_pages();
+        region
+            .Release(region_target, use_adaptive,
+                     [&]() GOOGLE_MALLOC_SECTION { Fix(&region); })
+            .in_pages();
     released += region_released;
   };
 
+  // Bound the number of regions visited.
+  //
+  // Once Release drops pageheap_lock around the unback syscall, a concurrent
+  // Get or Put can call Fix() and move the region we are standing on to a
+  // different place in list_. ++it then follows the node's new neighbours and
+  // can revisit regions instead of reaching the end.
+  //
+  // The iterator itself stays valid: regions are only ever added to the set,
+  // never removed or destroyed, and Fix() re-inserts under the same lock hold
+  // that removed. So this is a liveness concern, not a safety one.
+  //
+  // Each successful unback also grows `released`, so the `released >=
+  // to_release` test normally terminates the sweep. It does not if the unbacks
+  // keep failing: those still drop the lock but make no progress. This bound
+  // makes termination independent of that.
+  const size_t max_visits = n_;
+  size_t visits = 0;
+
   if (use_adaptive == HugeRegionAdaptiveRelease::kEnabled) {
     for (auto it = list_.rbegin(); it != list_.rend(); ++it) {
-      if (released >= to_release) break;
+      if (released >= to_release || visits++ >= max_visits) break;
       release_from_region(**it);
     }
   } else {
     for (Region* region : list_) {
-      if (released >= to_release) break;
+      if (released >= to_release || visits++ >= max_visits) break;
       release_from_region(*region);
     }
   }
