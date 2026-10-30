@@ -205,8 +205,7 @@ class Static final {
         static_cast<int>(!delete_hooks_.empty());
   }
 
-  [[nodiscard]] size_t metadata_bytes()
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  [[nodiscard]] size_t metadata_bytes();
 
   // The root of the pagemap is potentially a large poorly utilized
   // structure, so figure out how much of it is actually resident.

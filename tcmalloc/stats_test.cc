@@ -22,11 +22,16 @@
 
 #include "gtest/gtest.h"
 #include "absl/base/internal/cycleclock.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/arena.h"
+#include "tcmalloc/common.h"
+#include "tcmalloc/global_stats.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
@@ -175,6 +180,43 @@ TEST(ClockTest, ClockTicks) {
   const absl::Duration measured = absl::Seconds(a - b);
   EXPECT_LE(actual * 0.99, measured) << actual;
   EXPECT_GE(actual * 1.01, measured) << actual;
+}
+
+TEST(GlobalStatsTest, ExtractStatsClampsUnderConcurrentArenaShrink) {
+  tc_globals.InitIfNecessary();
+  {
+    PageHeapSpinLockHolder l;
+    (void)tc_globals.arena().Alloc(ArenaAlloc::kPageMap, sizeof(tc_globals),
+                                   kAlignment);
+  }
+  const ArenaStats before = tc_globals.arena().stats();
+  const int64_t shrink = static_cast<int64_t>(before.bytes_allocated);
+  tc_globals.arena().UpdateAllocatedAndNonresident(-shrink, 0);
+
+  TCMallocStats stats;
+  ExtractTCMallocStats(stats, /*report_residence=*/true);
+  tc_globals.arena().UpdateAllocatedAndNonresident(shrink, 0);
+
+  EXPECT_GE(stats.metadata_bytes, stats.pagemap_root_bytes_res);
+  EXPECT_LE(stats.metadata_bytes, before.bytes_allocated + sizeof(tc_globals));
+}
+
+TEST(GlobalStatsTest, ArenaPropertiesDoNotAcquirePageHeapLock) {
+  tc_globals.InitIfNecessary();
+  size_t unavailable = 0;
+  size_t unallocated = 0;
+  constexpr absl::string_view kUnavailable =
+      "tcmalloc.metadata_arena_unavailable_bytes";
+  constexpr absl::string_view kUnallocated =
+      "tcmalloc.metadata_arena_unallocated_bytes";
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(GetNumericProperty(kUnavailable.data(), kUnavailable.size(),
+                                   &unavailable));
+    EXPECT_TRUE(GetNumericProperty(kUnallocated.data(), kUnallocated.size(),
+                                   &unallocated));
+  }
+  EXPECT_GT(unallocated, 0);
 }
 
 }  // namespace
