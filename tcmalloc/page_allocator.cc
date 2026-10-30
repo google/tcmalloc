@@ -53,18 +53,18 @@ PageAllocatorImpl<Forwarder>::PageAllocatorImpl() {
   normal_impl_[0] = new (&choices_[part++].hpaa)
       Interface(HugePageAwareAllocatorOptions{MemoryTag::kNormal});
   if (tc_globals.active_partitions() > 1) {
-    normal_impl_[1] = new (
-        tc_globals.arena().Alloc(ArenaAlloc::kPageAllocator, sizeof(Interface)))
-        Interface(HugePageAwareAllocatorOptions{MemoryTag::kNormalP1});
+    normal_impl_[1] = tc_globals.arena().New<Interface>(
+        ArenaAlloc::kPageAllocator,
+        HugePageAwareAllocatorOptions{MemoryTag::kNormalP1});
   }
   sampled_or_cold_impl_[0] = new (&choices_[part++].hpaa)
       Interface(HugePageAwareAllocatorOptions{MemoryTag::kSampledOrCold});
   if (sampled_partition_active_) {
     // this is not the case for NUMA partitions, hence, we can't use the
     // active_partitions() check.
-    sampled_or_cold_impl_[1] = new (
-        tc_globals.arena().Alloc(ArenaAlloc::kPageAllocator, sizeof(Interface)))
-        Interface(HugePageAwareAllocatorOptions{MemoryTag::kSampledOrColdP1});
+    sampled_or_cold_impl_[1] = tc_globals.arena().New<Interface>(
+        ArenaAlloc::kPageAllocator,
+        HugePageAwareAllocatorOptions{MemoryTag::kSampledOrColdP1});
   }
 
   size_t total_heaps = 0;
