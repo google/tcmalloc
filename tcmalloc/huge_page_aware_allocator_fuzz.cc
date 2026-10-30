@@ -808,6 +808,8 @@ struct State {
     HugeLength donated;
     Length abandoned;
     HugeLength reused_broken;
+    HugeLength regions_free_backed;
+    BackingStats regions_stats;
     {
       PageHeapSpinLockHolder l;
       stats = allocator.stats();
@@ -816,9 +818,17 @@ struct State {
       donated = allocator.DonatedHugePages();
       abandoned = allocator.AbandonedPages();
       reused_broken = allocator.ReusedBrokenHugePages();
+      regions_free_backed = allocator.RegionsFreeBacked();
+      regions_stats = allocator.RegionsStats();
     }
     TC_CHECK_EQ(release_stats, expected_stats);
     TC_CHECK_EQ(live_ranges.size(), allocs.size());
+    // The hugepages the regions count as free and backed are free, except
+    // those being released: HugeRegionSet learns of a release only when it
+    // returns, so it over-counts by the range in flight meanwhile.
+    TC_CHECK_LE(regions_free_backed.in_bytes(),
+                regions_stats.free_bytes +
+                    allocator.forwarder().pending_release_.in_bytes());
     // Everything not free or unmapped is held by a live span, except for
     // pages whose release is in flight.
     TC_CHECK_GE(stats.system_bytes, stats.free_bytes + stats.unmapped_bytes);
@@ -1381,6 +1391,13 @@ PageReleaseStats RunHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
   TC_CHECK_EQ(state.allocator.DonatedHugePages(), NHugePages(0));
   TC_CHECK_EQ(state.allocator.AbandonedPages(), Length(0));
   TC_CHECK_EQ(state.allocator.ReusedBrokenHugePages(), NHugePages(0));
+  // Nor may any region hold a used page; with every span returned, every
+  // backed page in a region is on a free, backed hugepage.
+  const BackingStats regions = state.allocator.RegionsStats();
+  TC_CHECK_EQ(regions.system_bytes,
+              regions.free_bytes + regions.unmapped_bytes);
+  TC_CHECK_EQ(state.allocator.RegionsFreeBacked().in_bytes(),
+              regions.free_bytes);
   return final_stats;
 }
 
