@@ -582,12 +582,32 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
   "add %[scratch], %[scratch], :lo12:__rseq_cs_" #name \
   "_%=\n"                                              \
   "str %[scratch], %[rseq_cs_addr]\n"
-#endif  // defined(__aarch64__)
+
+#elif defined(__riscv)
+#define TCMALLOC_RSEQ_CLOBBER "t1"
+#define TCMALLOC_RSEQ_RELOC_TYPE "R_RISCV_NONE"
+#define TCMALLOC_RSEQ_JUMP "tail"
+#define TCMALLOC_RSEQ_SET_CS(name)                                     \
+".L" #name "_abort_%=:\n"                                              \
+  "auipc   %[scratch], %%tls_ie_pcrel_hi(__rseq_abi)\n"                \
+  "ld      %[scratch], %%pcrel_lo(.L" #name "_abort_%=)(%[scratch])\n" \
+  "add     %[scratch], %[scratch], tp\n"                               \
+  "lla     %[tmp], __rseq_cs_" #name "_%=\n"                           \
+  "sd      %[tmp], 8(%[scratch])\n"
+#endif  // defined(__riscv)
 
 #if !defined(__clang_major__) || __clang_major__ >= 9
 #define TCMALLOC_RSEQ_RELOC ".reloc 0, " TCMALLOC_RSEQ_RELOC_TYPE ", 1f\n"
 #else
 #define TCMALLOC_RSEQ_RELOC
+#endif
+
+#if defined(__riscv)
+// RISC-V targets don't support the `%c` modifier and don't have a prefix
+// character for immediates.
+#define TCMALLOC_RSEQ_SIG_OPERAND "%[rseq_sig]"
+#else
+#define TCMALLOC_RSEQ_SIG_OPERAND "%c[rseq_sig]"
 #endif
 
 // Common rseq asm prologue.
@@ -628,7 +648,7 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
                                               annotate valid abort IPs (since \
                                               rseq_cs could live in a         \
                                               user-writable segment). */      \
-  ".long %c[rseq_sig]\n"                                                      \
+  ".long " TCMALLOC_RSEQ_SIG_OPERAND "\n"                                     \
   ".local " #name                                                             \
   "_trampoline_PREEMPTION_OR_SIGNAL_BASED_PROFILER_ACTIVE_%=\n"               \
   ".type " #name                                                              \
@@ -643,7 +663,7 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
   ".popsection\n"                   /* Prepare */                             \
   "3:\n" TCMALLOC_RSEQ_SET_CS(name) /* Start */                               \
       "4:\n"
-#ifdef __aarch64__
+#if defined(__aarch64__)
 // Note that we calculate thread local variable offsets relative to the address
 // of the sampler. The sampler is already accessed first on the path to Pop(),
 // and calculating the address of other thread local variables relative to it is
@@ -657,6 +677,16 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
                                               consts. */                     \
       [cached_slabs_bit] "n"(TCMALLOC_CACHED_SLABS_BIT),                     \
       [sampler_slabs_offset] "n"(TCMALLOC_SAMPLER_SLABS_OFFSET)
+#elif defined(__riscv)
+#define TCMALLOC_RSEQ_INPUTS                                                 \
+  [rseq_abi_addr] "r"(&__rseq_abi),                                          \
+      [rseq_slabs_offset_lo] "n"(TCMALLOC_RSEQ_SLABS_OFFSET),                \
+      [rseq_slabs_offset_hi] "n"(TCMALLOC_RSEQ_SLABS_OFFSET + 4),            \
+      [rseq_sig] "n"(                                                        \
+          TCMALLOC_PERCPU_RSEQ_SIGNATURE), /* Also pass common consts, there \
+                                              is no cost to passing unused   \
+                                              consts. */                     \
+      [cached_slabs_bit] "n"(TCMALLOC_CACHED_SLABS_BIT)
 #else
 #define TCMALLOC_RSEQ_INPUTS                                                 \
   TCMALLOC_RSEQ_CS_INPUT,                                                    \
@@ -720,6 +750,49 @@ template <typename T>
         : TCMALLOC_RSEQ_INPUTS, [p] "m"(*static_cast<uint32_t* volatile*>(p)),
           [v] "r"(v)
         : TCMALLOC_RSEQ_CLOBBER, "cc", "memory");
+  }
+#elif TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__riscv)
+  using IntT = std::conditional_t<sizeof(T) == sizeof(uint64_t), uint64_t,
+                                  uint32_t>;
+  static_assert(sizeof(T) == sizeof(IntT));
+  IntT vi = absl::bit_cast<IntT>(v);
+  uintptr_t tmp, tmp_hi;
+  // RISCV64 also requires different argument references for different sizes
+  // to use the correct store (sw or sd), so we have to duplicate the asm
+  // block like AArch64.
+  if constexpr (sizeof(T) == sizeof(uint64_t)) {
+    asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_StoreCurrentCpu)
+            R"(
+        li   %[scratch], 0
+        lw   %[tmp_hi], %[rseq_slabs_offset_hi](%[rseq_abi_addr])
+        lwu  %[tmp], %[rseq_slabs_offset_lo](%[rseq_abi_addr])
+        slli %[tmp_hi], %[tmp_hi], 32
+        or   %[tmp], %[tmp], %[tmp_hi]
+        bgez %[tmp], 5f
+        li   %[scratch], 1
+        sd   %[v], %[p]
+        5 :)"
+        : [scratch] "=&r"(scratch), [tmp] "=&r"(tmp), [tmp_hi] "=&r" (tmp_hi)
+        : TCMALLOC_RSEQ_INPUTS, [p] "m"(*static_cast<uint64_t* volatile*>(p)),
+          [v] "r"(vi)
+        : TCMALLOC_RSEQ_CLOBBER, "memory");
+  } else {
+    static_assert(sizeof(T) == sizeof(uint32_t));
+    asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_StoreCurrentCpu)
+            R"(
+        li   %[scratch], 0
+        lw   %[tmp_hi], %[rseq_slabs_offset_hi](%[rseq_abi_addr])
+        lwu  %[tmp], %[rseq_slabs_offset_lo](%[rseq_abi_addr])
+        slli %[tmp_hi], %[tmp_hi], 32
+        or   %[tmp], %[tmp], %[tmp_hi]
+        bgez %[tmp], 5f
+        li   %[scratch], 1
+        sw   %[v], %[p]
+        5 :)"
+        : [scratch] "=&r"(scratch), [tmp] "=&r"(tmp), [tmp_hi] "=&r" (tmp_hi)
+        : TCMALLOC_RSEQ_INPUTS, [p] "m"(*static_cast<uint32_t* volatile*>(p)),
+          [v] "r"(vi)
+        : TCMALLOC_RSEQ_CLOBBER, "memory");
   }
 #endif
   return scratch;
@@ -824,6 +897,65 @@ overflow_label:
   return false;
 }
 #endif  // defined (__aarch64__)
+
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__riscv)
+[[nodiscard]] static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool
+TcmallocSlab_Internal_Push(size_t size_class, void* item) {
+  uintptr_t slabs, header, header_ptr, current, remaining_capacity;
+  uintptr_t scratch, tmp;
+  asm goto(
+      TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Push)
+      // Assemble tcmalloc_slabs
+      "lw   %[tmp], %[rseq_slabs_offset_hi](%[rseq_abi_addr])\n"
+      "lwu  %[slabs], %[rseq_slabs_offset_lo](%[rseq_abi_addr])\n"
+      "slli %[tmp], %[tmp], 32\n"
+      "or   %[slabs], %[slabs], %[tmp]\n"
+      // if (!(slabs & TCMALLOC_CACHED_SLABS_MASK)) goto overflow_label;
+      "bgez %[slabs], %l[overflow_label]\n"
+      // slabs &= ~TCMALLOC_CACHED_SLABS_MASK (clear bit 63)
+      "slli %[slabs], %[slabs], 1\n"
+      "srli %[slabs], %[slabs], 1\n"
+      // header_ptr = slabs + size_class * 4
+      "add  %[header_ptr], %[slabs], %[size_class_lsl2]\n"
+      // header = *header_ptr (current, remaining capacity)
+      "lwu  %[header], 0(%[header_ptr])\n"
+      // remaining_capacity = header >> 16
+      "srli %[remaining_capacity], %[header], 16\n"
+      // if (remaining_capacity == 0) goto overflow_label;
+      // RISC-V has no carry flag, so test remaining_capacity == 0 explicitly.
+      "beqz %[remaining_capacity], %l[overflow_label]\n"
+      // current = header & 0xffff
+      "slli %[tmp], %[header], 48\n"
+      "srli %[current], %[tmp], 48\n"
+      // scratch = slabs + current * 8  (absolute item slot addr)
+      "slli %[scratch], %[current], 3\n"
+      "add  %[scratch], %[scratch], %[slabs]\n"
+      // *scratch = item
+      "sd   %[item], 0(%[scratch])\n"
+      // current++
+      // remaining_capacity--
+      "add  %[header], %[header], %[kAdjustment]\n"
+      // (current, remaining_capacity) = header
+      "sw   %[header], 0(%[header_ptr])\n"
+      // Commit
+      "5:\n"
+      :
+      [header_ptr] "=&r"(header_ptr), [scratch] "=&r"(scratch),
+      [slabs] "=&r"(slabs), [remaining_capacity] "=&r"(remaining_capacity),
+      [current] "=&r"(current), [header] "=&r"(header), [tmp] "=&r" (tmp)
+      : TCMALLOC_RSEQ_INPUTS, [item] "r"(item), [kAdjustment] "r"(-65535),
+        [size_class_lsl2] "r"(size_class << 2)
+      : TCMALLOC_RSEQ_CLOBBER, "memory"
+      : overflow_label
+  );
+
+  // scratch is the slot we just pushed to.
+  PrefetchSlabMemory(scratch + sizeof(void*));
+  return true;
+overflow_label:
+  return false;
+}
+#endif  // defined (__riscv)
 
 template <size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
@@ -968,6 +1100,78 @@ underflow_path:
   return nullptr;
 }
 #endif  // defined(__aarch64__)
+
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__riscv)
+template <size_t NumClasses>
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
+    size_t size_class) {
+  TC_ASSERT_NE(size_class, 0);
+  void* result;
+  void* slabs;
+  void* prefetch;
+  uintptr_t current_plus_slabs_addr;
+  uintptr_t current;
+  uintptr_t header_ptr;
+  uintptr_t header;
+  uintptr_t tmp;
+  asm goto(
+      TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
+      // slabs = tcmalloc_slabs;
+      "lw   %[tmp], %[rseq_slabs_offset_hi](%[rseq_abi_addr])\n"
+      "lwu  %[slabs], %[rseq_slabs_offset_lo](%[rseq_abi_addr])\n"
+      "slli %[tmp], %[tmp], 32\n"
+      "or   %[slabs], %[slabs], %[tmp]\n"
+      // if (!(slabs & TCMALLOC_CACHED_SLABS_MASK)) goto underflow_path;
+      "bgez %[slabs], %l[underflow_path]\n"
+      // slabs &= ~TCMALLOC_CACHED_SLABS_MASK (clear bit 63)
+      "slli    %[slabs], %[slabs], 1\n"
+      "srli    %[slabs], %[slabs], 1\n"
+      // header_ptr = slabs + size_class * 4
+      "add     %[header_ptr], %[slabs], %[size_class_lsl2]\n"
+      // header = *header_ptr (current, remaining capacity)
+      "lwu     %[header], 0(%[header_ptr])\n"
+      // current = header & 0xffff
+      "slli    %[current], %[header], 48\n"
+      "srli    %[current], %[current], 48\n"
+      // scratch = slabs + current * 8
+      "slli    %[scratch], %[current], 3\n"
+      "add     %[scratch], %[scratch], %[slabs]\n"
+      // result = *(scratch - 1)
+      "ld      %[result], -8(%[scratch])\n"
+      // prefetch = *(scratch - 2)
+      "ld      %[prefetch], -16(%[scratch])\n"
+      // if (result & kBeginMark) goto underflow_path;
+      "andi    %[tmp], %[result], 1\n"
+      "bnez    %[tmp], %l[underflow_path]\n"
+      // current--
+      // remaining_capacity++
+      "add     %[header], %[header], %[kAdjustment]\n"
+      // (current, remaining_capacity) = header
+      "sw      %[header], 0(%[header_ptr])\n"
+      // Commit
+      "5:\n"
+      :
+      [result] "=&r"(result), [prefetch] "=&r"(prefetch),
+      [scratch] "=&r"(current_plus_slabs_addr),
+      // Temps
+      [slabs] "=&r"(slabs), [current] "=&r"(current),
+      [header_ptr] "=&r"(header_ptr), [header] "=&r"(header), [tmp] "=&r" (tmp)
+      // Real inputs
+      : TCMALLOC_RSEQ_INPUTS, [kAdjustment] "r"(65535),
+        [size_class_lsl2] "r"(size_class << 2)
+      : TCMALLOC_RSEQ_CLOBBER, "memory"
+      : underflow_path
+  );
+  TSANAcquire(result);
+  // The next pop will be from current-2, but because we prefetch the previous
+  // element we've already just read that, so prefetch current-3.
+  PrefetchSlabMemory(current_plus_slabs_addr - 3 * sizeof(void*));
+  PrefetchNextObject(prefetch);
+  return AssumeNotNull(result);
+underflow_path:
+  return nullptr;
+}
+#endif  // defined (__riscv)
 
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 template <size_t NumClasses>
