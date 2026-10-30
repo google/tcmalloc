@@ -22,6 +22,7 @@
 
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/arena.h"
@@ -78,6 +79,121 @@ static absl::string_view MadviseString() {
   ABSL_UNREACHABLE();
 }
 
+// Because different fields of stats are computed from state protected
+// by different locks, they may be inconsistent.  Prevent underflow
+// when subtracting to avoid gigantic results.
+static uint64_t StatSub(uint64_t a, uint64_t b) {
+  return (a >= b) ? (a - b) : 0;
+}
+
+static uint64_t CentralCacheBytes() ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+  uint64_t central_bytes = 0;
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    const size_t length = tc_globals.central_freelist(size_class).length();
+    const size_t cache_overhead =
+        tc_globals.central_freelist(size_class).OverheadBytes();
+    const size_t size = tc_globals.sizemap().class_to_size(size_class);
+    central_bytes += size * length + cache_overhead;
+  }
+  return central_bytes;
+}
+
+static uint64_t TransferCacheBytes() ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+  uint64_t transfer_bytes = 0;
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    const size_t tc_length = tc_globals.transfer_cache().tc_length(size_class);
+    const size_t size = tc_globals.sizemap().class_to_size(size_class);
+    transfer_bytes += size * tc_length;
+  }
+  return transfer_bytes;
+}
+
+static uint64_t PerCpuCacheBytes() ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+  return tc_globals.CpuCacheActive() ? tc_globals.cpu_cache().TotalUsedBytes()
+                                     : 0;
+}
+
+static uint64_t ShardedTransferCacheBytes() ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+  return tc_globals.CpuCacheActive()
+             ? tc_globals.sharded_transfer_cache().TotalBytes()
+             : 0;
+}
+
+static uint64_t ThreadCacheBytes() ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+  uint64_t thread_bytes = 0;
+  (void)ThreadCache::GetStats(&thread_bytes, nullptr);
+  return thread_bytes;
+}
+
+static size_t LocalBytes() ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+  return ThreadCacheBytes() + PerCpuCacheBytes() + ShardedTransferCacheBytes();
+}
+
+struct MetadataStats {
+  uint64_t metadata_bytes = 0;
+  size_t pagemap_bytes = 0;
+  size_t pagemap_root_size = 0;
+  uint64_t pagemap_root_bytes_res = 0;
+  size_t percpu_metadata_bytes = 0;
+  uint64_t percpu_metadata_bytes_res = 0;
+  ArenaStats arena{};
+};
+
+static MetadataStats ExtractMetadataStats(bool report_residence)
+    ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+  MetadataStats r;
+  r.arena = tc_globals.arena().stats();
+  r.metadata_bytes = tc_globals.metadata_bytes();
+  r.pagemap_bytes =
+      sizeof(tc_globals.pagemap()) +
+      r.arena
+          .bytes_allocated_per_type[static_cast<size_t>(ArenaAlloc::kPageMap)];
+  r.pagemap_root_size = tc_globals.pagemap().RootSize();
+
+  if (report_residence) {
+    if (tc_globals.CpuCacheActive()) {
+      const auto percpu_metadata = tc_globals.cpu_cache().MetadataMemoryUsage();
+      r.percpu_metadata_bytes_res = percpu_metadata.resident_size;
+      r.percpu_metadata_bytes = percpu_metadata.virtual_size;
+      r.metadata_bytes = StatSub(r.metadata_bytes, r.percpu_metadata_bytes) +
+                         r.percpu_metadata_bytes_res;
+    }
+
+    // We can access the pagemap without holding the pageheap_lock since it
+    // is static data, and we are only taking address and size which are
+    // constants.
+    r.pagemap_root_bytes_res = tc_globals.pagemap_residence();
+    r.metadata_bytes = StatSub(r.metadata_bytes, r.pagemap_root_size) +
+                       r.pagemap_root_bytes_res;
+  }
+  return r;
+}
+
+static uint64_t MetadataBytes() ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+  const MetadataStats stats = ExtractMetadataStats(/*report_residence=*/true);
+  return stats.metadata_bytes + stats.arena.bytes_unavailable +
+         stats.arena.bytes_unallocated;
+}
+
+static uint64_t UnmappedBytes() ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+  // Arena non-resident bytes aren't on the page heap, but they are unmapped.
+  const size_t bytes_nonresident = tc_globals.arena().stats().bytes_nonresident;
+  PageHeapSpinLockHolder l;
+  return tc_globals.page_allocator().stats().unmapped_bytes + bytes_nonresident;
+}
+
+static double RealizedFragmentation(const PageAllocatorPeakStats& peak_stats) {
+  return 100. * safe_div(peak_stats.backed_bytes -
+                             peak_stats.sampled_application_bytes,
+                         peak_stats.sampled_application_bytes);
+}
+
+static uint64_t RealizedFragmentation()
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  return static_cast<uint64_t>(
+      RealizedFragmentation(tc_globals.page_allocator().peak_stats()));
+}
+
 // Get stats into "r".  Also, if class_count != NULL, class_count[k]
 // will be set to the total number of objects of size class k in the
 // central cache, transfer cache, and per-thread and per-CPU caches.
@@ -89,32 +205,28 @@ void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
                   SpanStats* absl_nullable span_stats,
                   SmallSpanStats* absl_nullable small_spans,
                   LargeSpanStats* absl_nullable large_spans,
-                  bool report_residence) {
+                  bool report_residence) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
   tc_globals.InitIfNecessary();
-  r.central_bytes = 0;
-  r.transfer_bytes = 0;
-  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-    const size_t length = tc_globals.central_freelist(size_class).length();
-    const size_t tc_length = tc_globals.transfer_cache().tc_length(size_class);
-    const size_t sharded_tc_length =
-        tc_globals.sharded_transfer_cache().TotalObjectsOfClass(size_class);
-    const size_t cache_overhead =
-        tc_globals.central_freelist(size_class).OverheadBytes();
-    const size_t size = tc_globals.sizemap().class_to_size(size_class);
-    r.central_bytes += (size * length) + cache_overhead;
-    r.transfer_bytes += (size * tc_length);
-    if (class_count) {
-      // Sum the lengths of all per-class freelists, except the per-thread
-      // freelists, which get counted when we call GetThreadStats(), below.
-      class_count[size_class] = length + tc_length + sharded_tc_length;
-      if (tc_globals.CpuCacheActive()) {
-        class_count[size_class] +=
-            tc_globals.cpu_cache().TotalObjectsOfClass(size_class);
+  r.central_bytes = CentralCacheBytes();
+  r.transfer_bytes = TransferCacheBytes();
+  if (class_count != nullptr || span_stats != nullptr) {
+    for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+      if (class_count != nullptr) {
+        // Sum the lengths of all per-class freelists, except the per-thread
+        // freelists, which get counted when we call GetThreadStats(), below.
+        class_count[size_class] =
+            tc_globals.central_freelist(size_class).length() +
+            tc_globals.transfer_cache().tc_length(size_class) +
+            tc_globals.sharded_transfer_cache().TotalObjectsOfClass(size_class);
+        if (tc_globals.CpuCacheActive()) {
+          class_count[size_class] +=
+              tc_globals.cpu_cache().TotalObjectsOfClass(size_class);
+        }
       }
-    }
-    if (span_stats) {
-      span_stats[size_class] =
-          tc_globals.central_freelist(size_class).GetSpanStats();
+      if (span_stats != nullptr) {
+        span_stats[size_class] =
+            tc_globals.central_freelist(size_class).GetSpanStats();
+      }
     }
   }
 
@@ -126,17 +238,17 @@ void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
   r.linked_sample_stats = tc_globals.linked_sample_allocator().stats();
   r.tc_stats = ThreadCache::GetStats(&r.thread_bytes, class_count);
 
+  const MetadataStats metadata = ExtractMetadataStats(report_residence);
+  r.arena = metadata.arena;
+  r.metadata_bytes = metadata.metadata_bytes;
+  r.pagemap_bytes = metadata.pagemap_bytes;
+  r.pagemap_root_size = metadata.pagemap_root_size;
+  r.pagemap_root_bytes_res = metadata.pagemap_root_bytes_res;
+  r.percpu_metadata_bytes = metadata.percpu_metadata_bytes;
+  r.percpu_metadata_bytes_res = metadata.percpu_metadata_bytes_res;
+
   {  // scope
     PageHeapSpinLockHolder l;
-    // TODO(b/207622377):  Arena is thread-safe, but we take the pageheap_lock
-    // to present a consistent view of memory usage.
-    r.arena = tc_globals.arena().stats();
-
-    r.metadata_bytes = tc_globals.metadata_bytes();
-    r.pagemap_bytes = sizeof(tc_globals.pagemap()) +
-                      r.arena.bytes_allocated_per_type[static_cast<size_t>(
-                          ArenaAlloc::kPageMap)];
-    r.pagemap_root_size = tc_globals.pagemap().RootSize();
     r.pageheap = tc_globals.page_allocator().stats();
     r.peak_stats = tc_globals.page_allocator().peak_stats();
     if (small_spans != nullptr) {
@@ -157,49 +269,14 @@ void ExtractStats(TCMallocStats& r, uint64_t* absl_nullable class_count,
     r.num_released_soft_limit_exceeded = release_stats.soft_limit_exceeded;
     r.num_released_hard_limit_exceeded = release_stats.hard_limit_exceeded;
     r.limit_stats = tc_globals.page_allocator().GetLimitStats();
-
-    r.per_cpu_bytes = 0;
-    r.sharded_transfer_bytes = 0;
-    r.percpu_metadata_bytes_res = 0;
-    r.percpu_metadata_bytes = 0;
-    if (tc_globals.CpuCacheActive()) {
-      r.per_cpu_bytes = tc_globals.cpu_cache().TotalUsedBytes();
-      r.sharded_transfer_bytes =
-          tc_globals.sharded_transfer_cache().TotalBytes();
-
-      if (report_residence) {
-        auto percpu_metadata = tc_globals.cpu_cache().MetadataMemoryUsage();
-        r.percpu_metadata_bytes_res = percpu_metadata.resident_size;
-        r.percpu_metadata_bytes = percpu_metadata.virtual_size;
-
-        TC_ASSERT_GE(r.metadata_bytes, r.percpu_metadata_bytes);
-        r.metadata_bytes = r.metadata_bytes - r.percpu_metadata_bytes +
-                           r.percpu_metadata_bytes_res;
-      }
-    }
   }
-  // We can access the pagemap without holding the pageheap_lock since it
-  // is static data, and we are only taking address and size which are
-  // constants.
-  if (report_residence) {
-    auto resident_bytes = tc_globals.pagemap_residence();
-    r.pagemap_root_bytes_res = resident_bytes;
-    TC_ASSERT_GE(r.metadata_bytes, r.pagemap_bytes);
-    r.metadata_bytes = r.metadata_bytes - r.pagemap_bytes + resident_bytes;
-  } else {
-    r.pagemap_root_bytes_res = 0;
-  }
+
+  r.per_cpu_bytes = PerCpuCacheBytes();
+  r.sharded_transfer_bytes = ShardedTransferCacheBytes();
 }
 
 void ExtractTCMallocStats(TCMallocStats& r, bool report_residence) {
   ExtractStats(r, nullptr, nullptr, nullptr, nullptr, report_residence);
-}
-
-// Because different fields of stats are computed from state protected
-// by different locks, they may be inconsistent.  Prevent underflow
-// when subtracting to avoid gigantic results.
-static uint64_t StatSub(uint64_t a, uint64_t b) {
-  return (a >= b) ? (a - b) : 0;
 }
 
 // Return approximate number of bytes in use by app.
@@ -419,7 +496,7 @@ void DumpStats(Printer& out, int level) {
       stats.peak_stats.backed_bytes / MiB,
       uint64_t(stats.peak_stats.sampled_application_bytes),
       stats.peak_stats.sampled_application_bytes / MiB,
-      100. * safe_div(stats.peak_stats.backed_bytes - stats.peak_stats.sampled_application_bytes, stats.peak_stats.sampled_application_bytes),
+      RealizedFragmentation(stats.peak_stats),
       uint64_t(kPageSize),
       uint64_t(kHugePageSize),
       CountAllowedCpus(),
@@ -1035,48 +1112,35 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   }
 
   if (name == "generic.peak_memory_usage") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, false);
-    *value = static_cast<uint64_t>(stats.peak_stats.backed_bytes);
+    PageHeapSpinLockHolder l;
+    *value = tc_globals.page_allocator().peak_stats().backed_bytes;
     return true;
   }
 
   if (name == "generic.realized_fragmentation") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, false);
-    *value = static_cast<uint64_t>(
-        100. * safe_div(stats.peak_stats.backed_bytes -
-                            stats.peak_stats.sampled_application_bytes,
-                        stats.peak_stats.sampled_application_bytes));
-
+    PageHeapSpinLockHolder l;
+    *value = RealizedFragmentation();
     return true;
   }
 
   if (name == "generic.heap_size") {
     PageHeapSpinLockHolder l;
-    BackingStats stats = tc_globals.page_allocator().stats();
-    *value = HeapSizeBytes(stats);
+    *value = HeapSizeBytes(tc_globals.page_allocator().stats());
     return true;
   }
 
   if (name == "tcmalloc.central_cache_free") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, false);
-    *value = stats.central_bytes;
+    *value = CentralCacheBytes();
     return true;
   }
 
   if (name == "tcmalloc.cpu_free") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, false);
-    *value = stats.per_cpu_bytes;
+    *value = PerCpuCacheBytes();
     return true;
   }
 
   if (name == "tcmalloc.sharded_transfer_cache_free") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, false);
-    *value = stats.sharded_transfer_bytes;
+    *value = ShardedTransferCacheBytes();
     return true;
   }
 
@@ -1084,8 +1148,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
     // Kept for backwards compatibility.  Now defined externally as:
     //    pageheap_free_bytes + pageheap_unmapped_bytes.
     PageHeapSpinLockHolder l;
-    BackingStats stats = tc_globals.page_allocator().stats();
-    *value = SlackBytes(stats);
+    *value = SlackBytes(tc_globals.page_allocator().stats());
     return true;
   }
 
@@ -1098,10 +1161,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
 
   if (name == "tcmalloc.pageheap_unmapped_bytes" ||
       name == "tcmalloc.page_heap_unmapped") {
-    PageHeapSpinLockHolder l;
-    // Arena non-resident bytes aren't on the page heap, but they are unmapped.
-    *value = tc_globals.page_allocator().stats().unmapped_bytes +
-             tc_globals.arena().stats().bytes_nonresident;
+    *value = UnmappedBytes();
     return true;
   }
 
@@ -1117,23 +1177,17 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
 
   if (name == "tcmalloc.current_total_thread_cache_bytes" ||
       name == "tcmalloc.thread_cache_free") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, false);
-    *value = stats.thread_bytes;
+    *value = ThreadCacheBytes();
     return true;
   }
 
   if (name == "tcmalloc.thread_cache_count") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, false);
-    *value = stats.tc_stats.in_use;
+    *value = tc_globals.threadcache_allocator().stats().in_use;
     return true;
   }
 
   if (name == "tcmalloc.local_bytes") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, false);
-    *value = LocalBytes(stats);
+    *value = LocalBytes();
     return true;
   }
 
@@ -1145,29 +1199,22 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   }
 
   if (name == "tcmalloc.metadata_bytes") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, true);
-    *value = stats.metadata_bytes + stats.arena.bytes_unavailable +
-             stats.arena.bytes_unallocated;
+    *value = MetadataBytes();
     return true;
   }
 
   if (name == "tcmalloc.metadata_arena_unavailable_bytes") {
-    PageHeapSpinLockHolder l;
     *value = tc_globals.arena().stats().bytes_unavailable;
     return true;
   }
 
   if (name == "tcmalloc.metadata_arena_unallocated_bytes") {
-    PageHeapSpinLockHolder l;
     *value = tc_globals.arena().stats().bytes_unallocated;
     return true;
   }
 
   if (name == "tcmalloc.transfer_cache_free") {
-    TCMallocStats stats;
-    ExtractTCMallocStats(stats, false);
-    *value = stats.transfer_bytes;
+    *value = TransferCacheBytes();
     return true;
   }
 
