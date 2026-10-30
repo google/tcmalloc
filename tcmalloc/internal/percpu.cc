@@ -337,7 +337,13 @@ static void UpstreamRseqFenceCpu(int cpu) {
 // our writes up til now are visible to every other CPU. (cpu == -1 is
 // equivalent to all CPUs.)
 static void FenceInterruptCPU(int cpu) {
-  TC_CHECK(IsFast());
+  TC_CHECK(InitFastPerCpu());
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  if (using_upstream_fence.load(std::memory_order_relaxed)) {
+    UpstreamRseqFenceCpu(cpu);
+    return;
+  }
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 
   // TODO(b/149390298):  Provide an upstream extension for sys_membarrier to
   // interrupt ongoing restartable sequences.
