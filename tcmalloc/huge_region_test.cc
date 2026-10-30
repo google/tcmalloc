@@ -149,12 +149,12 @@ class HugeRegionTest : public ::testing::Test {
 
   void Delete(Alloc a) {
     Check(a);
-    region_.Put(Range(a.p, a.n), false);
+    region_.Put(Range(a.p, a.n), false, [] {});
   }
 
   void DeleteUnback(Alloc a) {
     Check(a);
-    region_.Put(Range(a.p, a.n), true);
+    region_.Put(Range(a.p, a.n), true, [] {});
   }
 
   // Rebuilds region_ over the same range, unbacking through `unback`.
@@ -168,7 +168,7 @@ class HugeRegionTest : public ::testing::Test {
   // that an UnbackWithoutLock unbacker has a lock to drop.
   HugeLength ReleaseUnderLock(Length n, HugeRegionAdaptiveRelease adaptive) {
     PageHeapSpinLockHolder l;
-    return region_.Release(n, adaptive);
+    return region_.Release(n, adaptive, [] {});
   }
 };
 
@@ -243,25 +243,25 @@ TEST_F(HugeRegionTest, ReleaseFrac) {
   ExpectUnback({p_ + NHugePages(0), NHugePages(2)});
   EXPECT_EQ(NHugePages(2),
             region_.Release(NHugePages(2).in_pages(),
-                            HugeRegionAdaptiveRelease::kDisabled));
+                            HugeRegionAdaptiveRelease::kDisabled, [] {}));
   CheckMock();
 
   ExpectUnback({p_ + NHugePages(2), NHugePages(1)});
   EXPECT_EQ(NHugePages(1),
             region_.Release(NHugePages(1).in_pages(),
-                            HugeRegionAdaptiveRelease::kDisabled));
+                            HugeRegionAdaptiveRelease::kDisabled, [] {}));
   CheckMock();
 
   ExpectUnback({p_ + NHugePages(3), NHugePages(8)});
   EXPECT_EQ(NHugePages(8),
             region_.Release(NHugePages(8).in_pages(),
-                            HugeRegionAdaptiveRelease::kDisabled));
+                            HugeRegionAdaptiveRelease::kDisabled, [] {}));
   CheckMock();
 
   ExpectUnback({p_ + NHugePages(11), NHugePages(9)});
   EXPECT_EQ(NHugePages(9),
             region_.Release(NHugePages(9).in_pages(),
-                            HugeRegionAdaptiveRelease::kDisabled));
+                            HugeRegionAdaptiveRelease::kDisabled, [] {}));
   CheckMock();
 }
 
@@ -291,7 +291,7 @@ TEST_F(HugeRegionTest, Release) {
   ExpectUnback({p_ + NHugePages(4), NHugePages(2)});
   EXPECT_EQ(NHugePages(2),
             region_.Release(NHugePages(2).in_pages(),
-                            HugeRegionAdaptiveRelease::kDisabled));
+                            HugeRegionAdaptiveRelease::kDisabled, [] {}));
   CheckMock();
 
   // Now we're on exact boundaries so we should unback the whole range.
@@ -299,14 +299,14 @@ TEST_F(HugeRegionTest, Release) {
   ExpectUnback({p_ + NHugePages(12), NHugePages(2)});
   EXPECT_EQ(NHugePages(2),
             region_.Release(NHugePages(2).in_pages(),
-                            HugeRegionAdaptiveRelease::kDisabled));
+                            HugeRegionAdaptiveRelease::kDisabled, [] {}));
   CheckMock();
 
   Delete(a);
   ExpectUnback({p_ + NHugePages(0), NHugePages(4)});
   EXPECT_EQ(NHugePages(4),
             region_.Release(NHugePages(4).in_pages(),
-                            HugeRegionAdaptiveRelease::kDisabled));
+                            HugeRegionAdaptiveRelease::kDisabled, [] {}));
   CheckMock();
 
   // Should work just as well with aggressive Put():
@@ -336,7 +336,7 @@ TEST_F(HugeRegionTest, ReleaseAdaptive) {
   ExpectUnback({p_ + NHugePages(2), NHugePages(2)});
   EXPECT_EQ(NHugePages(2),
             region_.Release(NHugePages(2).in_pages(),
-                            HugeRegionAdaptiveRelease::kEnabled));
+                            HugeRegionAdaptiveRelease::kEnabled, [] {}));
   CheckMock();
 }
 
@@ -368,7 +368,7 @@ TEST_F(HugeRegionTest, ReleaseAdaptiveFragmented) {
   ExpectUnback({p_ + NHugePages(6), NHugePages(2)});
   EXPECT_EQ(NHugePages(3),
             region_.Release(NHugePages(3).in_pages(),
-                            HugeRegionAdaptiveRelease::kEnabled));
+                            HugeRegionAdaptiveRelease::kEnabled, [] {}));
   CheckMock();
 
   Delete(*allocs[2]);
@@ -402,7 +402,7 @@ TEST_F(HugeRegionTest, ReleaseNonAdaptiveFragmented) {
   ExpectUnback({p_ + NHugePages(3), NHugePages(1)});
   EXPECT_EQ(NHugePages(3),
             region_.Release(NHugePages(3).in_pages(),
-                            HugeRegionAdaptiveRelease::kDisabled));
+                            HugeRegionAdaptiveRelease::kDisabled, [] {}));
   CheckMock();
 
   Delete(*allocs[2]);
@@ -422,7 +422,7 @@ TEST_F(HugeRegionTest, ReleaseFailure) {
   ExpectUnback({p_, NHugePages(4)}, false);
   EXPECT_EQ(NHugePages(0),
             region_.Release(NHugePages(4).in_pages(),
-                            HugeRegionAdaptiveRelease::kDisabled));
+                            HugeRegionAdaptiveRelease::kDisabled, [] {}));
   EXPECT_EQ(NHugePages(4), region_.backed());
   CheckMock();
 
@@ -590,7 +590,7 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
 
         const bool release = absl::Bernoulli(rngs[tid], 0.5);
         absl::MutexLock l(mu);
-        region_.Put(f.r, release);
+        region_.Put(f.r, release, [] {});
         break;
       }
       case 2: {
@@ -619,7 +619,7 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
                 : HugeRegionAdaptiveRelease::kDisabled;
 
         absl::MutexLock l(mu);
-        (void)region_.Release(to_release, adaptive);
+        (void)region_.Release(to_release, adaptive, [] {});
 
         break;
       }
@@ -645,12 +645,12 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
       TC_CHECK_EQ(old_val, f.owner);
     }
     absl::MutexLock l(mu);
-    region_.Put(f.r, /*release=*/false);
+    region_.Put(f.r, /*release=*/false, [] {});
   }
   while (region_.free_backed() > NHugePages(0)) {
     absl::MutexLock l(mu);
     (void)region_.Release(region_.size().in_pages(),
-                          HugeRegionAdaptiveRelease::kDisabled);
+                          HugeRegionAdaptiveRelease::kDisabled, [] {});
   }
   EXPECT_EQ(region_.used_pages(), Length(0));
   EXPECT_EQ(region_.free_backed(), NHugePages(0));
@@ -689,7 +689,7 @@ TEST_F(HugeRegionTest, ReleaseDuringPut) {
     }
 
     released = region_.Release(region_.size().in_pages(),
-                               HugeRegionAdaptiveRelease::kDisabled);
+                               HugeRegionAdaptiveRelease::kDisabled, [] {});
   });
   region_.~HugeRegion();
   new (&region_)
@@ -716,7 +716,7 @@ TEST_F(HugeRegionTest, ReleaseDuringPut) {
 
   // Delete(a2), but unback it triggering callback.
   Check(a2);
-  region_.Put(Range(a2.p, a2.n), true);
+  region_.Put(Range(a2.p, a2.n), true, [] {});
 
   EXPECT_EQ(region_.backed(), NHugePages(3));
   EXPECT_EQ(region_.free_backed(), NHugePages(0));
@@ -957,7 +957,7 @@ TEST_F(HugeRegionTest, ReleaseDuringRelease) {
     // thus marked busy). It should find HP 2 is free and backed, and
     // successfully unback it.
     released_during_callback = region_.Release(
-        region_.size().in_pages(), HugeRegionAdaptiveRelease::kDisabled);
+        region_.size().in_pages(), HugeRegionAdaptiveRelease::kDisabled, [] {});
   });
 
   region_.~HugeRegion();
@@ -981,7 +981,7 @@ TEST_F(HugeRegionTest, ReleaseDuringRelease) {
   // It finds HP 0 first, starts unbacking it, which triggers the 'blocking'
   // callback.
   HugeLength total_released =
-      region_.Release(hp * 2, HugeRegionAdaptiveRelease::kDisabled);
+      region_.Release(hp * 2, HugeRegionAdaptiveRelease::kDisabled, [] {});
 
   // We expect that:
   // 1. The concurrent Release (inside callback) successfully unbacked HP 2
@@ -1889,7 +1889,7 @@ TEST_P(HugeRegionSetTest, GetAndPutDuringReleasePages) {
       Range hp0 = Allocate(*region, hp);
       Range hp1_2 = Allocate(*region, 2 * hp);
       Range hp3 = Allocate(*region, hp);
-      region->Put(hp1_2, /*release=*/false);
+      region->Put(hp1_2, /*release=*/false, [] {});
       set_.Contribute(region.get());
       ASSERT_EQ(set_.free_backed(), NHugePages(2));
 
@@ -1958,8 +1958,8 @@ TEST_P(HugeRegionSetTest, ReleasePagesDuringReleasePages) {
     Range hp2 = Allocate(*region, hp);
     Range hp3 = Allocate(*region, hp);
     Range hp4 = Allocate(*region, hp);
-    region->Put(hp1, /*release=*/false);
-    region->Put(hp3, /*release=*/false);
+    region->Put(hp1, /*release=*/false, [] {});
+    region->Put(hp3, /*release=*/false, [] {});
     set_.Contribute(region.get());
     ASSERT_EQ(set_.free_backed(), NHugePages(2));
 
@@ -2016,12 +2016,12 @@ TEST_P(HugeRegionSetTest, ContributeDuringReleasePages) {
     Range r1_hp0 = Allocate(*r1, hp);
     Range r1_hp1_2 = Allocate(*r1, 2 * hp);
     Range r1_hp3 = Allocate(*r1, hp);
-    r1->Put(r1_hp1_2, /*release=*/false);
+    r1->Put(r1_hp1_2, /*release=*/false, [] {});
     set_.Contribute(r1.get());
     std::unique_ptr<Region> r2 = GetRegion();
     Range r2_hp0 = Allocate(*r2, hp);
     Range r2_hp1 = Allocate(*r2, hp);
-    r2->Put(r2_hp0, /*release=*/false);
+    r2->Put(r2_hp0, /*release=*/false, [] {});
 
     unback_without_lock_.unlocked_hook_ = [&](Range r) {
       PageHeapSpinLockHolder l;
@@ -2046,6 +2046,126 @@ TEST_P(HugeRegionSetTest, ContributeDuringReleasePages) {
     PutUnderLock(live2);
     ExpectFreeBacked({r1.get(), r2.get()}, NHugePages(0));
   }
+}
+
+// Regression test for the visit bound in HugeRegionSet::ReleasePages.
+//
+// Each region here holds exactly one contiguous free-but-backed range, so one
+// region visit performs exactly one unback call. Freeing the tail of the
+// region being visited grows its longest free range past every other
+// region's, so Fix() moves it to the back of list_ and the reverse iterator
+// resumes from the moved node's new neighbours, walking part of the list a
+// second time.
+//
+// With the bound the traversal performs kNumRegions visits; without it, one
+// more.
+TEST_P(HugeRegionSetTest, ReleasePagesVisitBound) {
+  constexpr int kNumRegions = 3;
+
+  std::vector<std::unique_ptr<Region>> regions;
+  // The still-allocated tail of each region, indexed like `regions`.
+  std::vector<Range> tails;
+  for (int i = 0; i < kNumRegions; ++i) {
+    std::unique_ptr<Region> region = GetRegion(unback_without_lock_);
+
+    // Back the whole region, then free a prefix. The region is left with a
+    // free-but-backed range to release, and with a longest free range that is
+    // strictly larger than the previous region's, so that Contribute() orders
+    // list_ as R0, R1, R2 and the adaptive traversal visits R2, R1, R0.
+    PageId p;
+    bool from_released;
+    ASSERT_TRUE(
+        region->MaybeGet(Region::size().in_pages(), &p, &from_released));
+    const Length free_len = NHugePages(4 * (i + 1)).in_pages();
+    region->Put(Range(p, free_len), /*release=*/false, [] {});
+    tails.push_back(Range(p + free_len, Region::size().in_pages() - free_len));
+
+    set_.Contribute(region.get());
+    regions.push_back(std::move(region));
+  }
+
+  // Always fail unbacks so `released` never advances: only the visit bound can
+  // terminate the traversal.
+  unback_.success_ = false;
+  int visits = 0;
+  bool in_put = false;
+  bool relocated = false;
+  unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    // When !UseHugeRegionMoreOften(), PutUnderLock -> MaybePut eagerly unbacks
+    // the freed tail through this same unback_without_lock_, re-entering this
+    // hook. Ignore that nested call so `visits` only counts regions visited by
+    // ReleasePages.
+    if (in_put) return;
+    // Relocate while the second region of the traversal (R1) is being visited.
+    // Relocating during the first (R2) would be a no-op: R2 is already at the
+    // back of the list and cannot move further back.
+    if (++visits != 2) return;
+    if (regions[1]->contains(r.p)) {
+      in_put = true;
+      PutUnderLock({&tails[1], 1});
+      in_put = false;
+      relocated = true;
+    }
+  };
+
+  EXPECT_EQ(ReleaseAll(Length::max(), HugeRegionAdaptiveRelease::kEnabled),
+            Length(0));
+  unback_without_lock_.unlocked_hook_ = nullptr;
+  unback_.success_ = true;
+
+  EXPECT_TRUE(relocated);
+  EXPECT_EQ(visits, kNumRegions);
+}
+
+// While ReleasePages unbacks part of a region's free run, that run is marked
+// used and the region's longest_free() reads low. Another thread may allocate
+// from the set in that window (b/73749855); list_ must stay sorted by live
+// longest_free() both during and after the unback so MaybeGet keeps allocating
+// from the best fit.
+TEST_P(HugeRegionSetTest, ListStaysSortedAcrossReleasePagesUnback) {
+  const Length hp = kPagesPerHugePage;
+
+  // r0 has a 4-hugepage unbacked free run; r1 has an 8-hugepage backed free
+  // run, so Contribute orders list_ as [r0 (4), r1 (8)] and only r1 has pages
+  // to release.
+  std::unique_ptr<Region> r0 = GetRegion();
+  const Range r0_whole = Allocate(*r0, Region::size().in_pages());
+  r0->Put(Range(r0_whole.p, 4 * hp), /*release=*/true, [] {});
+  set_.Contribute(r0.get());
+
+  std::unique_ptr<Region> r1 = GetRegion(unback_without_lock_);
+  const Range r1_whole = Allocate(*r1, Region::size().in_pages());
+  r1->Put(Range(r1_whole.p, 8 * hp), /*release=*/false, [] {});
+  set_.Contribute(r1.get());
+
+  Length mid_r_n;
+  Length mid_r1_longest_free;
+  bool mid_get_ok = false;
+  PageId mid_get_page;
+  unback_without_lock_.unlocked_hook_ = [&](Range r) {
+    // 5 of r1's 8 free hugepages are in flight; 3 remain free, so r1 must move
+    // ahead of r0 (4) while unbacking and serve a 1-hugepage Get, leaving r1
+    // at 2 free hugepages until Unmark restores the 5 unbacked hugepages.
+    mid_r_n = r.n;
+    PageHeapSpinLockHolder l;
+    mid_r1_longest_free = r1->longest_free();
+    bool from_released;
+    mid_get_ok = set_.MaybeGet(hp, &mid_get_page, &from_released);
+  };
+  EXPECT_EQ(ReleaseAll(5 * hp, HugeRegionAdaptiveRelease::kDisabled), 5 * hp);
+  unback_without_lock_.unlocked_hook_ = nullptr;
+  EXPECT_EQ(mid_r_n, 5 * hp);
+  EXPECT_EQ(mid_r1_longest_free, 3 * hp);
+  ASSERT_TRUE(mid_get_ok);
+  EXPECT_TRUE(r1->contains(mid_get_page));
+
+  // Unmarking the 5 unbacked hugepages grows r1's longest_free() back to 5
+  // (above r0's 4), so list_ must return to [r0 (4), r1 (5)] and a 4-hugepage
+  // Get must pick r0 over r1.
+  PageId post_get_page;
+  bool from_released;
+  ASSERT_TRUE(set_.MaybeGet(4 * hp, &post_get_page, &from_released));
+  EXPECT_TRUE(r0->contains(post_get_page));
 }
 
 TEST(HugeRegionNamedVmaTest, NamedVmaNormal) {
