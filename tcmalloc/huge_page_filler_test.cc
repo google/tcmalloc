@@ -652,26 +652,32 @@ class FillerTest : public testing::Test {
     return ret;
   }
 
-  Length ReleasePages(Length desired, SkipSubreleaseIntervals intervals = {}) {
+  Length ReleasePages(Length desired, SkipSubreleaseIntervals intervals = {},
+                      MinFreePagesToBreak min_free_pages_to_break = {
+                          .dense = Length(1), .sparse = Length(1)}) {
     PageHeapSpinLockHolder l;
     return filler_.ReleasePages(desired, intervals,
                                 ReleasePartialAllocPages::kDisabled,
-                                /*hit_limit=*/false);
+                                /*hit_limit=*/false, min_free_pages_to_break);
   }
 
   Length ReleasePartialPages(Length desired,
-                             SkipSubreleaseIntervals intervals = {}) {
+                             SkipSubreleaseIntervals intervals = {},
+                             MinFreePagesToBreak min_free_pages_to_break = {
+                                 .dense = Length(1), .sparse = Length(1)}) {
     PageHeapSpinLockHolder l;
     return filler_.ReleasePages(desired, intervals,
                                 ReleasePartialAllocPages::kEnabled,
-                                /*hit_limit=*/false);
+                                /*hit_limit=*/false, min_free_pages_to_break);
   }
 
-  Length HardReleasePages(Length desired) {
+  Length HardReleasePages(Length desired,
+                          MinFreePagesToBreak min_free_pages_to_break = {
+                              .dense = Length(1), .sparse = Length(1)}) {
     PageHeapSpinLockHolder l;
     return filler_.ReleasePages(desired, SkipSubreleaseIntervals{},
                                 ReleasePartialAllocPages::kDisabled,
-                                /*hit_limit=*/true);
+                                /*hit_limit=*/true, min_free_pages_to_break);
   }
 
   PreserveDonatedOnCollapse preserve_donated_on_collapse_ =
@@ -2172,7 +2178,8 @@ TEST_F(FillerTest, CollapseDuringRelease) {
   pageheap_lock.lock();
   const Length released = filler_.ReleasePages(
       2 * kPagesPerHugePage, SkipSubreleaseIntervals{},
-      ReleasePartialAllocPages::kDisabled, /*hit_limit=*/false);
+      ReleasePartialAllocPages::kDisabled, /*hit_limit=*/false,
+      MinFreePagesToBreak{.dense = Length(1), .sparse = Length(1)});
   pageheap_lock.unlock();
   EXPECT_EQ(released, 2 * kPagesPerHugePage - Length(3));
   blocking_unback_without_lock_.unlocked_hook_ = nullptr;
@@ -9022,6 +9029,108 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
   EXPECT_TRUE(Delete(d2));
   Delete(small);
   EXPECT_TRUE(Delete(regular));
+}
+
+TEST_F(FillerTest, MinFreePagesToBreakHugepage) {
+  if (kPagesPerHugePage < Length(32)) {
+    GTEST_SKIP() << "Requires at least 32 pages per hugepage.";
+  }
+  randomize_density_ = false;
+  constexpr SpanAllocInfo kDenseInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kDense,
+  };
+  constexpr SpanAllocInfo kSparseInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kSparse,
+  };
+  constexpr MinFreePagesToBreak kAsymmetricFloors = {
+      .dense = Length(16),
+      .sparse = Length(8),
+  };
+
+  // Tracker 1: dense regular hugepage that will have 12 free pages (< 16 dense
+  // floor, >= 8 sparse floor). Keep dense_free allocated while populating
+  // Trackers 2 and 3 so Tracker 1 stays 100% full during setup.
+  std::vector<PAlloc> dense_keep = AllocateVectorWithSpanAllocInfo(
+      kPagesPerHugePage - Length(12), kDenseInfo);
+  std::vector<PAlloc> dense_free =
+      AllocateVectorWithSpanAllocInfo(Length(12), kDenseInfo);
+  ASSERT_EQ(dense_keep.front().pt, dense_free.back().pt);
+  ASSERT_TRUE(dense_keep.front().pt->HasDenseSpans());
+  ASSERT_EQ(dense_keep.front().pt->free_pages(), Length(0));
+
+  // Tracker 2: unbroken donated hugepage with 7 free pages (< 8 sparse floor).
+  PAlloc p2_donated = Allocate(kPagesPerHugePage - Length(7), /*donated=*/true);
+  ASSERT_EQ(p2_donated.pt->free_pages(), Length(7));
+  ASSERT_TRUE(p2_donated.pt->unbroken());
+
+  // Tracker 3: sparse regular hugepage that will have 10 free pages (>= 8
+  // sparse floor, < 16 dense floor).
+  std::vector<PAlloc> sparse_keep1 = AllocateVectorWithSpanAllocInfo(
+      kPagesPerHugePage - Length(12), kSparseInfo);
+  std::vector<PAlloc> sparse_keep2 =
+      AllocateVectorWithSpanAllocInfo(Length(2), kSparseInfo);
+  std::vector<PAlloc> sparse_free =
+      AllocateVectorWithSpanAllocInfo(Length(10), kSparseInfo);
+  ASSERT_EQ(sparse_keep1.front().pt, sparse_keep2.front().pt);
+  ASSERT_EQ(sparse_keep1.front().pt, sparse_free.front().pt);
+  ASSERT_FALSE(sparse_keep1.front().pt->HasDenseSpans());
+  ASSERT_EQ(sparse_keep1.front().pt->free_pages(), Length(0));
+
+  // Free 12 pages on dense Tracker 1 (< 16) and 10 pages on sparse Tracker 3
+  // (>= 8). Even though CompareForSubrelease ranks Tracker 1 (12 free pages)
+  // ahead of Tracker 3 (10 free pages), the asymmetric floors skip Tracker 1
+  // and Tracker 2 (7 < 8) and break only Tracker 3.
+  EXPECT_FALSE(DeleteVector(dense_free));
+  EXPECT_FALSE(DeleteVector(sparse_free));
+  ASSERT_EQ(dense_keep.front().pt->free_pages(), Length(12));
+  ASSERT_EQ(sparse_keep1.front().pt->free_pages(), Length(10));
+
+  EXPECT_EQ(
+      ReleasePages(Length(32), SkipSubreleaseIntervals{}, kAsymmetricFloors),
+      Length(10));
+  EXPECT_TRUE(dense_keep.front().pt->unbroken());
+  EXPECT_TRUE(p2_donated.pt->unbroken());
+  EXPECT_FALSE(sparse_keep1.front().pt->unbroken());
+  EXPECT_EQ(filler_.unmapped_pages(), Length(10));
+  EXPECT_EQ(filler_.subrelease_stats().num_hugepages_broken, NHugePages(1));
+
+  // Freeing 2 more pages on already-broken sparse Tracker 3 (< 8) still allows
+  // Pass 1 partial-alloc subrelease to unmap those 2 pages.
+  EXPECT_FALSE(DeleteVector(sparse_keep2));
+  ASSERT_EQ(sparse_keep1.front().pt->free_pages() -
+                sparse_keep1.front().pt->released_pages(),
+            Length(2));
+  EXPECT_EQ(ReleasePartialPages(Length(2), SkipSubreleaseIntervals{},
+                                kAsymmetricFloors),
+            Length(2));
+  EXPECT_EQ(sparse_keep1.front().pt->released_pages(), Length(12));
+
+  // Lowering the dense floor dynamically at runtime to 8 pages (while raising
+  // the sparse floor to 16) allows live dense Tracker 1 (12 >= 8) to break,
+  // while donated Tracker 2 (7 < 16) remains unbroken.
+  constexpr MinFreePagesToBreak kSwappedFloors = {
+      .dense = Length(8),
+      .sparse = Length(16),
+  };
+  EXPECT_EQ(ReleasePages(Length(16), SkipSubreleaseIntervals{}, kSwappedFloors),
+            Length(12));
+  EXPECT_FALSE(dense_keep.front().pt->unbroken());
+  EXPECT_TRUE(p2_donated.pt->unbroken());
+  EXPECT_EQ(filler_.subrelease_stats().num_hugepages_broken, NHugePages(1));
+
+  // Hard-limit release (hit_limit = true) bypasses both floors and breaks
+  // donated Tracker 2 to satisfy the limit.
+  EXPECT_EQ(HardReleasePages(Length(7), kSwappedFloors), Length(7));
+  EXPECT_FALSE(p2_donated.pt->unbroken());
+  EXPECT_EQ(filler_.subrelease_stats().num_hugepages_broken, NHugePages(2));
+  EXPECT_EQ(filler_.subrelease_stats().total_hugepages_broken_due_to_limit,
+            NHugePages(1));
+
+  EXPECT_TRUE(DeleteVector(sparse_keep1));
+  EXPECT_TRUE(Delete(p2_donated));
+  EXPECT_TRUE(DeleteVector(dense_keep));
 }
 
 }  // namespace

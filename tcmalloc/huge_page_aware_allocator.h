@@ -19,6 +19,7 @@
 #include <stddef.h>
 #include <sys/mman.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 
@@ -77,6 +78,10 @@ struct HugePageAwareAllocatorOptions {
 // optimized for slightly different purposes.  This file has two main purposes:
 // - pick the right one for a given allocation
 // - provide enough data to figure out what we picked last time!
+
+[[nodiscard]] inline Length MinFreeBytesToPages(size_t bytes) {
+  return std::max(Length(1), BytesToLengthCeil(std::min(bytes, kHugePageSize)));
+}
 
 template <typename Forwarder>
 class HugePageAwareAllocator final : public PageAllocatorInterface {
@@ -996,12 +1001,21 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
           IsSampledOrColdMemory(tag_)
               ? forwarder_.filler_skip_subrelease_cold_long_interval()
               : forwarder_.filler_skip_subrelease_long_interval();
+      const MinFreePagesToBreak min_free_pages_to_break =
+          IsSampledOrColdMemory(tag_)
+              ? MinFreePagesToBreak{.dense = Length(1), .sparse = Length(1)}
+              : MinFreePagesToBreak{
+                    .dense = MinFreeBytesToPages(
+                        forwarder_.min_free_bytes_to_break_dense_hugepage()),
+                    .sparse = MinFreeBytesToPages(
+                        forwarder_.min_free_bytes_to_break_sparse_hugepage()),
+                };
       released += filler_.ReleasePages(
           desired,
           SkipSubreleaseIntervals{.short_interval = short_interval,
                                   .long_interval = long_interval},
           forwarder_.release_partial_alloc_pages(),
-          /*hit_limit*/ false);
+          /*hit_limit=*/false, min_free_pages_to_break);
       DrainFreedTrackers();
     }
   }
@@ -1214,9 +1228,11 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
     return released;
   }
 
-  released += filler_.ReleasePages(n - released, SkipSubreleaseIntervals{},
-                                   ReleasePartialAllocPages::kDisabled,
-                                   /*hit_limit=*/true);
+  released += filler_.ReleasePages(
+      n - released, SkipSubreleaseIntervals{},
+      ReleasePartialAllocPages::kDisabled,
+      /*hit_limit=*/true,
+      MinFreePagesToBreak{.dense = Length(1), .sparse = Length(1)});
   DrainFreedTrackers();
 
   info_.RecordRelease(n, released, reason);

@@ -210,12 +210,17 @@ class HugePageAwareAllocatorTest
     return s;
   }
 
-  void AllocatorDelete(AllocationState s, size_t objects_per_span) {
+  void AllocatorDeleteWithInfo(AllocationState s,
+                               SpanAllocInfo span_alloc_info) {
     uintptr_t start = reinterpret_cast<uintptr_t>(s.r.start_addr());
     allocator_->forwarder().RecordDeallocation(start);
     PageHeapSpinLockHolder l;
-    allocator_->Delete(s, {.objects_per_span = objects_per_span,
-                           .density = AccessDensityPrediction::kSparse});
+    allocator_->Delete(s, span_alloc_info);
+  }
+
+  void AllocatorDelete(AllocationState s, size_t objects_per_span) {
+    AllocatorDeleteWithInfo(s, {.objects_per_span = objects_per_span,
+                                .density = AccessDensityPrediction::kSparse});
   }
 
   AllocationState New(Length n, SpanAllocInfo span_alloc_info) {
@@ -237,7 +242,7 @@ class HugePageAwareAllocatorTest
     return span;
   }
 
-  void Delete(AllocationState span, size_t objects_per_span) {
+  void DeleteWithInfo(AllocationState span, SpanAllocInfo span_alloc_info) {
     Length n = span.r.n;
     {
       absl::base_internal::SpinLockHolder h(lock_);
@@ -253,10 +258,15 @@ class HugePageAwareAllocatorTest
       ASSERT_EQ(it->second.first, end);
       ASSERT_EQ(it->second.second, id);
       present_.erase(it);
-      AllocatorDelete(span, objects_per_span);
+      AllocatorDeleteWithInfo(span, span_alloc_info);
       total_ -= n;
       CheckStats();
     }
+  }
+
+  void Delete(AllocationState span, size_t objects_per_span) {
+    DeleteWithInfo(span, {.objects_per_span = objects_per_span,
+                          .density = AccessDensityPrediction::kSparse});
   }
 
   // Returns true if no live allocation overlaps [p, end).
@@ -2989,6 +2999,166 @@ TEST_P(HugePageAwareAllocatorTest, PreferBackedFillerPages) {
 
     Delete(s_disabled, 1);
     Delete(pin, 1);
+  }
+}
+
+TEST_P(HugePageAwareAllocatorTest, MinFreeBytesToBreakHugepage) {
+  if (kPagesPerHugePage < Length(32)) {
+    GTEST_SKIP() << "Requires at least 32 pages per hugepage.";
+  }
+
+  EXPECT_EQ(huge_page_allocator_internal::MinFreeBytesToPages(0), Length(1));
+  EXPECT_EQ(huge_page_allocator_internal::MinFreeBytesToPages(1), Length(1));
+  EXPECT_EQ(huge_page_allocator_internal::MinFreeBytesToPages(kPageSize),
+            Length(1));
+  EXPECT_EQ(
+      huge_page_allocator_internal::MinFreeBytesToPages(7 * kPageSize + 1),
+      Length(8));
+  EXPECT_EQ(huge_page_allocator_internal::MinFreeBytesToPages(8 * kPageSize),
+            Length(8));
+  EXPECT_EQ(huge_page_allocator_internal::MinFreeBytesToPages(kHugePageSize),
+            kPagesPerHugePage);
+  EXPECT_EQ(
+      huge_page_allocator_internal::MinFreeBytesToPages(2 * kHugePageSize),
+      kPagesPerHugePage);
+
+  constexpr SpanAllocInfo kDenseInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kDense,
+  };
+  constexpr SpanAllocInfo kSparseInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kSparse,
+  };
+
+  allocator_->forwarder().hpaa_subrelease.set(true);
+  allocator_->forwarder().filler_skip_subrelease_short_interval.set(
+      absl::ZeroDuration());
+  allocator_->forwarder().filler_skip_subrelease_long_interval.set(
+      absl::ZeroDuration());
+  allocator_->forwarder().release_max_filler_pages.set(false);
+
+  // Fill one dense hugepage (kPagesPerHugePage 1-page spans) and one sparse
+  // hugepage (all spans <= kPagesPerHugePage / 2 so they stay in the filler
+  // regardless of HugeRegionUsageOption).
+  std::vector<AllocationState> dense_spans;
+  dense_spans.reserve(kPagesPerHugePage.raw_num());
+  for (size_t i = 0; i < kPagesPerHugePage.raw_num(); ++i) {
+    dense_spans.push_back(New(Length(1), kDenseInfo));
+  }
+  const HugePage hp_dense = HugePageContaining(dense_spans.front().r.p);
+  for (const AllocationState& span : dense_spans) {
+    ASSERT_EQ(HugePageContaining(span.r.p), hp_dense);
+  }
+
+  AllocationState sparse_keep1 = New(kPagesPerHugePage / 2, kSparseInfo);
+  AllocationState sparse_keep2 =
+      New(kPagesPerHugePage / 2 - Length(10), kSparseInfo);
+  AllocationState sparse_free = New(Length(10), kSparseInfo);
+  const HugePage hp_sparse = HugePageContaining(sparse_keep1.r.p);
+  ASSERT_EQ(HugePageContaining(sparse_keep2.r.p), hp_sparse);
+  ASSERT_EQ(HugePageContaining(sparse_free.r.p), hp_sparse);
+
+  // Free 12 pages on hp_dense and 10 pages on hp_sparse.
+  for (size_t i = 0; i < 12; ++i) {
+    DeleteWithInfo(dense_spans.back(), kDenseInfo);
+    dense_spans.pop_back();
+  }
+  DeleteWithInfo(sparse_free, kSparseInfo);
+
+  // Set asymmetric byte floors (non-aligned byte counts round up via
+  // BytesToLengthCeil to 16 dense pages and 8 sparse pages): hp_sparse (10 >=
+  // 8) breaks while hp_dense (12 < 16) stays unbroken.
+  allocator_->forwarder().min_free_bytes_to_break_dense_hugepage.set(
+      15 * kPageSize + 1);
+  allocator_->forwarder().min_free_bytes_to_break_sparse_hugepage.set(
+      7 * kPageSize + 1);
+  EXPECT_EQ(
+      ReleasePages(Length(32), PageReleaseReason::kProcessBackgroundActions),
+      Length(10));
+  EXPECT_TRUE(GetHugepageState(hp_dense).unbroken);
+  EXPECT_EQ(GetHugepageState(hp_dense).released_pages, Length(0));
+  EXPECT_FALSE(GetHugepageState(hp_sparse).unbroken);
+  EXPECT_EQ(GetHugepageState(hp_sparse).released_pages, Length(10));
+
+  // Lowering the dense floor at runtime to 8 pages breaks live hp_dense.
+  allocator_->forwarder().min_free_bytes_to_break_dense_hugepage.set(8 *
+                                                                     kPageSize);
+  allocator_->forwarder().min_free_bytes_to_break_sparse_hugepage.set(
+      16 * kPageSize);
+  EXPECT_EQ(
+      ReleasePages(Length(32), PageReleaseReason::kProcessBackgroundActions),
+      Length(12));
+  EXPECT_FALSE(GetHugepageState(hp_dense).unbroken);
+  EXPECT_EQ(GetHugepageState(hp_dense).released_pages, Length(12));
+
+  for (const AllocationState& span : dense_spans) {
+    DeleteWithInfo(span, kDenseInfo);
+  }
+  DeleteWithInfo(sparse_keep1, kSparseInfo);
+  DeleteWithInfo(sparse_keep2, kSparseInfo);
+
+  // Sampled/cold partitions ignore both break floors and keep a 1-page floor
+  // because their backing VMAs are marked MADV_NOHUGEPAGE.
+  FakeHugePageAwareAllocator cold_allocator({.tag = MemoryTag::kSampledOrCold});
+  cold_allocator.forwarder().filler_skip_subrelease_cold_short_interval.set(
+      absl::ZeroDuration());
+  cold_allocator.forwarder().filler_skip_subrelease_cold_long_interval.set(
+      absl::ZeroDuration());
+  cold_allocator.forwarder().min_free_bytes_to_break_dense_hugepage.set(
+      kHugePageSize);
+  cold_allocator.forwarder().min_free_bytes_to_break_sparse_hugepage.set(
+      kHugePageSize);
+
+  std::vector<AllocationState> cold_dense_spans;
+  cold_dense_spans.reserve(kPagesPerHugePage.raw_num());
+  for (size_t i = 0; i < kPagesPerHugePage.raw_num(); ++i) {
+    cold_dense_spans.push_back(cold_allocator.New(Length(1), kDenseInfo));
+  }
+  const HugePage hp_cold_dense =
+      HugePageContaining(cold_dense_spans.front().r.p);
+
+  AllocationState cold_sparse_keep1 =
+      cold_allocator.New(kPagesPerHugePage / 2, kSparseInfo);
+  AllocationState cold_sparse_keep2 =
+      cold_allocator.New(kPagesPerHugePage / 2 - Length(2), kSparseInfo);
+  AllocationState cold_sparse_free = cold_allocator.New(Length(2), kSparseInfo);
+  const HugePage hp_cold_sparse = HugePageContaining(cold_sparse_keep1.r.p);
+
+  {
+    PageHeapSpinLockHolder l;
+    for (int i = 0; i < 2; ++i) {
+      cold_allocator.Delete(cold_dense_spans.back(), kDenseInfo);
+      cold_dense_spans.pop_back();
+    }
+    cold_allocator.Delete(cold_sparse_free, kSparseInfo);
+  }
+
+  Length cold_released;
+  bool cold_dense_unbroken = true;
+  bool cold_sparse_unbroken = true;
+  {
+    PageHeapSpinLockHolder l;
+    cold_released = cold_allocator.ReleaseAtLeastNPages(
+        Length(4), PageReleaseReason::kProcessBackgroundActions);
+    cold_dense_unbroken =
+        cold_allocator.forwarder().GetHugepage(hp_cold_dense).Get()->unbroken();
+    cold_sparse_unbroken = cold_allocator.forwarder()
+                               .GetHugepage(hp_cold_sparse)
+                               .Get()
+                               ->unbroken();
+  }
+  EXPECT_EQ(cold_released, Length(4));
+  EXPECT_FALSE(cold_dense_unbroken);
+  EXPECT_FALSE(cold_sparse_unbroken);
+
+  {
+    PageHeapSpinLockHolder l;
+    for (const AllocationState& span : cold_dense_spans) {
+      cold_allocator.Delete(span, kDenseInfo);
+    }
+    cold_allocator.Delete(cold_sparse_keep1, kSparseInfo);
+    cold_allocator.Delete(cold_sparse_keep2, kSparseInfo);
   }
 }
 

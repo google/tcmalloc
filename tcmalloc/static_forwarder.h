@@ -82,6 +82,8 @@ class StaticForwarder : private Parameters {
   using Parameters::hpaa_subrelease;
   using Parameters::huge_region_adaptive_release;
   using Parameters::madvise_cold_regions_nohugepage;
+  using Parameters::min_free_bytes_to_break_dense_hugepage;
+  using Parameters::min_free_bytes_to_break_sparse_hugepage;
   using Parameters::per_cpu_caches_dynamic_slab_enabled;
   using Parameters::per_cpu_caches_dynamic_slab_grow_threshold;
   using Parameters::per_cpu_caches_dynamic_slab_shrink_threshold;
