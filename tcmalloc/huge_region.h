@@ -710,14 +710,32 @@ inline Length HugeRegionSet<Region>::ReleasePages(
     released += region_released;
   };
 
+  // Bound the number of regions visited.
+  //
+  // Once Release drops pageheap_lock around the unback syscall, a concurrent
+  // Get or Put can call Fix() and move the region we are standing on to a
+  // different place in list_. ++it then follows the node's new neighbours and
+  // can revisit regions instead of reaching the end.
+  //
+  // The iterator itself stays valid: regions are only ever added to the set,
+  // never removed or destroyed, and Fix() re-inserts under the same lock hold
+  // that removed. So this is a liveness concern, not a safety one.
+  //
+  // Each successful unback also grows `released`, so the `released >=
+  // to_release` test normally terminates the sweep. It does not if the unbacks
+  // keep failing: those still drop the lock but make no progress. This bound
+  // makes termination independent of that.
+  const size_t max_visits = n_;
+  size_t visits = 0;
+
   if (use_adaptive == HugeRegionAdaptiveRelease::kEnabled) {
     for (auto it = list_.rbegin(); it != list_.rend(); ++it) {
-      if (released >= to_release) break;
+      if (released >= to_release || visits++ >= max_visits) break;
       release_from_region(**it);
     }
   } else {
     for (Region* region : list_) {
-      if (released >= to_release) break;
+      if (released >= to_release || visits++ >= max_visits) break;
       release_from_region(*region);
     }
   }
