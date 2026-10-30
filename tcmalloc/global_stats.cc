@@ -708,6 +708,11 @@ void DumpStats(Printer& out, int level) {
                Parameters::release_stale_pages() == ReleaseStalePages::kEnabled
                    ? 1
                    : 0);
+    out.printf("PARAMETER tcmalloc_reobserve_hugepage_backed %d\n",
+               Parameters::reobserve_hugepage_backed() ==
+                       ReobserveHugepageBacked::kEnabled
+                   ? 1
+                   : 0);
 
     out.printf("PARAMETER tcmalloc_release_drained_slab_metadata %d\n",
                Parameters::release_drained_slab_metadata());
@@ -985,6 +990,9 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintBool(
       "tcmalloc_release_stale_pages",
       Parameters::release_stale_pages() == ReleaseStalePages::kEnabled);
+  region.PrintBool("tcmalloc_reobserve_hugepage_backed",
+                   Parameters::reobserve_hugepage_backed() ==
+                       ReobserveHugepageBacked::kEnabled);
 
   region.PrintBool("tcmalloc_release_drained_slab_metadata",
                    Parameters::release_drained_slab_metadata());

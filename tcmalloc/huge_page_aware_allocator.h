@@ -1030,10 +1030,13 @@ inline void HugePageAwareAllocator<Forwarder>::TreatHugepageTrackers(
       forwarder_.preserve_donated_on_collapse();
   const CollapseReleasedHugePages collapse_released =
       forwarder_.collapse_released_hugepages();
+  const ReobserveHugepageBacked reobserve_hugepage_backed =
+      forwarder_.reobserve_hugepage_backed();
   PageHeapSpinLockHolder l;
   filler_.TreatHugepageTrackers(
       enable_collapse, enable_unfiltered_collapse, release_stale_pages,
-      preserve_donated_on_collapse, collapse_released, pageflags, residency);
+      preserve_donated_on_collapse, collapse_released,
+      reobserve_hugepage_backed, pageflags, residency);
   DrainFreedTrackers();
 }
 

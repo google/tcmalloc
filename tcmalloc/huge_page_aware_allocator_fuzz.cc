@@ -580,6 +580,17 @@ struct SetMadvNoHugepageHugeRegions {
   }
 };
 
+struct SetReobserveHugepageBacked {
+  bool value;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetReobserveHugepageBacked& s) {
+    absl::Format(&sink, "SetReobserveHugepageBacked{.value=%v}", s.value);
+  }
+};
+
 // Sets what FakePageFlags and FakeResidency report for every tracker that the
 // next treatments scan.
 struct UpdateBitmaps {
@@ -639,7 +650,8 @@ using ParamOp = std::variant<
     SetBackSizeThresholdBytes, ReentrantSubprogram, SetEnableUnfilteredCollapse,
     SetReleaseMaxFillerPages, SetPreferBackedFillerPages,
     SetEnableReleaseStalePages, SetCollapseReleasedHugepages,
-    SetMadvNoHugepageHugeRegions, UpdateBitmaps, SetUsageLimitPressure>;
+    SetMadvNoHugepageHugeRegions, SetReobserveHugepageBacked, UpdateBitmaps,
+    SetUsageLimitPressure>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -1317,6 +1329,12 @@ void SetMadvNoHugepageHugeRegions::Perform(State& state) const {
             : MadviseRegionsNoHugepage::kDisabled);
 }
 
+void SetReobserveHugepageBacked::Perform(State& state) const {
+  state.allocator.forwarder().reobserve_hugepage_backed.set(
+      value ? ReobserveHugepageBacked::kEnabled
+            : ReobserveHugepageBacked::kDisabled);
+}
+
 void SetUsageLimitPressure::Perform(State& state) const {
   state.usage_limit_pressure = Length(pages);
 }
@@ -1474,6 +1492,8 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
       fuzztest::Map(
           [](SetMadvNoHugepageHugeRegions s) { return ChangeParam{s}; },
           fuzztest::Arbitrary<SetMadvNoHugepageHugeRegions>()),
+      fuzztest::Map([](SetReobserveHugepageBacked s) { return ChangeParam{s}; },
+                    fuzztest::Arbitrary<SetReobserveHugepageBacked>()),
       fuzztest::Map([](UpdateBitmaps u) { return ChangeParam{u}; },
                     fuzztest::Arbitrary<UpdateBitmaps>()),
       // Nonzero pressure makes every allocation release; keep it off half the

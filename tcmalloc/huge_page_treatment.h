@@ -73,6 +73,32 @@ constexpr absl::Duration kMinCollapseLatencyThreshold = absl::Milliseconds(15);
 // Interval for Page Tracker treatment.
 constexpr absl::Duration kRecordInterval = absl::Minutes(5);
 
+// Bounds on the never-observed and stale split trackers that one treatment
+// pass scans, oldest record first, scaled to sweep the heap once per
+// kRecordInterval at one pass per 5 s.
+constexpr size_t kMinCandidateTrackersToScan = 64;
+constexpr size_t kMaxCandidateTrackersToScan = 1024;
+
+// Upper bound on the userspace collapse attempts one treatment pass makes,
+// prioritized by CompareForHugePageTreatment among the split trackers
+// scanned in the pass.
+constexpr size_t kMaxCollapseAttemptsPerPass = 64;
+
+// Upper bound on the trackers recorded as hugepage backed more than
+// kRecordInterval ago that one treatment pass re-observes, oldest record
+// first.  Bounds the pageflags reads a pass makes on a large, fully
+// hugepage-backed heap (one 4 KiB pread per tracker); the remainder wait for a
+// later pass.  At one pass per 5 s this sweeps 512 trackers (1 GiB) every 5 s,
+// so a heap of N hugepage-backed trackers re-observes each of them every
+// max(kRecordInterval, N / 100 s).
+constexpr size_t kTrackersToReobserve = 512;
+
+// Upper bound on the re-observed trackers found split since they were recorded
+// as hugepage backed whose residency a pass records.  Each such tracker needs
+// a full residency record; the rest keep their stale record, so they stay the
+// oldest and are re-observed first by a later pass.
+constexpr size_t kReobservedSplitsToRecord = 128;
+
 enum class CollapseErrorType : size_t {
   kENoMem = 0,
   kEBusy,
@@ -389,11 +415,13 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       EnableUnfilteredCollapse enable_unfiltered_collapse,
       ReleaseStalePages release_stale_pages,
       PreserveDonatedOnCollapse preserve_donated_on_collapse,
-      CollapseReleasedHugePages collapse_released)
+      CollapseReleasedHugePages collapse_released,
+      ReobserveHugepageBacked reobserve_hugepage_backed)
       : clock_(clock),
         pageflags_(pageflags),
         residency_(residency),
         collapse_(collapse),
+        candidate_scan_budget_(CandidateTrackersToScan(page_filler.size())),
         page_filler_(page_filler),
         enable_collapse_(enable_collapse),
         subrelease_unbacked_mode_(subrelease_unbacked_mode),
@@ -401,6 +429,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         release_stale_pages_(release_stale_pages),
         preserve_donated_on_collapse_(preserve_donated_on_collapse),
         collapse_released_(collapse_released),
+        reobserve_hugepage_backed_(reobserve_hugepage_backed),
         clock_now_(clock.now()),
         record_interval_cycles_(absl::ToDoubleSeconds(kRecordInterval) *
                                 clock.freq()) {}
@@ -410,20 +439,42 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
 
   // Trying to apply treatments to the non-hugepage backed pages involves three
   // steps:
-  // 1. Collect up to kTotalTrackersToScan trackers using
-  //    SelectEligibleTrackers. Eligible pages here include:
+  // 1. Collect up to CandidateTrackersToScan(page_filler_.size()) trackers
+  //    using SelectEligibleTrackers, oldest record first (with never-observed
+  //    trackers ahead of stale split records, and ties broken by
+  //    CompareForHugePageTreatment). Eligible pages here include:
   //   a. The trackers that manage pages that either were hugepage backed or
   //      were previously successfully collapsed.
   //   b. The trackers that were never scanned before.
   //   c. The trackers that were last scanned more than kRecordInterval ago.
+  //    Alongside them, collect the kTrackersToReobserve trackers with the
+  //    oldest records of being hugepage backed, among those recorded more than
+  //    kRecordInterval ago.  The kernel may have split those since (compaction,
+  //    swap), so re-observing them keeps the recorded state, and the
+  //    hugepage_backed telemetry that HugePageFiller::Print derives from it,
+  //    from repeating a first observation forever.  Taking the oldest records
+  //    rather than the first found makes the sweep round-robin over a heap
+  //    larger than kTrackersToReobserve instead of starving its tail.
   // 2. Release the pageheap lock and obtain the residency and pageflags
   //    information for the collected trackers. Attempt to apply treatments to
   //    the pages that aren't hugepage backed. In case of userspace collapse,
-  //    it attempts to collapse pages that are composed of the number of
-  //    unbacked and swapped pages less than kMaxUnbackedPagesForCollapse and
-  //    kMaxSwappedPagesForCollapse respectively.
+  //    it attempts to collapse up to kMaxCollapseAttemptsPerPass pages per
+  //    pass, ordered by CompareForHugePageTreatment, that are composed of the
+  //    number of unbacked and swapped pages less than
+  //    kMaxUnbackedPagesForCollapse and kMaxSwappedPagesForCollapse
+  //    respectively.  A re-observed tracker that turns out to have been split
+  //    is treated like any other candidate.
   // 3. Acquire the pageheap lock and restore the recorded state using Restore
   //    (e.g. update the residency information in the trackers).
+  [[nodiscard]] static constexpr size_t CandidateTrackersToScan(
+      HugeLength heap_size) {
+    constexpr size_t kPassesPerRecordInterval =
+        60;  // kRecordInterval (5 min) / 5 s
+    return std::clamp<size_t>(heap_size.raw_num() / kPassesPerRecordInterval,
+                              kMinCandidateTrackersToScan,
+                              kMaxCandidateTrackersToScan);
+  }
+
   [[nodiscard]] static bool CompareForHugePageTreatment(PageTracker* a,
                                                         PageTracker* b) {
     TC_ASSERT_NE(a, nullptr);
@@ -441,34 +492,18 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     // Trackers are pinned in FinishSelection, once the set is final:
     // pinning here and unpinning on eviction would touch a cold tracker per
     // eviction under pageheap_lock.
-    auto PushCandidate = [&](PageTracker& pt) GOOGLE_MALLOC_SECTION {
-      if (num_valid_trackers_ < kTotalTrackersToScan) {
-        selected_trackers_[num_valid_trackers_] = &pt;
-        ++num_valid_trackers_;
-        if (num_valid_trackers_ == kTotalTrackersToScan) {
-          std::make_heap(selected_trackers_.begin(),
-                         selected_trackers_.begin() + num_valid_trackers_,
-                         CompareForHugePageTreatment);
-        }
+    auto PushCandidate = [&](PageTracker& pt,
+                             double record_time) GOOGLE_MALLOC_SECTION {
+      CandidateTracker candidate{&pt, record_time, candidate_sequence_++};
+      if (candidate_cutoff_.tracker != nullptr &&
+          !OlderCandidate(candidate, candidate_cutoff_)) {
         return;
       }
-
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
-      if (CompareForHugePageTreatment(selected_trackers_[0], &pt)) {
-        return;
+      selected_trackers_[num_valid_trackers_] = candidate;
+      ++num_valid_trackers_;
+      if (num_valid_trackers_ == 2 * candidate_scan_budget_) {
+        CompactCandidates();
       }
-#else
-      if (!CompareForHugePageTreatment(&pt, selected_trackers_[0])) {
-        return;
-      }
-#endif
-      std::pop_heap(selected_trackers_.begin(),
-                    selected_trackers_.begin() + num_valid_trackers_,
-                    CompareForHugePageTreatment);
-      selected_trackers_[num_valid_trackers_ - 1] = &pt;
-      std::push_heap(selected_trackers_.begin(),
-                     selected_trackers_.begin() + num_valid_trackers_,
-                     CompareForHugePageTreatment);
     };
 
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
@@ -477,26 +512,61 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     const PageTracker::HugePageResidencyState& state =
         pt.GetHugePageResidencyState();
 #endif
-    if (state.maybe_hugepage_backed) return;
-
     if (!state.entry_valid) {
-      PushCandidate(pt);
+      PushCandidate(pt, -std::numeric_limits<double>::infinity());
       return;
     }
     // Evaluate against the cached clock and the precomputed interval to avoid
     // repeatedly reading the hardware clock and recomputing the threshold
     // under lock.
     double elapsed = std::max<double>(clock_now_ - state.record_time, 0);
-    if (elapsed > record_interval_cycles_) {
-      PushCandidate(pt);
+    if (elapsed <= record_interval_cycles_) return;
+    if (!state.maybe_hugepage_backed) {
+      PushCandidate(pt, state.record_time);
+      return;
+    }
+    if (reobserve_hugepage_backed_ == ReobserveHugepageBacked::kDisabled) {
+      return;
+    }
+    // Keep the kTrackersToReobserve oldest records.  Rather than a heap, whose
+    // displacement walks log2(K) dependent loads per tracker in the worst
+    // case, buffer candidates and compact the buffer with nth_element when it
+    // fills: amortized O(1) per candidate, and nothing per tracker no older
+    // than the cutoff a compaction established.
+    if (state.record_time >= reobserve_cutoff_) return;
+    reobserved_trackers_[num_reobserved_trackers_] = {&pt, state.record_time};
+    ++num_reobserved_trackers_;
+    if (num_reobserved_trackers_ == reobserved_trackers_.size()) {
+      CompactReobserved();
     }
   }
 
   void FinishSelection() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override {
-    TC_ASSERT_LE(num_valid_trackers_, kTotalTrackersToScan);
+    if (num_valid_trackers_ > candidate_scan_budget_) {
+      CompactCandidates();
+    }
+    TC_ASSERT_LE(num_valid_trackers_, candidate_scan_budget_);
+    std::sort(selected_trackers_.begin(),
+              selected_trackers_.begin() + num_valid_trackers_,
+              [](const CandidateTracker& a, const CandidateTracker& b) {
+                if (CompareForHugePageTreatment(a.tracker, b.tracker)) {
+                  return true;
+                }
+                if (CompareForHugePageTreatment(b.tracker, a.tracker)) {
+                  return false;
+                }
+                return a.sequence < b.sequence;
+              });
+    if (num_reobserved_trackers_ > kTrackersToReobserve) {
+      CompactReobserved();
+    }
+    TC_ASSERT_LE(num_reobserved_trackers_, kTrackersToReobserve);
     for (int i = 0; i < num_valid_trackers_; ++i) {
-      TC_ASSERT_NE(selected_trackers_[i], nullptr);
-      Pin(*selected_trackers_[i]);
+      TC_ASSERT_NE(selected_trackers_[i].tracker, nullptr);
+      Pin(*selected_trackers_[i].tracker);
+    }
+    for (int i = 0; i < num_reobserved_trackers_; ++i) {
+      Pin(*reobserved_trackers_[i].tracker);
     }
   }
 
@@ -504,13 +574,19 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     return num_valid_trackers_;
   }
 
+  // Stale hugepage-backed trackers selected for re-observation.  Like
+  // num_valid_trackers, nonzero means Treat has pageflags work to do.
+  [[nodiscard]] int num_reobserved_trackers() const {
+    return num_reobserved_trackers_;
+  }
+
   [[nodiscard]] bool tracker_list_full() const {
-    return num_valid_trackers_ >= kTotalTrackersToScan;
+    return num_valid_trackers_ >= candidate_scan_budget_;
   }
 
   void Treat() ABSL_LOCKS_EXCLUDED(pageheap_lock) override {
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
-    if (num_valid_trackers_ == 0) {
+    if (num_valid_trackers_ == 0 && num_reobserved_trackers_ == 0) {
       return;
     }
 #endif
@@ -528,7 +604,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       res = &residency_obj;
     }
 
-    TC_ASSERT_LE(num_valid_trackers_, kTotalTrackersToScan);
+    TC_ASSERT_LE(num_valid_trackers_, candidate_scan_budget_);
+    TC_ASSERT_LE(num_reobserved_trackers_, kTrackersToReobserve);
     if (enable_collapse_ == EnableCollapse::kEnabled) {
       treatment_stats_.collapse_eligible += NHugePages(num_valid_trackers_);
     }
@@ -540,129 +617,73 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     const double max_collapse_cycles =
         absl::ToDoubleSeconds(kMaxCollapseLatencyThreshold) * clock_.freq();
     const size_t pages_per_huge_page = kHugePageSize / GetPageSize();
+    num_residency_states_ = 0;
     for (int i = 0; i < num_valid_trackers_; ++i) {
-      PageTracker::HugePageResidencyState state;
-      PageTracker* tracker = selected_trackers_[i];
-      TC_ASSERT_NE(tracker, nullptr);
-      // Assume element is hugepage if we can't read the value.
-      bool is_hugepage =
-          pf->IsHugepageBacked(tracker->location().start_addr()).value_or(true);
-
-      state.entry_valid = true;
-      state.record_time = clock_.now();
-
-      // If the address is not hugepage backed, obtain the residency
-      // information.
-      state.maybe_hugepage_backed = is_hugepage;
-      if (!is_hugepage) {
-        auto bitmaps =
-            res->GetUnbackedAndSwappedBitmaps(tracker->location().start_addr());
-        state.unbacked = Scale<kPagesPerHugePage.raw_num()>(
-            bitmaps.unbacked, pages_per_huge_page, ReductionOp::kAll);
-        state.swapped = Scale<kPagesPerHugePage.raw_num()>(
-            bitmaps.swapped, pages_per_huge_page, ReductionOp::kAny);
-        auto single_page_bitmaps =
-            pf->GetSinglePageBitmaps(tracker->location().start_addr());
-        state.stale = Scale<kPagesPerHugePage.raw_num()>(
-            single_page_bitmaps.stale, pages_per_huge_page, ReductionOp::kAny);
-
-        const bool backoff =
-            treatment_stats_.collapse_time_max_cycles > max_collapse_cycles;
-        if (enable_collapse_ == EnableCollapse::kEnabled && !backoff) {
-          bool should_collapse =
-              enable_unfiltered_collapse_ ==
-                  EnableUnfilteredCollapse::kEnabled ||
-              (bitmaps.swapped.CountBits() < kMaxSwappedPagesForCollapse &&
-               bitmaps.unbacked.CountBits() < kMaxUnbackedPagesForCollapse);
-          if (should_collapse) {
-            state.maybe_hugepage_backed = TryUserspaceCollapse(tracker);
-            if (state.maybe_hugepage_backed) {
-              state.unbacked.Clear();
-              state.swapped.Clear();
-            }
-          } else {
-            state.collapse_skipped = true;
-          }
-        } else if (enable_collapse_ == EnableCollapse::kEnabled && backoff) {
-          state.collapse_skipped = true;
-          state.collapse_skipped_due_to_backoff = true;
-        }
+      PageTracker* tracker = selected_trackers_[i].tracker;
+      Record(tracker, Observe(tracker, IsHugepageBacked(tracker, *pf), *pf,
+                              *res, pages_per_huge_page, max_collapse_cycles));
+    }
+    for (int i = 0; i < num_reobserved_trackers_; ++i) {
+      ReobservedTracker& entry = reobserved_trackers_[i];
+      if (IsHugepageBacked(entry.tracker, *pf)) {
+        // Still hugepage backed: only the record time changes, which Restore
+        // applies without a full residency record.
+        entry.record_time = clock_.now();
+        entry.outcome = ReobservedTracker::Outcome::kBacked;
+        continue;
       }
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
-      residency_states_[i].tracker = tracker;
-      residency_states_[i].tracker_state = state;
-#else
-      residency_states_[i].Construct(ResidencyState{tracker, state});
-#endif
+      // A tracker the kernel split since it was recorded as hugepage backed
+      // is a collapse candidate like the ones selected above; it only becomes
+      // known as one here.
+      if (num_residency_states_ - num_valid_trackers_ ==
+          static_cast<int>(kReobservedSplitsToRecord)) {
+        // This pass has recorded as many splits as it may; its record stays
+        // the oldest, so a later pass re-observes it first.
+        continue;
+      }
+      if (enable_collapse_ == EnableCollapse::kEnabled) {
+        treatment_stats_.collapse_eligible += NHugePages(1);
+      }
+      entry.outcome = ReobservedTracker::Outcome::kRecorded;
+      Record(entry.tracker,
+             Observe(entry.tracker, /*is_hugepage=*/false, *pf, *res,
+                     pages_per_huge_page, max_collapse_cycles));
     }
   }
 
   void Restore() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override {
-    TC_ASSERT_LE(num_valid_trackers_, kTotalTrackersToScan);
-    for (int i = 0; i < num_valid_trackers_; ++i) {
+    TC_ASSERT_LE(num_residency_states_, residency_states_.size());
+    for (int i = 0; i < num_residency_states_; ++i) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
       ResidencyState& entry = residency_states_[i];
 #else
       ResidencyState& entry = residency_states_[i].get_mutable();
 #endif
-      PageTracker* tracker = entry.tracker;
-      TC_ASSERT_NE(tracker, nullptr);
-      // While we did not hold pageheap_lock, tracker may have been emptied
-      // (and parked on fully_freed_trackers_) or claimed by a ReleasePages
-      // that is unbacking it.  Either way it is off the filler lists; leave it
-      // alone.
-      if (tracker->fully_freed() || tracker->BeingReleased()) {
-        Unpin(*tracker);
-        continue;
-      }
-      if (entry.tracker_state.maybe_hugepage_backed &&
-          tracker->GetHugePageResidencyState().released_since_selected) {
-        // The hugepage was observed (or collapsed) as hugepage backed, but
-        // another thread released pages from it while pageheap_lock was
-        // dropped, breaking it again (the pages may since have been
-        // reallocated, so released() alone would not show it).  Record it as
-        // broken so that a later pass reexamines it instead of skipping it as
-        // hugepage backed.
-        entry.tracker_state.maybe_hugepage_backed = false;
-      }
-      tracker->SetHugePageResidencyState(entry.tracker_state);
-      if (entry.tracker_state.maybe_hugepage_backed) {
-        Unpin(*tracker);
-        continue;
-      }
-
-      // HandleReleaseFree drops pageheap_lock, so the kCollapse pin stays set
-      // across it: a concurrent Put that empties tracker then parks it rather
-      // than returning it underneath us, and any Put during that lock drop
-      // sets freed_since_selected() before HandleUnbackedHugePage.
-      if (!entry.tracker_state.swapped.IsZero()) {
-        // TODO: b/425749361 - Clear swapped bit for pages that were freed.
-        Length released_length = page_filler_.HandleReleaseFree(tracker);
-        if (released_length > Length(0)) {
-          treatment_stats_.treated_pages_subreleased += released_length;
-        }
-      } else if (release_stale_pages_ == ReleaseStalePages::kEnabled &&
-                 !entry.tracker_state.stale.IsZero()) {
-        Length released_length = page_filler_.HandleReleaseFree(tracker);
-        if (released_length > Length(0)) {
-          treatment_stats_.treated_pages_stale_subreleased += released_length;
+      RestoreOne(entry.tracker, entry.tracker_state);
+    }
+    TC_ASSERT_LE(num_reobserved_trackers_, kTrackersToReobserve);
+    for (int i = 0; i < num_reobserved_trackers_; ++i) {
+      const ReobservedTracker& entry = reobserved_trackers_[i];
+      TC_ASSERT_NE(entry.tracker, nullptr);
+      switch (entry.outcome) {
+        case ReobservedTracker::Outcome::kRecorded:
+          // Restored from residency_states_ above.
+          break;
+        case ReobservedTracker::Outcome::kUnobserved:
+          Unpin(*entry.tracker);
+          break;
+        case ReobservedTracker::Outcome::kBacked: {
+          // Observed as still hugepage backed: refresh the record time on the
+          // state already recorded, which carries no residency bitmaps for a
+          // hugepage-backed tracker.
+          PageTracker::HugePageResidencyState state =
+              entry.tracker->GetHugePageResidencyState();
+          TC_ASSERT(state.maybe_hugepage_backed);
+          state.record_time = entry.record_time;
+          RestoreOne(entry.tracker, state);
+          break;
         }
       }
-      if (tracker->fully_freed()) {
-        Unpin(*tracker);
-        continue;
-      }
-
-      if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled &&
-          !tracker->freed_since_selected()) {
-        Length released_length = page_filler_.HandleUnbackedHugePage(
-            tracker, entry.tracker_state.unbacked);
-        if (released_length > Length(0)) {
-          treatment_stats_.treated_pages_unbacked_subreleased +=
-              released_length;
-        }
-      }
-      Unpin(*tracker);
     }
   }
 
@@ -703,6 +724,143 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     tracker.ClearFreedSinceSelected();
   }
 
+  // Queries pageflags for tracker's hugepage with pageheap_lock dropped.
+  [[nodiscard]] static bool IsHugepageBacked(PageTracker* tracker,
+                                             PageFlagsBase& pf) {
+    TC_ASSERT_NE(tracker, nullptr);
+    // Assume element is hugepage if we can't read the value.
+    return pf.IsHugepageBacked(tracker->location().start_addr()).value_or(true);
+  }
+
+  // Builds the state to record for tracker, whose hugepage pageflags reported
+  // as is_hugepage, with pageheap_lock dropped: for a hugepage that is not
+  // hugepage backed, queries residency and attempts a collapse if enabled and
+  // eligible.
+  [[nodiscard]] PageTracker::HugePageResidencyState Observe(
+      PageTracker* tracker, bool is_hugepage, PageFlagsBase& pf, Residency& res,
+      size_t pages_per_huge_page, double max_collapse_cycles) {
+    TC_ASSERT_NE(tracker, nullptr);
+    PageTracker::HugePageResidencyState state;
+    state.entry_valid = true;
+    state.record_time = clock_.now();
+
+    // If the address is not hugepage backed, obtain the residency
+    // information.
+    state.maybe_hugepage_backed = is_hugepage;
+    if (!is_hugepage) {
+      auto bitmaps =
+          res.GetUnbackedAndSwappedBitmaps(tracker->location().start_addr());
+      state.unbacked = Scale<kPagesPerHugePage.raw_num()>(
+          bitmaps.unbacked, pages_per_huge_page, ReductionOp::kAll);
+      state.swapped = Scale<kPagesPerHugePage.raw_num()>(
+          bitmaps.swapped, pages_per_huge_page, ReductionOp::kAny);
+      auto single_page_bitmaps =
+          pf.GetSinglePageBitmaps(tracker->location().start_addr());
+      state.stale = Scale<kPagesPerHugePage.raw_num()>(
+          single_page_bitmaps.stale, pages_per_huge_page, ReductionOp::kAny);
+
+      const bool backoff =
+          treatment_stats_.collapse_time_max_cycles > max_collapse_cycles;
+      const bool under_collapse_cap = treatment_stats_.collapse_attempted <
+                                      NHugePages(kMaxCollapseAttemptsPerPass);
+      if (enable_collapse_ == EnableCollapse::kEnabled && !backoff &&
+          under_collapse_cap) {
+        bool should_collapse =
+            enable_unfiltered_collapse_ == EnableUnfilteredCollapse::kEnabled ||
+            (bitmaps.swapped.CountBits() < kMaxSwappedPagesForCollapse &&
+             bitmaps.unbacked.CountBits() < kMaxUnbackedPagesForCollapse);
+        if (should_collapse) {
+          state.maybe_hugepage_backed = TryUserspaceCollapse(tracker);
+          if (state.maybe_hugepage_backed) {
+            state.unbacked.Clear();
+            state.swapped.Clear();
+          }
+        } else {
+          state.collapse_skipped = true;
+        }
+      } else if (enable_collapse_ == EnableCollapse::kEnabled) {
+        state.collapse_skipped = true;
+        state.collapse_skipped_due_to_backoff = backoff;
+      }
+    }
+    return state;
+  }
+
+  // Appends state to the records Restore applies to tracker.
+  void Record(PageTracker* tracker,
+              const PageTracker::HugePageResidencyState& state) {
+    TC_ASSERT_LT(num_residency_states_, residency_states_.size());
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+    residency_states_[num_residency_states_] = {tracker, state};
+#else
+    residency_states_[num_residency_states_].Construct(
+        ResidencyState{tracker, state});
+#endif
+    ++num_residency_states_;
+  }
+
+  // Applies the recorded state to tracker and releases its pin.
+  void RestoreOne(PageTracker* tracker,
+                  PageTracker::HugePageResidencyState& state)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    TC_ASSERT_NE(tracker, nullptr);
+    // While we did not hold pageheap_lock, tracker may have been emptied
+    // (and parked on fully_freed_trackers_) or claimed by a ReleasePages
+    // that is unbacking it.  Either way it is off the filler lists; leave it
+    // alone.
+    if (tracker->fully_freed() || tracker->BeingReleased()) {
+      Unpin(*tracker);
+      return;
+    }
+    if (state.maybe_hugepage_backed &&
+        tracker->GetHugePageResidencyState().released_since_selected) {
+      // The hugepage was observed (or collapsed) as hugepage backed, but
+      // another thread released pages from it while pageheap_lock was
+      // dropped, breaking it again (the pages may since have been
+      // reallocated, so released() alone would not show it).  Record it as
+      // broken so that a later pass reexamines it instead of skipping it as
+      // hugepage backed.
+      state.maybe_hugepage_backed = false;
+    }
+    tracker->SetHugePageResidencyState(state);
+    if (state.maybe_hugepage_backed) {
+      Unpin(*tracker);
+      return;
+    }
+
+    // HandleReleaseFree drops pageheap_lock, so the kCollapse pin stays set
+    // across it: a concurrent Put that empties tracker then parks it rather
+    // than returning it underneath us, and any Put during that lock drop
+    // sets freed_since_selected() before HandleUnbackedHugePage.
+    if (!state.swapped.IsZero()) {
+      // TODO: b/425749361 - Clear swapped bit for pages that were freed.
+      Length released_length = page_filler_.HandleReleaseFree(tracker);
+      if (released_length > Length(0)) {
+        treatment_stats_.treated_pages_subreleased += released_length;
+      }
+    } else if (release_stale_pages_ == ReleaseStalePages::kEnabled &&
+               !state.stale.IsZero()) {
+      Length released_length = page_filler_.HandleReleaseFree(tracker);
+      if (released_length > Length(0)) {
+        treatment_stats_.treated_pages_stale_subreleased += released_length;
+      }
+    }
+    if (tracker->fully_freed()) {
+      Unpin(*tracker);
+      return;
+    }
+
+    if (subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kEnabled &&
+        !tracker->freed_since_selected()) {
+      Length released_length =
+          page_filler_.HandleUnbackedHugePage(tracker, state.unbacked);
+      if (released_length > Length(0)) {
+        treatment_stats_.treated_pages_unbacked_subreleased += released_length;
+      }
+    }
+    Unpin(*tracker);
+  }
+
   [[nodiscard]] bool TryUserspaceCollapse(PageTracker* tracker) {
     double before = clock_.now();
     MemoryModifyStatus ret = page_filler_.Collapse(
@@ -722,7 +880,6 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     return ret.success;
   }
 
-  static constexpr size_t kTotalTrackersToScan = 64;
   static constexpr size_t kMaxSwappedPagesForCollapse = 128;
   static constexpr size_t kMaxUnbackedPagesForCollapse = 64;
 
@@ -731,20 +888,91 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   Residency* residency_;
   MemoryModifyFunction& collapse_;
 
-  using TrackerArray = std::array<PageTracker*, kTotalTrackersToScan>;
-  TrackerArray selected_trackers_;
+  // Never-observed and stale split trackers, the oldest records first.
+  struct CandidateTracker {
+    PageTracker* tracker = nullptr;
+    double record_time = std::numeric_limits<double>::infinity();
+    size_t sequence = 0;
+  };
+  [[nodiscard]] static bool OlderCandidate(const CandidateTracker& a,
+                                           const CandidateTracker& b) {
+    if (a.record_time != b.record_time) {
+      return a.record_time < b.record_time;
+    }
+    if (CompareForHugePageTreatment(a.tracker, b.tracker)) return true;
+    if (CompareForHugePageTreatment(b.tracker, a.tracker)) return false;
+    return a.sequence < b.sequence;
+  }
+  void CompactCandidates() {
+    TC_ASSERT_GT(num_valid_trackers_, candidate_scan_budget_);
+    auto begin = selected_trackers_.begin();
+    auto cut = begin + (candidate_scan_budget_ - 1);
+    std::nth_element(begin, cut, begin + num_valid_trackers_, OlderCandidate);
+    candidate_cutoff_ = *cut;
+    num_valid_trackers_ = candidate_scan_budget_;
+  }
+  int candidate_scan_budget_;
+  size_t candidate_sequence_ = 0;
+  std::array<CandidateTracker, 2 * kMaxCandidateTrackersToScan>
+      selected_trackers_;
   int num_valid_trackers_ = 0;
+  CandidateTracker candidate_cutoff_;
+
+  // Trackers recorded as hugepage backed more than kRecordInterval ago, the
+  // oldest records first.
+  struct ReobservedTracker {
+    PageTracker* tracker;
+    // The record time at selection; for Outcome::kBacked, the observation
+    // time Restore records instead.
+    double record_time;
+    enum class Outcome : uint8_t {
+      // Not observed this pass; Restore only drops the pin.
+      kUnobserved,
+      // Observed as still hugepage backed.
+      kBacked,
+      // Observed as split; its record is in residency_states_.
+      kRecorded,
+    } outcome = Outcome::kUnobserved;
+  };
+  [[nodiscard]] static bool OlderRecord(const ReobservedTracker& a,
+                                        const ReobservedTracker& b) {
+    return a.record_time < b.record_time;
+  }
+  // Keeps the kTrackersToReobserve oldest records buffered and raises
+  // reobserve_cutoff_ to the youngest of them.
+  void CompactReobserved() {
+    TC_ASSERT_GT(num_reobserved_trackers_, kTrackersToReobserve);
+    auto begin = reobserved_trackers_.begin();
+    auto cut = begin + (kTrackersToReobserve - 1);
+    std::nth_element(begin, cut, begin + num_reobserved_trackers_, OlderRecord);
+    reobserve_cutoff_ = cut->record_time;
+    num_reobserved_trackers_ = kTrackersToReobserve;
+  }
+  // Candidates for re-observation: after FinishSelection, the (at most)
+  // kTrackersToReobserve oldest; before it, up to twice as many, compacted to
+  // the oldest kTrackersToReobserve whenever the buffer fills.
+  std::array<ReobservedTracker, 2 * kTrackersToReobserve> reobserved_trackers_;
+  int num_reobserved_trackers_ = 0;
+  // Records at or after this time are not among the kTrackersToReobserve
+  // oldest seen so far, and are not buffered.
+  double reobserve_cutoff_ = std::numeric_limits<double>::infinity();
 
   struct ResidencyState {
     PageTracker* tracker;
     PageTracker::HugePageResidencyState tracker_state;
   };
+  // Filled by Treat() for selected_trackers_, then for the
+  // reobserved_trackers_ found split.
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
-  std::array<ResidencyState, kTotalTrackersToScan> residency_states_;
+  std::array<ResidencyState,
+             kMaxCandidateTrackersToScan + kReobservedSplitsToRecord>
+      residency_states_;
 #else
-  std::array<ExplicitlyConstructed<ResidencyState>, kTotalTrackersToScan>
+  std::array<ExplicitlyConstructed<ResidencyState>,
+             kMaxCandidateTrackersToScan + kReobservedSplitsToRecord>
       residency_states_;
 #endif
+  int num_residency_states_ = 0;
   HugePageTreatmentStats treatment_stats_;
   HugePageFiller<TrackerType>& page_filler_;
   EnableCollapse enable_collapse_;
@@ -754,6 +982,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   ReleaseStalePages release_stale_pages_;
   PreserveDonatedOnCollapse preserve_donated_on_collapse_;
   CollapseReleasedHugePages collapse_released_;
+  ReobserveHugepageBacked reobserve_hugepage_backed_;
 
   // Clock state cached at construction time, so that we do not read the
   // hardware clock nor recompute the record interval threshold for every
