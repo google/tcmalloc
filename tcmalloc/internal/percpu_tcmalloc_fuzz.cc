@@ -122,7 +122,12 @@ struct State {
   // Shared by every DrainHandler: the reported capacity must match the model
   // and the objects must be ours.
   void HandleDrain(int cpu, size_t size_class, void** batch, size_t size,
-                   size_t cap);
+                   size_t cap) {
+    HandleDrain(cpu, size_class, batch, size, cap,
+                expected_capacity[cpu][size_class]);
+  }
+  void HandleDrain(int cpu, size_t size_class, void** batch, size_t size,
+                   size_t cap, size_t expected_cap);
 
   // Allocates an object from the underlying malloc implementation that we can
   // freelist.
@@ -188,10 +193,12 @@ void State::CheckValidObject(void* obj, size_t sc) const {
 }
 
 void State::HandleDrain(int cpu, size_t size_class, void** batch, size_t size,
-                        size_t cap) {
+                        size_t cap, size_t expected_cap) {
   TC_CHECK_LT(size_class, kNumClasses);
   TC_CHECK_LE(size, cap);
-  TC_CHECK_EQ(cap, expected_capacity[cpu][size_class]);
+  TC_CHECK_EQ(cap, expected_cap);
+  TC_CHECK_LE(cap, expected_capacity[cpu][size_class]);
+  expected_capacity[cpu][size_class] -= static_cast<uint16_t>(cap);
   for (size_t i = 0; i < size; ++i) {
     CheckValidObject(batch[i], size_class);
     available_objects[size_class].push_back(batch[i]);
@@ -479,9 +486,8 @@ struct Drain {
       TC_CHECK_EQ(cpu, target_cpu);
       state.HandleDrain(cpu, size_class, batch, size, cap);
     });
-    state.expected_capacity[target_cpu].fill(0);
-
     for (size_t sc = 1; sc < kNumClasses; ++sc) {
+      TC_CHECK_EQ(state.expected_capacity[target_cpu][sc], 0);
       TC_CHECK_EQ(state.slab.Length(target_cpu, sc), 0);
       TC_CHECK_EQ(state.slab.Capacity(target_cpu, sc), 0);
     }
@@ -574,9 +580,12 @@ struct ResizeSlabs {
     TC_CHECK_EQ(state.slab.GetShift(), target_shift);
     const Shift old_shift = ToShiftType(current_shift);
     sized_aligned_delete(old_slabs, old_slabs_size, SlabAlignment(old_shift));
-    // ResizeSlabs starts every CPU at capacity 0 in the new slabs.
-    for (auto& caps : state.expected_capacity) {
-      caps.fill(0);
+    // ResizeSlabs drains every CPU's old slab completely and starts at
+    // capacity 0 in the new slabs.
+    for (const auto& caps : state.expected_capacity) {
+      for (size_t sc = 1; sc < kNumClasses; ++sc) {
+        TC_CHECK_EQ(caps[sc], 0);
+      }
     }
     auto [got_cpu, cached] = state.slab.CacheCpuSlab();
     if (cached && got_cpu >= 0 && !state.cpu_stopped[got_cpu]) {
@@ -622,14 +631,21 @@ struct UpdateMaxCapacities {
         [&state](size_t cpu) { return state.cpu_initialized[cpu]; },
         [&state](int cpu, size_t size_class, void** batch, size_t size,
                  size_t cap) {
-          state.HandleDrain(cpu, size_class, batch, size, cap);
+          const size_t old_cap = state.expected_capacity[cpu][size_class];
+          const size_t kept =
+              std::min<size_t>(old_cap, state.max_capacity[size_class]);
+          state.HandleDrain(cpu, size_class, batch, size, cap, old_cap - kept);
         },
         new_caps, 1);
     TC_CHECK_EQ(state.max_capacity[sc], target_cap);
     sized_aligned_delete(old_slabs, old_slabs_size, SlabAlignment(shift));
-    // UpdateMaxCapacities starts every CPU at capacity 0 in the new slabs.
-    for (auto& caps : state.expected_capacity) {
-      caps.fill(0);
+    // UpdateMaxCapacities transfers existing pointers and capacities up to the
+    // new max capacities into the new slabs, draining only any excess via
+    // HandleDrain.
+    for (const auto& caps : state.expected_capacity) {
+      for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
+        TC_CHECK_LE(caps[size_class], state.max_capacity[size_class]);
+      }
     }
     auto [got_cpu, cached] = state.slab.CacheCpuSlab();
     if (cached && got_cpu >= 0 && !state.cpu_stopped[got_cpu]) {
@@ -767,6 +783,12 @@ TEST(PercpuTcmallocTest, FuzzPercpuTcmallocRegression) {
        UncacheCpuSlab{}, CacheCpuSlab{}, SwitchCpu{.cpu_index = 1},
        StopCpu{.cpu_index = 1}, StartCpu{.cpu_index = 1}},
       {kMaxCapacity, kMaxCapacity, kMaxCapacity, kMaxCapacity});
+
+  FuzzPercpuTcmalloc(
+      {SwitchCpu{.cpu_index = 80},
+       GrowOtherClass{.cpu_index = 71, .size_class = 2147483647, .len = 151},
+       UpdateMaxCapacities{.size_class = 1, .new_max_capacity = 55}},
+      {221, 216, 156, 118});
 }
 
 TEST(PercpuTcmallocTest, ResizeSlabsMaxCapacities) {
@@ -784,6 +806,33 @@ TEST(PercpuTcmallocTest, UpdateMaxCapacitiesToZero) {
        Grow{.size_class = 0, .len = 1}, Pop{.size_class = 0},
        Push{.size_class = 0}},
       {kMaxCapacity, kMaxCapacity, kMaxCapacity, kMaxCapacity});
+}
+
+TEST(PercpuTcmallocTest, UpdateMaxCapacitiesRetainsAndCapsCapacity) {
+  FuzzPercpuTcmalloc(
+      {// sc=1: cap=6, len=3; sc=2: cap=6, len=0; sc=3: cap=1, len=1; sc=4: 0.
+       Grow{.size_class = 0, .len = 5}, PushBatch{.size_class = 0, .count = 2},
+       Grow{.size_class = 1, .len = 5}, Grow{.size_class = 2, .len = 0},
+       Push{.size_class = 2},
+       // Grow sc=1 max_capacity (6 <= 16): retains all pointers and capacity.
+       UpdateMaxCapacities{.size_class = 0, .new_max_capacity = kMaxCapacity},
+       // Shrink sc=1 max_capacity with len (3) <= new_max_capacity (4) < cap
+       // (6): drains only unused capacity.
+       UpdateMaxCapacities{.size_class = 0, .new_max_capacity = 4},
+       Push{.size_class = 0},
+       // Shrink sc=1 max_capacity with len (4) > new_max_capacity (2): drains
+       // excess pointers and capacity, retaining 2 pointers.
+       UpdateMaxCapacities{.size_class = 0, .new_max_capacity = 2},
+       // Shrink sc=1 max_capacity to 0: drains all remaining pointers and
+       // capacity; subsequent operations on sc=1 are no-ops.
+       UpdateMaxCapacities{.size_class = 0, .new_max_capacity = 0},
+       Grow{.size_class = 0, .len = 1}, Push{.size_class = 0},
+       Pop{.size_class = 0},
+       // Grow sc=4 max_capacity from 0 to 4 and exercise it.
+       UpdateMaxCapacities{.size_class = 3, .new_max_capacity = 4},
+       Grow{.size_class = 3, .len = 3}, Push{.size_class = 3},
+       Pop{.size_class = 3}, Pop{.size_class = 2}},
+      {8, 8, 1, 0});
 }
 
 TEST(PercpuTcmallocTest, InitialMaxCapacitiesZero) {
