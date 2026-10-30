@@ -356,6 +356,8 @@ ABSL_CONST_INIT std::atomic<PreferBackedPages>
 ABSL_CONST_INIT std::atomic<MadviseRegionsNoHugepage>
     Parameters::madvise_cold_regions_nohugepage_(
         MadviseRegionsNoHugepage::kDisabled);
+ABSL_CONST_INIT std::atomic<ReobserveHugepageBacked>
+    Parameters::reobserve_hugepage_backed_(ReobserveHugepageBacked::kDisabled);
 
 static std::atomic<HeapPartitioningMode>& heap_partitioning_mode_ptr() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -885,6 +887,18 @@ void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(bool v) {
   Parameters::madvise_cold_regions_nohugepage_.store(
       v ? tcmalloc::tcmalloc_internal::MadviseRegionsNoHugepage::kEnabled
         : tcmalloc::tcmalloc_internal::MadviseRegionsNoHugepage::kDisabled,
+      std::memory_order_relaxed);
+}
+
+bool TCMalloc_Internal_GetReobserveHugepageBacked() {
+  return Parameters::reobserve_hugepage_backed() ==
+         tcmalloc::tcmalloc_internal::ReobserveHugepageBacked::kEnabled;
+}
+
+void TCMalloc_Internal_SetReobserveHugepageBacked(bool v) {
+  Parameters::reobserve_hugepage_backed_.store(
+      v ? tcmalloc::tcmalloc_internal::ReobserveHugepageBacked::kEnabled
+        : tcmalloc::tcmalloc_internal::ReobserveHugepageBacked::kDisabled,
       std::memory_order_relaxed);
 }
 

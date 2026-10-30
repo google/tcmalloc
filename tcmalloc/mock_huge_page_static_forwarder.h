@@ -105,6 +105,8 @@ class FakeHugePageStaticForwarder : private Parameters {
       Parameters::release_stale_pages()};
   FakeParameter<MadviseRegionsNoHugepage> madvise_cold_regions_nohugepage{
       Parameters::madvise_cold_regions_nohugepage()};
+  FakeParameter<ReobserveHugepageBacked> reobserve_hugepage_backed{
+      Parameters::reobserve_hugepage_backed()};
   FakeParameter<bool> back_small_allocations{
       Parameters::back_small_allocations()};
   FakeParameter<int32_t> back_size_threshold_bytes{

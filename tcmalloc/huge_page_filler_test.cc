@@ -63,6 +63,7 @@
 #include "tcmalloc/internal/residency.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/testing/testutil.h"
@@ -538,6 +539,15 @@ class FillerTest : public testing::Test {
   // where the output is hardcoded, we disable randomization through the
   // variable below.
   bool randomize_density_ = true;
+  // Tests exercise the re-observation path unless they opt out.
+  ReobserveHugepageBacked reobserve_hugepage_backed_ =
+      ReobserveHugepageBacked::kEnabled;
+
+  [[nodiscard]] PageTracker::HugePageResidencyState GetResidencyState(
+      const PageTracker* pt) {
+    PageHeapSpinLockHolder l;
+    return pt->GetHugePageResidencyState();
+  }
 
   void CheckStats() {
     EXPECT_EQ(filler_.size(), hp_contained_);
@@ -689,10 +699,10 @@ class FillerTest : public testing::Test {
     // scoped lock doesn't recognize the manual unlock. In tests, collapse
     // allocates, so we use manual lock and unlock here.
     pageheap_lock.lock();
-    filler_.TreatHugepageTrackers(enable_collapse, enable_unfiltered_collapse,
-                                  release_stale_pages,
-                                  preserve_donated_on_collapse_,
-                                  collapse_released_, pageflags, residency);
+    filler_.TreatHugepageTrackers(
+        enable_collapse, enable_unfiltered_collapse, release_stale_pages,
+        preserve_donated_on_collapse_, collapse_released_,
+        reobserve_hugepage_backed_, pageflags, residency);
     pageheap_lock.unlock();
   }
 
@@ -792,6 +802,28 @@ class FillerTest : public testing::Test {
     }
     residency.SetUnbackedAndSwappedBitmaps(hp.start_addr(), unbacked, swapped);
     pageflags.SetStaleBitmap(hp.start_addr(), {});
+  }
+
+  void MarkHugePageBackedInResidency(const PageTracker* pt,
+                                     FakePageFlags& pageflags,
+                                     FakeResidency& residency) {
+    void* addr = pt->location().start_addr();
+    Bitmap<kMaxResidencyBits> unbacked, swapped;
+    residency.SetUnbackedAndSwappedBitmaps(addr, unbacked, swapped);
+    pageflags.SetStaleBitmap(addr, {});
+    pageflags.MarkHugePageBacked(addr, /*is_hugepage_backed=*/true);
+  }
+
+  std::vector<PAlloc> AllocateHugePageBackedTrackers(size_t count,
+                                                     FakePageFlags& pageflags,
+                                                     FakeResidency& residency) {
+    std::vector<PAlloc> allocs;
+    allocs.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+      allocs.push_back(Allocate(kPagesPerHugePage - Length(1)));
+      MarkHugePageBackedInResidency(allocs.back().pt, pageflags, residency);
+    }
+    return allocs;
   }
 
   void ExpectTrackerReleaseState(
@@ -2759,6 +2791,322 @@ TEST_F(FillerTest, DontCollapseAlreadyCollapsed) {
               /*expected_attempted=*/NHugePages(1),
               /*expected_succeeded=*/NHugePages(1));
   DeleteVector(p1);
+}
+
+// A tracker recorded as hugepage backed is trusted for kRecordInterval and
+// then re-observed, so that the cached state converges on a hugepage the
+// kernel split after the treatment last looked at it.  The split hugepage is
+// then as much a collapse candidate as one that was never backed.
+TEST_F(FillerTest, ReobservesStaleHugepageBackedTracker) {
+  std::vector<PAlloc> p1 = AllocateVector(kPagesPerHugePage / 2 - Length(1));
+  ASSERT_TRUE(!p1.empty());
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+  PageTracker* pt = p1.front().pt;
+  void* addr = pt->location().start_addr();
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  MarkHugePageBackedInResidency(pt, pageflags, residency);
+
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_TRUE(GetResidencyState(pt).maybe_hugepage_backed);
+  EXPECT_FALSE(collapse_.TriedCollapse(addr));
+
+  // The kernel splits the hugepage.  Within kRecordInterval the pass trusts
+  // its record and does not query pageflags again.
+  pageflags.MarkHugePageBacked(addr, /*is_hugepage_backed=*/false);
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_TRUE(GetResidencyState(pt).maybe_hugepage_backed);
+  EXPECT_FALSE(collapse_.TriedCollapse(addr));
+  EXPECT_EQ(GetHugePageTreatmentStats().collapse_eligible, NHugePages(1));
+
+  // Once the record is stale the pass re-observes the tracker, finds the
+  // split, and collapses it in the same pass.
+  FakeClock::Advance(kRecordInterval + absl::Seconds(1));
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_TRUE(collapse_.TriedCollapse(addr));
+  EXPECT_EQ(collapse_.TimesCollapsed(addr), 1);
+  EXPECT_TRUE(GetResidencyState(pt).maybe_hugepage_backed);
+  HugePageTreatmentStats stats = GetHugePageTreatmentStats();
+  EXPECT_EQ(stats.collapse_eligible, NHugePages(2));
+  EXPECT_EQ(stats.collapse_attempted, NHugePages(1));
+  EXPECT_EQ(stats.collapse_succeeded, NHugePages(1));
+  DeleteVector(p1);
+}
+
+// With collapse disabled, re-observation still records the split so that the
+// residency telemetry derived from the cached state stops reporting the
+// hugepage as backed.
+TEST_F(FillerTest, ReobservationRecordsSplitWithoutCollapse) {
+  std::vector<PAlloc> p1 = AllocateVector(kPagesPerHugePage / 2 - Length(1));
+  ASSERT_TRUE(!p1.empty());
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+  PageTracker* pt = p1.front().pt;
+  void* addr = pt->location().start_addr();
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  MarkHugePageBackedInResidency(pt, pageflags, residency);
+  Bitmap<kMaxResidencyBits> unbacked, swapped;
+  unbacked.SetRange(/*index=*/0, /*n=*/8);
+  residency.SetUnbackedAndSwappedBitmaps(addr, unbacked, swapped);
+
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_TRUE(GetResidencyState(pt).maybe_hugepage_backed);
+
+  pageflags.MarkHugePageBacked(addr, /*is_hugepage_backed=*/false);
+  FakeClock::Advance(kRecordInterval + absl::Seconds(1));
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  PageTracker::HugePageResidencyState state = GetResidencyState(pt);
+  EXPECT_TRUE(state.entry_valid);
+  EXPECT_FALSE(state.maybe_hugepage_backed);
+  EXPECT_FALSE(state.unbacked.IsZero());
+  EXPECT_FALSE(collapse_.TriedCollapse(addr));
+  EXPECT_EQ(GetHugePageTreatmentStats().collapse_attempted, NHugePages(0));
+  DeleteVector(p1);
+}
+
+// With re-observation disabled a stale hugepage-backed record is kept as is:
+// the pass neither queries pageflags for the tracker nor refreshes its record,
+// so a split hugepage stays recorded as backed and is not collapsed.
+TEST_F(FillerTest, ReobservationDisabledKeepsStaleRecord) {
+  reobserve_hugepage_backed_ = ReobserveHugepageBacked::kDisabled;
+  std::vector<PAlloc> p1 = AllocateVector(kPagesPerHugePage / 2 - Length(1));
+  ASSERT_TRUE(!p1.empty());
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+  PageTracker* pt = p1.front().pt;
+  void* addr = pt->location().start_addr();
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  MarkHugePageBackedInResidency(pt, pageflags, residency);
+
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  const PageTracker::HugePageResidencyState recorded = GetResidencyState(pt);
+  EXPECT_TRUE(recorded.entry_valid);
+  EXPECT_TRUE(recorded.maybe_hugepage_backed);
+
+  pageflags.MarkHugePageBacked(addr, /*is_hugepage_backed=*/false);
+  FakeClock::Advance(kRecordInterval + absl::Seconds(1));
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  const PageTracker::HugePageResidencyState state = GetResidencyState(pt);
+  EXPECT_EQ(state.record_time, recorded.record_time);
+  EXPECT_TRUE(state.maybe_hugepage_backed);
+  EXPECT_FALSE(collapse_.TriedCollapse(addr));
+  EXPECT_EQ(GetHugePageTreatmentStats().collapse_attempted, NHugePages(0));
+  DeleteVector(p1);
+}
+
+TEST_F(FillerTest, ReobservationRuntimeToggle) {
+  const bool old_reobserve = Parameters::reobserve_hugepage_backed() ==
+                             ReobserveHugepageBacked::kEnabled;
+  Parameters::set_reobserve_hugepage_backed(false);
+  reobserve_hugepage_backed_ = Parameters::reobserve_hugepage_backed();
+  EXPECT_EQ(reobserve_hugepage_backed_, ReobserveHugepageBacked::kDisabled);
+
+  std::vector<PAlloc> p1 = AllocateVector(kPagesPerHugePage / 2 - Length(1));
+  ASSERT_TRUE(!p1.empty());
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+  PageTracker* pt = p1.front().pt;
+  void* addr = pt->location().start_addr();
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  MarkHugePageBackedInResidency(pt, pageflags, residency);
+
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  const PageTracker::HugePageResidencyState initial = GetResidencyState(pt);
+  EXPECT_TRUE(initial.entry_valid);
+  EXPECT_TRUE(initial.maybe_hugepage_backed);
+
+  // Split the hugepage while re-observation is disabled; the stale record is
+  // retained across the pass.
+  pageflags.MarkHugePageBacked(addr, /*is_hugepage_backed=*/false);
+  FakeClock::Advance(kRecordInterval + absl::Seconds(1));
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_EQ(GetResidencyState(pt).record_time, initial.record_time);
+  EXPECT_FALSE(collapse_.TriedCollapse(addr));
+
+  // Enable re-observation at runtime while the tracker is still live; the next
+  // pass re-observes and collapses the split tracker.
+  Parameters::set_reobserve_hugepage_backed(true);
+  reobserve_hugepage_backed_ = Parameters::reobserve_hugepage_backed();
+  EXPECT_EQ(reobserve_hugepage_backed_, ReobserveHugepageBacked::kEnabled);
+
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_EQ(collapse_.TimesCollapsed(addr), 1);
+  const PageTracker::HugePageResidencyState collapsed = GetResidencyState(pt);
+  EXPECT_TRUE(collapsed.maybe_hugepage_backed);
+  EXPECT_GT(collapsed.record_time, initial.record_time);
+
+  // Disable re-observation at runtime while the tracker remains active; a
+  // subsequent split is no longer re-observed.
+  Parameters::set_reobserve_hugepage_backed(false);
+  reobserve_hugepage_backed_ = Parameters::reobserve_hugepage_backed();
+  EXPECT_EQ(reobserve_hugepage_backed_, ReobserveHugepageBacked::kDisabled);
+
+  FakeClock::Advance(kRecordInterval + absl::Seconds(1));
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_EQ(GetResidencyState(pt).record_time, collapsed.record_time);
+  EXPECT_EQ(collapse_.TimesCollapsed(addr), 1);
+
+  DeleteVector(p1);
+  Parameters::set_reobserve_hugepage_backed(old_reobserve);
+}
+
+// Each pass re-observes at most kTrackersToReobserve stale hugepage-backed
+// trackers, so that a large heap does not turn the pass into a full pageflags
+// sweep, and records at most kReobservedSplitsToRecord of them as split; the
+// remainder wait for a later pass.
+TEST_F(FillerTest, ReobservationIsBoundedPerPass) {
+  constexpr size_t kTrackers = kTrackersToReobserve + 8;
+  // Sparse allocations of nearly a hugepage each land on distinct trackers.
+  randomize_density_ = false;
+  // Some trackers are sampled for VMA naming; that treatment is not under
+  // test here.
+  set_anon_vma_name_.SetIgnoreName(true);
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  std::vector<PAlloc> allocs =
+      AllocateHugePageBackedTrackers(kTrackers, pageflags, residency);
+  ASSERT_EQ(filler_.size(), NHugePages(kTrackers));
+
+  auto count_backed = [&] {
+    size_t n = 0;
+    for (const PAlloc& pa : allocs) {
+      n += GetResidencyState(pa.pt).maybe_hugepage_backed;
+    }
+    return n;
+  };
+  // Never-scanned trackers are collapse candidates, of which a pass takes a
+  // bounded number; loop until every tracker has been recorded as backed.
+  for (int pass = 0; pass < 16 && count_backed() < kTrackers; ++pass) {
+    TreatHugepageTrackers(EnableCollapse::kDisabled,
+                          EnableUnfilteredCollapse::kDisabled,
+                          ReleaseStalePages::kDisabled, &pageflags, &residency);
+  }
+  ASSERT_EQ(count_backed(), kTrackers);
+
+  // Still hugepage backed: a pass refreshes kTrackersToReobserve records and
+  // the next one the rest.
+  auto count_recorded_at = [&](double time) {
+    size_t n = 0;
+    for (const PAlloc& pa : allocs) {
+      n += GetResidencyState(pa.pt).record_time == time;
+    }
+    return n;
+  };
+  FakeClock::Advance(kRecordInterval + absl::Seconds(1));
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_EQ(count_recorded_at(FakeClock::now()), kTrackersToReobserve);
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_EQ(count_recorded_at(FakeClock::now()), kTrackers);
+  EXPECT_EQ(count_backed(), kTrackers);
+
+  // All split: a pass re-observes kTrackersToReobserve of them but records
+  // only kReobservedSplitsToRecord; the others keep their stale record and are
+  // re-observed first by the passes that follow.
+  for (const PAlloc& pa : allocs) {
+    pageflags.MarkHugePageBacked(pa.pt->location().start_addr(),
+                                 /*is_hugepage_backed=*/false);
+  }
+  FakeClock::Advance(kRecordInterval + absl::Seconds(1));
+  for (size_t pass = 1; count_backed() > 0; ++pass) {
+    ASSERT_LE(pass * kReobservedSplitsToRecord,
+              kTrackers + kReobservedSplitsToRecord);
+    TreatHugepageTrackers(EnableCollapse::kDisabled,
+                          EnableUnfilteredCollapse::kDisabled,
+                          ReleaseStalePages::kDisabled, &pageflags, &residency);
+    EXPECT_EQ(
+        count_backed(),
+        kTrackers - std::min(kTrackers, pass * kReobservedSplitsToRecord));
+  }
+
+  for (const PAlloc& pa : allocs) {
+    Delete(pa);
+  }
+}
+
+// Among more stale hugepage-backed trackers than a pass re-observes, the pass
+// takes the ones with the oldest records, so that successive passes rotate
+// through a large heap rather than revisiting whichever trackers come first in
+// list order and never reaching the rest.
+TEST_F(FillerTest, ReobservationPrefersOldestRecords) {
+  constexpr size_t kTrackers = kTrackersToReobserve + 1;
+  // Neither the first nor the last tracker in list order.
+  constexpr size_t kYoungest = kTrackers / 2;
+  randomize_density_ = false;
+  set_anon_vma_name_.SetIgnoreName(true);
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  std::vector<PAlloc> allocs =
+      AllocateHugePageBackedTrackers(kTrackers, pageflags, residency);
+  ASSERT_EQ(filler_.size(), NHugePages(kTrackers));
+
+  // Record every tracker as hugepage backed more than kRecordInterval ago,
+  // allocs[kYoungest] most recently.
+  FakeClock::Advance(2 * kRecordInterval);
+  const double now = FakeClock::now();
+  const double second = FakeClock::freq();
+  const double interval = absl::ToDoubleSeconds(kRecordInterval) * second;
+  auto record_time = [&](size_t i) {
+    if (i == kYoungest) return now - interval - second;
+    return now - interval - 2 * second - i * second;
+  };
+  for (size_t i = 0; i < kTrackers; ++i) {
+    PageHeapSpinLockHolder l;
+    allocs[i].pt->SetHugePageResidencyState({.record_time = record_time(i),
+                                             .maybe_hugepage_backed = true,
+                                             .entry_valid = true});
+  }
+
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  for (size_t i = 0; i < kTrackers; ++i) {
+    const double recorded = GetResidencyState(allocs[i].pt).record_time;
+    if (i == kYoungest) {
+      EXPECT_EQ(recorded, record_time(i)) << i;
+    } else {
+      EXPECT_EQ(recorded, now) << i;
+    }
+  }
+
+  // It is the oldest record left, so the next pass takes it.
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_EQ(GetResidencyState(allocs[kYoungest].pt).record_time, now);
+
+  for (const PAlloc& pa : allocs) {
+    Delete(pa);
+  }
 }
 
 // Checks that the anonymous VMA name is being recorded correctly for the

@@ -704,6 +704,7 @@ class HugePageFiller {
       ReleaseStalePages release_stale_pages,
       PreserveDonatedOnCollapse preserve_donated_on_collapse,
       CollapseReleasedHugePages collapse_released,
+      ReobserveHugepageBacked reobserve_hugepage_backed,
       PageFlagsBase* pageflags = nullptr, Residency* residency = nullptr)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
@@ -1724,7 +1725,8 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
     EnableUnfilteredCollapse enable_unfiltered_collapse,
     ReleaseStalePages release_stale_pages,
     PreserveDonatedOnCollapse preserve_donated_on_collapse,
-    CollapseReleasedHugePages collapse_released, PageFlagsBase* pageflags,
+    CollapseReleasedHugePages collapse_released,
+    ReobserveHugepageBacked reobserve_hugepage_backed, PageFlagsBase* pageflags,
     Residency* residency) {
   if (enable_collapse == EnableCollapse::kEnabled &&
       ShouldBackoffFromCollapse()) {
@@ -1737,7 +1739,8 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
   HugePageUnbackedTrackerTreatment<TrackerType> unbacked_tracker_treatment(
       clock_, pageflags, residency, collapse_, *this, enable_collapse,
       subrelease_unbacked_mode_, enable_unfiltered_collapse,
-      release_stale_pages, preserve_donated_on_collapse, collapse_released);
+      release_stale_pages, preserve_donated_on_collapse, collapse_released,
+      reobserve_hugepage_backed);
 
   // Collect up to kTotalTrackersToScan trackers from our lists.
   regular_alloc_partial_released_.sparse.Iter(
@@ -1797,7 +1800,8 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
 
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   if (sampled_tracker_treatment.num_valid_trackers() == 0 &&
-      unbacked_tracker_treatment.num_valid_trackers() == 0) {
+      unbacked_tracker_treatment.num_valid_trackers() == 0 &&
+      unbacked_tracker_treatment.num_reobserved_trackers() == 0) {
     unbacked_tracker_treatment.UpdateHugePageTreatmentStats(treatment_stats_);
     return;
   }
