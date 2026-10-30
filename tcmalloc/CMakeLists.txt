@@ -1122,6 +1122,7 @@ tcmalloc_cc_test(
     "absl::span"
     "absl::string_view"
     "absl::strings"
+    "absl::time"
     "fuzztest::fuzztest"
     "fuzztest::fuzztest_gtest_main"
     "tcmalloc::common_8k_pages"

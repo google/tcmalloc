@@ -2773,7 +2773,7 @@ TEST_F(FillerTest, SetAnonVmaName) {
   p.pt->SetTagState({.sampled_for_tagging = true});
   pageflags.MarkHugePageBacked(p.pt->location().start_addr(), true);
   set_anon_vma_name_.SetExpectedName(
-      "tcmalloc_region_NORMAL_pg_8192_lfr_240_na_0_no_256_d_1_r_0");
+      "tcmalloc_region_NORMAL_pg_8192_lfr_240_na_0_no_256_d_1_r_0_a_1");
 
   FakeClock::Advance(absl::Minutes(10));
   TreatHugepageTrackers(EnableCollapse::kDisabled,
@@ -2794,7 +2794,7 @@ TEST_F(FillerTest, SetAnonVmaName) {
   PAlloc p2 = AllocateWithSpanAllocInfo(Length(1), info);
 
   set_anon_vma_name_.SetExpectedName(
-      "tcmalloc_region_NORMAL_pg_8192_lfr_240_na_0_no_512_d_1_r_0");
+      "tcmalloc_region_NORMAL_pg_8192_lfr_240_na_0_no_512_d_1_r_0_a_1");
 
   FakeClock::Advance(absl::Minutes(10));
   TreatHugepageTrackers(EnableCollapse::kDisabled,
@@ -2802,20 +2802,32 @@ TEST_F(FillerTest, SetAnonVmaName) {
                         ReleaseStalePages::kDisabled, &pageflags, &residency);
   EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 2);
 
-  // Allocate and advance.  nobjects should remain unchanged.
-  PAlloc p3 = AllocateWithSpanAllocInfo(Length(1), info);
-
-  FakeClock::Advance(absl::Minutes(10));
+  // Advance without new allocations so the age bucket increases (3h10m -> a_2).
+  set_anon_vma_name_.SetExpectedName(
+      "tcmalloc_region_NORMAL_pg_8192_lfr_240_na_0_no_512_d_1_r_0_a_2");
+  FakeClock::Advance(absl::Hours(3));
   TreatHugepageTrackers(EnableCollapse::kDisabled,
                         EnableUnfilteredCollapse::kDisabled,
                         ReleaseStalePages::kDisabled, &pageflags, &residency);
   EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 3);
 
+  // Allocate and advance. nobjects should remain unchanged and age bucket
+  // resets to a_1 (10m since p3).
+  PAlloc p3 = AllocateWithSpanAllocInfo(Length(1), info);
+  set_anon_vma_name_.SetExpectedName(
+      "tcmalloc_region_NORMAL_pg_8192_lfr_240_na_0_no_512_d_1_r_0_a_1");
+
+  FakeClock::Advance(absl::Minutes(10));
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 4);
+
   set_anon_vma_name_.SetExpectedName("tcmalloc_region_NORMAL");
   Delete(p);
   Delete(p2);
   Delete(p3);
-  EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 4);
+  EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 5);
 }
 
 // Checks that we collapse hugepages that are eligible to be collapsed.

@@ -190,20 +190,35 @@ class HugePageFiller;
   return metric & ~(align - 1);
 }
 
+// Quantizes the time since the last page allocation on a sampled hugepage
+// tracker into a single-digit bucket [0, 9] for compact VMA naming.
+// absl::bit_width(seconds) is in [0, 64], so dividing by 7 maps the full
+// uint64_t range into a single decimal digit [0, 9] (where each step spans a
+// 2^7 = 128x factor in age: 0 is <64s, 1 is 64s..~2.3h, 2 is ~2.3h..~12d)
+// while keeping the formatted VMA name within kMaxAnonVmaNameSize (80 bytes).
+[[nodiscard]] inline size_t QuantizeSampledTrackerAgeBucket(
+    absl::Duration age) {
+  const uint64_t seconds = std::max<int64_t>(0, absl::ToInt64Seconds(age));
+  return absl::bit_width(seconds) / 7;
+}
+
 inline constexpr size_t kMaxAnonVmaNameSize = 80;
 
-inline size_t FormatSampledTrackerVmaName(absl::Span<char> buffer,
-                                          MemoryTag tag, size_t page_size,
-                                          Length lfr, size_t nallocs,
-                                          size_t nobjects, bool has_dense_spans,
-                                          bool released) {
+inline size_t FormatSampledTrackerVmaName(
+    absl::Span<char> buffer, MemoryTag tag, size_t page_size, Length lfr,
+    size_t nallocs, size_t nobjects, bool has_dense_spans, bool released,
+    absl::Duration time_since_last_alloc) {
   TC_ASSERT_GE(buffer.size(), kMaxAnonVmaNameSize);
+  const size_t max_pages = page_size > 0 ? kHugePageSize / page_size : 0;
+  const size_t lfr_pages = std::min(lfr.raw_num(), max_pages);
+  const size_t capped_nallocs = std::min(nallocs, max_pages);
   return absl::SNPrintF(
       buffer.data(), std::min(buffer.size(), kMaxAnonVmaNameSize),
-      "tcmalloc_region_%s_pg_%zu_lfr_%zu_na_%zu_no_%zu_d_%d_r_%d",
-      MemoryTagToLabel(tag), page_size, RoundDown(lfr.raw_num(), /*align=*/16),
-      RoundDown(nallocs, /*align=*/16),
-      nobjects == 0 ? 0 : absl::bit_ceil(nobjects), has_dense_spans, released);
+      "tcmalloc_region_%s_pg_%zu_lfr_%zu_na_%zu_no_%zu_d_%d_r_%d_a_%zu",
+      MemoryTagToLabel(tag), page_size, RoundDown(lfr_pages, /*align=*/16),
+      RoundDown(capped_nallocs, /*align=*/16),
+      nobjects == 0 ? 0 : absl::bit_ceil(nobjects), has_dense_spans, released,
+      QuantizeSampledTrackerAgeBucket(time_since_last_alloc));
 }
 
 // TODO: b/425749361 - Add unit tests for subclasses.
@@ -240,11 +255,8 @@ class SampledTrackerTreatment final : public HugePageTreatment {
  public:
   explicit SampledTrackerTreatment(Clock clock, MemoryTag tag,
                                    MemoryTagFunction& set_anon_vma_name)
-      : tag_(tag),
-        set_anon_vma_name_(set_anon_vma_name),
-        clock_now_(clock.now()),
-        record_interval_cycles_(absl::ToDoubleSeconds(kRecordInterval) *
-                                clock.freq()) {}
+      : SampledTrackerTreatment(clock.now(), clock.freq(), tag,
+                                set_anon_vma_name) {}
   ~SampledTrackerTreatment() override = default;
 
   static void operator delete(void*) { __builtin_trap(); }
@@ -274,14 +286,21 @@ class SampledTrackerTreatment final : public HugePageTreatment {
     // hardware clock under lock.
     double elapsed = std::max<double>(clock_now_ - tagged_state.record_time, 0);
     if (elapsed > record_interval_cycles_) {
+      const absl::Duration time_since_last_alloc = absl::Seconds(
+          std::max<double>(clock_now_ - pt.last_page_allocation_time(), 0.0) *
+          inv_clock_freq_);
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
-      selected_trackers_[num_valid_trackers_] = {
-          &pt,           pt.longest_free_range(), pt.nallocs(),
-          pt.nobjects(), pt.HasDenseSpans(),      pt.released()};
+      selected_trackers_[num_valid_trackers_] = {&pt,
+                                                 pt.longest_free_range(),
+                                                 pt.nallocs(),
+                                                 pt.nobjects(),
+                                                 pt.HasDenseSpans(),
+                                                 pt.released(),
+                                                 time_since_last_alloc};
 #else
-      selected_trackers_[num_valid_trackers_].Construct(
-          TrackerState{&pt, pt.longest_free_range(), pt.nallocs(),
-                       pt.nobjects(), pt.HasDenseSpans(), pt.released()});
+      selected_trackers_[num_valid_trackers_].Construct(TrackerState{
+          &pt, pt.longest_free_range(), pt.nallocs(), pt.nobjects(),
+          pt.HasDenseSpans(), pt.released(), time_since_last_alloc});
 #endif
       pt.SetTagState({.sampled_for_tagging = true, .record_time = clock_now_});
       ++num_valid_trackers_;
@@ -321,10 +340,13 @@ class SampledTrackerTreatment final : public HugePageTreatment {
       const size_t nobjects = selected_trackers_[i].nobjects;
       const bool has_dense_spans = selected_trackers_[i].has_dense_spans;
       const bool released = selected_trackers_[i].released;
+      const absl::Duration time_since_last_alloc =
+          selected_trackers_[i].time_since_last_alloc;
 
       char name[kMaxAnonVmaNameSize];
       FormatSampledTrackerVmaName(absl::MakeSpan(name), tag_, kPageSize, lfr,
-                                  nallocs, nobjects, has_dense_spans, released);
+                                  nallocs, nobjects, has_dense_spans, released,
+                                  time_since_last_alloc);
       tracker->SetAnonVmaName(set_anon_vma_name_, name);
 #else
       const TrackerState& s = selected_trackers_[i].get_mutable();
@@ -332,7 +354,7 @@ class SampledTrackerTreatment final : public HugePageTreatment {
       char name[kMaxAnonVmaNameSize];
       FormatSampledTrackerVmaName(absl::MakeSpan(name), tag_, kPageSize, s.lfr,
                                   s.nallocs, s.nobjects, s.has_dense_spans,
-                                  s.released);
+                                  s.released, s.time_since_last_alloc);
       s.tracker->SetAnonVmaName(set_anon_vma_name_, name);
 #endif
     }
@@ -352,10 +374,22 @@ class SampledTrackerTreatment final : public HugePageTreatment {
   }
 
  private:
+  SampledTrackerTreatment(double clock_now, double clock_freq, MemoryTag tag,
+                          MemoryTagFunction& set_anon_vma_name)
+      : tag_(tag),
+        set_anon_vma_name_(set_anon_vma_name),
+        clock_now_(clock_now),
+        inv_clock_freq_(1.0 / clock_freq),
+        record_interval_cycles_(absl::ToDoubleSeconds(kRecordInterval) *
+                                clock_freq) {
+    TC_ASSERT_GT(clock_freq, 0);
+  }
+
   static constexpr size_t kTotalTrackersToScan = 64;
   MemoryTag tag_;
   MemoryTagFunction& set_anon_vma_name_;
   double clock_now_;
+  double inv_clock_freq_;
   double record_interval_cycles_;
 
   struct TrackerState {
@@ -365,6 +399,7 @@ class SampledTrackerTreatment final : public HugePageTreatment {
     size_t nobjects;
     bool has_dense_spans;
     bool released;
+    absl::Duration time_since_last_alloc;
   };
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   using TrackerArray = std::array<TrackerState, kTotalTrackersToScan>;
