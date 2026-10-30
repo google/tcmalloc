@@ -35,6 +35,8 @@
 #include "absl/types/span.h"
 #include "tcmalloc/central_freelist_options.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/experiment.h"
+#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/hinted_tracker_lists.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
@@ -321,12 +323,16 @@ inline void CentralFreeList<Forwarder>::Init(
     return;
   }
   pages_per_span_ = forwarder_.class_to_pages(size_class);
-  // Use the new bitmap-based freelist for small objects unless disabled via
-  // the TCMALLOC_DISABLE_SONIC_SPAN_BITMAP environment variable.
-  const char* disable_bitmap =
+  // Use the bitmap-based freelist for small objects unless disabled by the
+  // environment variable or the ablation experiment.
+  const char* disable_env =
       thread_safe_getenv("TCMALLOC_DISABLE_SONIC_SPAN_BITMAP");
-  const bool use_bitmap_for_small =
-      disable_bitmap == nullptr || disable_bitmap[0] == '\0';
+
+  const bool disabled_by_env = disable_env != nullptr && disable_env[0] != '\0';
+  const bool disabled_by_exp =
+      IsExperimentActive(Experiment::TCMALLOC_SONIC_SPAN_BITMAP_ABLATION);
+
+  const bool use_bitmap_for_small = !(disabled_by_env || disabled_by_exp);
   const auto [objects_per_span, bitmap_mode] =
       Span::CalcBitmapInfo(use_bitmap_for_small, pages_per_span_, object_size_);
   objects_per_span_ = objects_per_span;

@@ -71,10 +71,10 @@ experiment_variants = [
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE"},
     },
     {
-        "name": "tcmalloc_span_bitmap",
+        "name": "tcmalloc_span_bitmap_ablation",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_SPAN_BITMAP"},
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_SPAN_BITMAP_ABLATION"},
     },
     {
         "name": "tcmalloc_track_broken_hugepages",
