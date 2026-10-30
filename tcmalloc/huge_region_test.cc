@@ -1337,17 +1337,70 @@ class HugeRegionSetTest
     return buf;
   }
 
-  std::unique_ptr<Region> GetRegion() {
+  [[nodiscard]] std::unique_ptr<Region> GetRegion() {
+    return GetRegion(nil_unback_);
+  }
+
+  [[nodiscard]] std::unique_ptr<Region> GetRegion(
+      MemoryModifyFunction& unback) {
     // These regions are backed by "real" memory, but we don't touch it.
-    std::unique_ptr<Region> r = std::make_unique<Region>(
-        HugeRange{next_, Region::size()}, nil_unback_, nil_set_anon_vma_name_);
+    auto r = std::make_unique<Region>(HugeRange{next_, Region::size()}, unback,
+                                      nil_set_anon_vma_name_);
     next_ += Region::size();
     return r;
+  }
+
+  // Rebuilds set_ and clears the unbackers' state, for tests that loop
+  // (HugeRegionSet has no way to remove regions once contributed).
+  void Reset() {
+    unback_.unbacked_ = 0;
+    unback_.success_ = true;
+    unback_without_lock_.unlocked_hook_ = nullptr;
+    set_.~HugeRegionSet();
+    new (&set_) HugeRegionSet<Region>(/*use_huge_region_more_often=*/GetParam(),
+                                      ResetAndMakeFakeClock());
+  }
+
+  [[nodiscard]] static Range Allocate(Region& region, Length n) {
+    PageId p;
+    bool from_released;
+    TC_CHECK(region.MaybeGet(n, &p, &from_released));
+    return Range(p, n);
+  }
+
+  // set_'s count should match its regions', plus any in-flight unback it has
+  // not yet been told about.
+  void ExpectFreeBacked(absl::Span<const Region* const> regions,
+                        HugeLength in_flight) const {
+    HugeLength sum = in_flight;
+    for (const Region* r : regions) {
+      sum += r->free_backed();
+    }
+    EXPECT_EQ(set_.free_backed(), sum);
+  }
+
+  // Releases up to `desired` pages from `set_` with hit_limit=true, holding
+  // pageheap_lock as HugePageAwareAllocator does.
+  [[nodiscard]] Length ReleaseAll(Length desired,
+                                  HugeRegionAdaptiveRelease adaptive) {
+    PageHeapSpinLockHolder l;
+    return set_.ReleasePages(desired, adaptive, /*hit_limit=*/true);
+  }
+
+  // MaybePut may unback (unless UseHugeRegionMoreOften), so it too runs with
+  // pageheap_lock held.
+  void PutUnderLock(absl::Span<const Range> ranges) {
+    PageHeapSpinLockHolder l;
+    for (Range r : ranges) {
+      EXPECT_TRUE(set_.MaybePut(r));
+    }
   }
 
   bool UseHugeRegionMoreOften() const { return set_.UseHugeRegionMoreOften(); }
 
   NilUnback nil_unback_;
+  CountingUnback unback_;
+  UnbackWithoutLock unback_without_lock_{unback_};
   NilMemoryTagFunction nil_set_anon_vma_name_;
   HugeRegionSet<Region> set_;
   HugePage next_;
@@ -1814,6 +1867,185 @@ TEST_P(HugeRegionSetTest, TimeSeriesMinMaxWindow) {
   }
 
   ASSERT_TRUE(set_.MaybePut(Range(p1, kHalfHp)));
+}
+
+// While ReleasePages has a region unbacking a range, other threads may Get
+// from and Put to the set (b/73749855).  The set learns of the release only
+// when ReleasePages returns, so meanwhile its free_backed() exceeds its
+// regions' by the range in flight; afterwards the two agree.
+TEST_P(HugeRegionSetTest, GetAndPutDuringReleasePages) {
+  const Length hp = kPagesPerHugePage;
+  for (HugeRegionAdaptiveRelease adaptive :
+       {HugeRegionAdaptiveRelease::kDisabled,
+        HugeRegionAdaptiveRelease::kEnabled}) {
+    for (bool success : {true, false}) {
+      SCOPED_TRACE(testing::Message()
+                   << "adaptive=" << static_cast<bool>(adaptive)
+                   << " success=" << success);
+      Reset();
+      unback_.success_ = success;
+      std::unique_ptr<Region> region = GetRegion(unback_without_lock_);
+      // Hugepages 0-3 are backed; 1 and 2 are free, 0 and 3 are live.
+      Range hp0 = Allocate(*region, hp);
+      Range hp1_2 = Allocate(*region, 2 * hp);
+      Range hp3 = Allocate(*region, hp);
+      region->Put(hp1_2, /*release=*/false);
+      set_.Contribute(region.get());
+      ASSERT_EQ(set_.free_backed(), NHugePages(2));
+
+      // Unless UseHugeRegionMoreOften, the MaybePut below unbacks hugepage 3
+      // through the same unbacker, re-entering the hook.
+      int hooks = 0;
+      unback_without_lock_.unlocked_hook_ = [&](Range r) {
+        if (hooks++ > 0) {
+          return;
+        }
+        // ReleasePages unbacks hugepages 1-2 in a single call; region has
+        // pre-decremented them from free_backed(), while set_ has not yet.
+        EXPECT_EQ(r.p, hp1_2.p);
+        EXPECT_EQ(r.n, hp1_2.n);
+        PageHeapSpinLockHolder l;
+        const HugeLength in_flight = NHugePages(2);
+        ExpectFreeBacked({region.get()}, in_flight);
+
+        // MaybePut applies region's before/after diff on hugepage 3 to set_,
+        // leaving the 2-hugepage skew from the in-flight unback unchanged.
+        ASSERT_TRUE(set_.MaybePut(hp3));
+        ExpectFreeBacked({region.get()}, in_flight);
+
+        // Hugepages 1-2 are marked in flight, so MaybeGet lands back on
+        // hugepage 3; it was unbacked iff MaybePut tried to release and
+        // succeeded.
+        bool from_released;
+        ASSERT_TRUE(set_.MaybeGet(hp, &hp3.p, &from_released));
+        EXPECT_EQ(hp3.p, hp0.p + 3 * hp);
+        EXPECT_EQ(from_released, !UseHugeRegionMoreOften() && success);
+        ExpectFreeBacked({region.get()}, in_flight);
+      };
+      const Length released = ReleaseAll(10 * hp, adaptive);
+      unback_without_lock_.unlocked_hook_ = nullptr;
+      // MaybePut also unbacked hugepage 3 unless UseHugeRegionMoreOften.
+      EXPECT_EQ(hooks, UseHugeRegionMoreOften() ? 1 : 2);
+      // On success set_ subtracts the 2 unbacked hugepages; on failure region
+      // restores them to free_backed() and set_ subtracts 0.
+      EXPECT_EQ(released, success ? 2 * hp : Length(0));
+      ExpectFreeBacked({region.get()}, NHugePages(0));
+      EXPECT_EQ(set_.free_backed(), success ? NHugePages(0) : NHugePages(2));
+
+      const Range live[] = {hp0, hp3};
+      PutUnderLock(live);
+      ExpectFreeBacked({region.get()}, NHugePages(0));
+    }
+  }
+}
+
+// A ReleasePages that runs while another has a range in flight releases the
+// other candidates, which the outer call then skips.  Together they release
+// each free hugepage once.
+TEST_P(HugeRegionSetTest, ReleasePagesDuringReleasePages) {
+  const Length hp = kPagesPerHugePage;
+  for (HugeRegionAdaptiveRelease adaptive :
+       {HugeRegionAdaptiveRelease::kDisabled,
+        HugeRegionAdaptiveRelease::kEnabled}) {
+    SCOPED_TRACE(testing::Message()
+                 << "adaptive=" << static_cast<bool>(adaptive));
+    Reset();
+    std::unique_ptr<Region> region = GetRegion(unback_without_lock_);
+    // Hugepages 0-4 are backed; 1 and 3 are free, and are unbacked by
+    // separate calls.
+    Range hp0 = Allocate(*region, hp);
+    Range hp1 = Allocate(*region, hp);
+    Range hp2 = Allocate(*region, hp);
+    Range hp3 = Allocate(*region, hp);
+    Range hp4 = Allocate(*region, hp);
+    region->Put(hp1, /*release=*/false);
+    region->Put(hp3, /*release=*/false);
+    set_.Contribute(region.get());
+    ASSERT_EQ(set_.free_backed(), NHugePages(2));
+
+    // The nested ReleasePages unbacks hugepage 3 through the same unbacker,
+    // re-entering the hook; only the outer call runs the nested ReleaseAll.
+    int hooks = 0;
+    Length inner;
+    unback_without_lock_.unlocked_hook_ = [&](Range r) {
+      if (hooks++ > 0) {
+        return;
+      }
+      // UnbackHugepages scans should_unback from low index in both modes, so
+      // the outer call unbacks hugepage 1 first and hides it while in flight.
+      EXPECT_EQ(r.p, hp1.p);
+      EXPECT_EQ(r.n, hp1.n);
+      ExpectFreeBacked({region.get()}, NHugePages(1));
+      // Nested ReleasePages skips in-flight hugepage 1, unbacks hugepage 3,
+      // and subtracts 1 hugepage from set_.free_backed() before returning;
+      // only the outer call's 1 in-flight hugepage remains skewed.
+      inner = ReleaseAll(10 * hp, adaptive);
+      EXPECT_EQ(inner, hp);
+      ExpectFreeBacked({region.get()}, NHugePages(1));
+    };
+    const Length outer = ReleaseAll(10 * hp, adaptive);
+    unback_without_lock_.unlocked_hook_ = nullptr;
+    // Outer re-checks CanUnback(3) after re-acquiring the lock and skips
+    // already-unbacked hugepage 3, so each call releases and subtracts 1
+    // hugepage and only the 3 live hugepages (0, 2, 4) stay backed.
+    EXPECT_EQ(hooks, 2);
+    EXPECT_EQ(outer, hp);
+    EXPECT_EQ(outer + inner, 2 * hp);
+    EXPECT_EQ(unback_.unbacked_, 2);
+    EXPECT_EQ(set_.free_backed(), NHugePages(0));
+    ExpectFreeBacked({region.get()}, NHugePages(0));
+    EXPECT_EQ(region->backed(), NHugePages(3));
+
+    const Range live[] = {hp0, hp2, hp4};
+    PutUnderLock(live);
+  }
+}
+
+// A region contributed while ReleasePages has a range in flight is counted
+// once, whether or not that ReleasePages goes on to visit it.
+TEST_P(HugeRegionSetTest, ContributeDuringReleasePages) {
+  const Length hp = kPagesPerHugePage;
+  for (HugeRegionAdaptiveRelease adaptive :
+       {HugeRegionAdaptiveRelease::kDisabled,
+        HugeRegionAdaptiveRelease::kEnabled}) {
+    SCOPED_TRACE(testing::Message()
+                 << "adaptive=" << static_cast<bool>(adaptive));
+    Reset();
+    std::unique_ptr<Region> r1 = GetRegion(unback_without_lock_);
+    // r1 has hugepages 0-3 backed, 1 and 2 free; r2 has 0-1 backed, 0 free.
+    Range r1_hp0 = Allocate(*r1, hp);
+    Range r1_hp1_2 = Allocate(*r1, 2 * hp);
+    Range r1_hp3 = Allocate(*r1, hp);
+    r1->Put(r1_hp1_2, /*release=*/false);
+    set_.Contribute(r1.get());
+    std::unique_ptr<Region> r2 = GetRegion();
+    Range r2_hp0 = Allocate(*r2, hp);
+    Range r2_hp1 = Allocate(*r2, hp);
+    r2->Put(r2_hp0, /*release=*/false);
+
+    unback_without_lock_.unlocked_hook_ = [&](Range r) {
+      PageHeapSpinLockHolder l;
+      // r2 adds 1 free-backed hugepage to set_ while r1 still has 2 in flight.
+      set_.Contribute(r2.get());
+      EXPECT_EQ(set_.ActiveRegions(), 2);
+      ExpectFreeBacked({r1.get(), r2.get()}, NHugePages(2));
+    };
+    const Length released = ReleaseAll(10 * hp, adaptive);
+    unback_without_lock_.unlocked_hook_ = nullptr;
+    // r2 has a longer free tail than r1 so Contribute places it after r1 in
+    // list_: depending on whether the sweep visits r2 after r1, it releases 2
+    // or 3 hugepages, and set_.free_backed() drops from 3 by that amount.
+    EXPECT_GE(released, 2 * hp);
+    EXPECT_LE(released, 3 * hp);
+    EXPECT_EQ(set_.free_backed(), NHugePages(3) - HLFromPages(released));
+    ExpectFreeBacked({r1.get(), r2.get()}, NHugePages(0));
+
+    const Range live1[] = {r1_hp0, r1_hp3};
+    const Range live2[] = {r2_hp1};
+    PutUnderLock(live1);
+    PutUnderLock(live2);
+    ExpectFreeBacked({r1.get(), r2.get()}, NHugePages(0));
+  }
 }
 
 TEST(HugeRegionNamedVmaTest, NamedVmaNormal) {
