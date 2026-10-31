@@ -26,6 +26,8 @@ void DivideUint64MatchesHardware(uint64_t n, uint64_t d) {
   const ConstantDivisor<uint64_t> divisor(d);
   EXPECT_EQ(divisor.div(n), n / d);
   EXPECT_EQ(n / divisor, n / d);
+  EXPECT_EQ(divisor.mod(n), n % d);
+  EXPECT_EQ(n % divisor, n % d);
 }
 FUZZ_TEST(ConstantDivisorFuzzTest, DivideUint64MatchesHardware)
     .WithDomains(fuzztest::InRange<uint64_t>(0, (uint64_t{1} << 63) - 1),
@@ -35,6 +37,8 @@ void DivideUint32MatchesHardware(uint32_t n, uint32_t d) {
   const ConstantDivisor<uint32_t> divisor(d);
   EXPECT_EQ(divisor.div(n), n / d);
   EXPECT_EQ(n / divisor, n / d);
+  EXPECT_EQ(divisor.mod(n), n % d);
+  EXPECT_EQ(n % divisor, n % d);
 }
 FUZZ_TEST(ConstantDivisorFuzzTest, DivideUint32MatchesHardware)
     .WithDomains(fuzztest::Arbitrary<uint32_t>(),
@@ -44,10 +48,23 @@ void DivideUint16MatchesHardware(uint16_t n, uint16_t d) {
   const ConstantDivisor<uint16_t> divisor(d);
   EXPECT_EQ(divisor.div(n), n / d);
   EXPECT_EQ(n / divisor, n / d);
+  EXPECT_EQ(divisor.mod(n), n % d);
+  EXPECT_EQ(n % divisor, n % d);
 }
 FUZZ_TEST(ConstantDivisorFuzzTest, DivideUint16MatchesHardware)
     .WithDomains(fuzztest::Arbitrary<uint16_t>(),
                  fuzztest::NonZero<uint16_t>());
+
+void PowerOfTwoUint64MatchesHardware(uint64_t n, int shift) {
+  const uint64_t d = uint64_t{1} << shift;
+  const ConstantPowerOfTwoDivisor<uint64_t> divisor(d);
+  EXPECT_EQ(divisor.div(n), n / d);
+  EXPECT_EQ(n / divisor, n / d);
+  EXPECT_EQ(divisor.mod(n), n % d);
+  EXPECT_EQ(n % divisor, n % d);
+}
+FUZZ_TEST(ConstantDivisorFuzzTest, PowerOfTwoUint64MatchesHardware)
+    .WithDomains(fuzztest::Arbitrary<uint64_t>(), fuzztest::InRange(0, 63));
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal
