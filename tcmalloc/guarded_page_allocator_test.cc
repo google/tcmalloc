@@ -336,6 +336,110 @@ TEST_F(GuardedPageAllocatorTest, Print) {
   EXPECT_THAT(buf, testing::ContainsRegex("GWP-ASan Status"));
 }
 
+TEST_F(GuardedPageAllocatorTest, GuardPageFaultNearUnallocatedNeighborSlot) {
+  auto alloc_with_status =
+      gpa_.Allocate(16, std::align_val_t{16}, GetStackTrace());
+  ASSERT_EQ(alloc_with_status.status, Profile::Sample::GuardedStatus::Guarded);
+  char* buf = static_cast<char*>(alloc_with_status.alloc);
+  ASSERT_NE(buf, nullptr);
+
+  const uintptr_t alloc_addr = reinterpret_cast<uintptr_t>(buf);
+  const uintptr_t slot_addr = alloc_addr & ~(PageSize() - 1);
+
+  GuardedAllocationsStackTrace* alloc_trace;
+  GuardedAllocationsStackTrace* dealloc_trace;
+
+  // Fault in the first half of the left guard page (closer to slot - 1, which
+  // has never been allocated, than to slot).
+  const void* left_neighbor_slot =
+      reinterpret_cast<const void*>(slot_addr - 2 * PageSize());
+  if (gpa_.PointerIsMine(left_neighbor_slot)) {
+    const void* underflow_addr =
+        reinterpret_cast<const void*>(slot_addr - PageSize() / 2 - 1);
+    EXPECT_EQ(gpa_.GetStackTraces(underflow_addr, &alloc_trace, &dealloc_trace),
+              GuardedAllocationsErrorType::kBufferUnderflow);
+    auto [offset, size] = gpa_.GetAllocationOffsetAndSize(underflow_addr);
+    EXPECT_EQ(size, 16);
+    EXPECT_LT(offset, 0);
+  }
+
+  // Fault in the second half of the right guard page (closer to slot + 1, which
+  // has never been allocated, than to slot).
+  const void* right_neighbor_slot =
+      reinterpret_cast<const void*>(slot_addr + 2 * PageSize());
+  if (gpa_.PointerIsMine(right_neighbor_slot)) {
+    const void* overflow_addr =
+        reinterpret_cast<const void*>(slot_addr + PageSize() + PageSize() / 2);
+    EXPECT_EQ(gpa_.GetStackTraces(overflow_addr, &alloc_trace, &dealloc_trace),
+              GuardedAllocationsErrorType::kBufferOverflow);
+    auto [offset, size] = gpa_.GetAllocationOffsetAndSize(overflow_addr);
+    EXPECT_EQ(size, 16);
+    EXPECT_GE(offset, 16);
+  }
+
+  gpa_.Deallocate(buf);
+}
+
+TEST_F(GuardedPageAllocatorTest,
+       GuardPageFaultBetweenLiveAndQuarantinedNeighborSlots) {
+  std::vector<void*> ptrs;
+  ptrs.reserve(kMaxGpaPages);
+  for (size_t i = 0; i < kMaxGpaPages; ++i) {
+    auto alloc_with_status =
+        gpa_.Allocate(16, std::align_val_t{16}, GetStackTrace());
+    ASSERT_EQ(alloc_with_status.status,
+              Profile::Sample::GuardedStatus::Guarded);
+    ASSERT_NE(alloc_with_status.alloc, nullptr);
+    ptrs.push_back(alloc_with_status.alloc);
+  }
+  std::sort(ptrs.begin(), ptrs.end());
+
+  const uintptr_t slot0_addr =
+      reinterpret_cast<uintptr_t>(ptrs[0]) & ~(PageSize() - 1);
+  const uintptr_t slot1_addr =
+      reinterpret_cast<uintptr_t>(ptrs[1]) & ~(PageSize() - 1);
+  const uintptr_t slot2_addr =
+      reinterpret_cast<uintptr_t>(ptrs[2]) & ~(PageSize() - 1);
+  ASSERT_EQ(slot1_addr, slot0_addr + 2 * PageSize());
+  ASSERT_EQ(slot2_addr, slot1_addr + 2 * PageSize());
+
+  // Quarantine slot 1 while keeping adjacent slots 0 and 2 live.
+  gpa_.Deallocate(ptrs[1]);
+
+  GuardedAllocationsStackTrace* alloc_trace;
+  GuardedAllocationsStackTrace* dealloc_trace;
+
+  // Fault in the second half of the guard page between live slot 0 and
+  // quarantined slot 1 (closer to quarantined slot 1).
+  const void* overflow_from_slot0 =
+      reinterpret_cast<const void*>(slot0_addr + PageSize() + PageSize() / 2);
+  EXPECT_EQ(
+      gpa_.GetStackTraces(overflow_from_slot0, &alloc_trace, &dealloc_trace),
+      GuardedAllocationsErrorType::kBufferOverflow);
+  auto [overflow_offset, overflow_size] =
+      gpa_.GetAllocationOffsetAndSize(overflow_from_slot0);
+  EXPECT_EQ(overflow_size, 16);
+  EXPECT_GE(overflow_offset, 16);
+
+  // Fault in the first half of the guard page between quarantined slot 1 and
+  // live slot 2 (closer to quarantined slot 1).
+  const void* underflow_from_slot2 =
+      reinterpret_cast<const void*>(slot2_addr - PageSize() / 2 - 1);
+  EXPECT_EQ(
+      gpa_.GetStackTraces(underflow_from_slot2, &alloc_trace, &dealloc_trace),
+      GuardedAllocationsErrorType::kBufferUnderflow);
+  auto [underflow_offset, underflow_size] =
+      gpa_.GetAllocationOffsetAndSize(underflow_from_slot2);
+  EXPECT_EQ(underflow_size, 16);
+  EXPECT_LT(underflow_offset, 0);
+
+  for (size_t i = 0; i < ptrs.size(); ++i) {
+    if (i != 1) {
+      gpa_.Deallocate(ptrs[i]);
+    }
+  }
+}
+
 TEST_F(GuardedPageAllocatorTest, ZeroByteAllocationAndDeallocation) {
   auto alloc_with_status =
       gpa_.Allocate(0, std::align_val_t{0}, GetStackTrace());
