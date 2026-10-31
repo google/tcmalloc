@@ -354,7 +354,8 @@ void MaybeUnsampleAllocation(Static& state, DynamicPolicy policy,
       sampled_allocation->sampled_stack.guarded_status !=
           Profile::Sample::GuardedStatus::Guarded) {
     ReportCorruptedFree(
-        tc_globals, static_cast<std::align_val_t>(kPageSize), ptr,
+        tc_globals,
+        std::max(policy.align(), static_cast<std::align_val_t>(kPageSize)), ptr,
         absl::MakeSpan(sampled_allocation->sampled_stack.stack,
                        sampled_allocation->sampled_stack.depth));
   }
