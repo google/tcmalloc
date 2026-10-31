@@ -241,12 +241,6 @@ test_variants = [
         "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_LEGACY_LOCKING2"],
         "tags": ["noubsan"],
     },
-    {
-        "name": "defer_per_cpu_caches",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"TCMALLOC_DEFER_PER_CPU_CACHES": "1"},
-    },
 ] + experiment_variants
 
 def create_tcmalloc_library(
