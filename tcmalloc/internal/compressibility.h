@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "absl/base/nullability.h"
 #include "absl/container/fixed_array.h"
 #include "absl/status/statusor.h"
 #include "absl/types/span.h"
