@@ -32,7 +32,6 @@
 #include "absl/base/macros.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
-#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/rseq_util.h"
@@ -42,9 +41,6 @@ const size_t kMin = 8;
 void* blocks[kMem / kMin];
 
 int main() {
-  // TCMallocGuard's allocation before main() activates per-CPU caches unless
-  // deferred.
-
   if (&TCMalloc_Internal_ForceCpuCacheActivation != nullptr) {
     TCMalloc_Internal_ForceCpuCacheActivation();
   }
