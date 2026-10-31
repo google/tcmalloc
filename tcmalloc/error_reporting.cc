@@ -22,7 +22,6 @@
 #include "absl/base/attributes.h"
 #include "absl/base/casts.h"
 #include "absl/debugging/stacktrace.h"
-#include "absl/numeric/bits.h"
 #include "absl/types/span.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
@@ -172,11 +171,10 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
 
   RecordCrash("GWP-ASan", "invalid-free");
+  const uintptr_t addr = absl::bit_cast<uintptr_t>(ptr);
   state.gwp_asan_state().RecordInvalidFree(
-      ptr,
-      static_cast<std::align_val_t>(
-          1u << absl::countr_zero(absl::bit_cast<uintptr_t>(ptr))),
-      expected_alignment, std::nullopt, absl::MakeSpan(stack, depth));
+      ptr, static_cast<std::align_val_t>(addr & -addr), expected_alignment,
+      std::nullopt, absl::MakeSpan(stack, depth));
 
   TC_BUG("Attempted to free corrupted pointer %p.  Expected alignment %v", ptr,
          expected_alignment);
@@ -190,11 +188,10 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
 
   RecordCrash("GWP-ASan", "invalid-free");
+  const uintptr_t addr = absl::bit_cast<uintptr_t>(ptr);
   state.gwp_asan_state().RecordInvalidFree(
-      ptr,
-      static_cast<std::align_val_t>(
-          1u << absl::countr_zero(absl::bit_cast<uintptr_t>(ptr))),
-      expected_alignment, allocation_stack, absl::MakeSpan(stack, depth));
+      ptr, static_cast<std::align_val_t>(addr & -addr), expected_alignment,
+      allocation_stack, absl::MakeSpan(stack, depth));
 
   TC_BUG("Attempted to free corrupted pointer %p.  Expected alignment %v", ptr,
          expected_alignment);
