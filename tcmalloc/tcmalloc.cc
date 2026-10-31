@@ -744,8 +744,10 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
   if (ABSL_PREDICT_FALSE(meta.sizeclass() != 0)) {
     // Spans with a size class are never sampled, guarded, or large, so any
     // pointer into one that reaches here is corrupted.
-    if (absl::bit_cast<uintptr_t>(ptr) & kBadAlignmentMask) {
-      ReportCorruptedFree(tc_globals, kAlignment, ptr);
+    if (const std::align_val_t expected_alignment =
+            std::max(policy.align(), kAlignment);
+        !IsAlignedTo(ptr, expected_alignment)) {
+      ReportCorruptedFree(tc_globals, expected_alignment, ptr);
     }
     ReportCorruptedFree(tc_globals, ptr);
   }
@@ -759,8 +761,7 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
   bool valid_ptr = true;
   if (ABSL_PREDICT_FALSE(is_gwp_asan_ptr)) {
     valid_ptr = gwp_asan.PointerIsCorrectlyAligned(ptr);
-  } else if (ABSL_PREDICT_FALSE(ptr != p.start_addr() ||
-                                meta.sizeclass() != 0)) {
+  } else if (ABSL_PREDICT_FALSE(ptr != p.start_addr())) {
     valid_ptr = false;
   }
 
@@ -773,19 +774,6 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
         {ptr, size, GetLargeSize(ptr, meta), HookMemoryMutable::kMutable});
   }
 
-  if (ABSL_PREDICT_FALSE(meta.sizeclass() != 0)) {
-    if (size.has_value()) {
-      auto [minimum_size, maximum_size] =
-          tc_globals.sizemap().class_to_size_range(meta.sizeclass());
-      ReportMismatchedDelete(tc_globals, ptr, *size, minimum_size,
-                             maximum_size);
-    }
-    // Single object allocations are given size class 0.
-    //
-    // TODO(b/478294698): Decide whether to retain this check.
-    ReportCorruptedFree(tc_globals, ptr);
-  }
-
   const Length num_pages = meta.size();
   MaybeUnsampleAllocation(tc_globals, policy, ptr, size, p, meta);
 
@@ -794,8 +782,10 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
     gwp_asan.Deallocate(ptr);
   } else {
     if (ABSL_PREDICT_FALSE(ptr != p.start_addr())) {
-      ReportCorruptedFree(tc_globals, static_cast<std::align_val_t>(kPageSize),
-                          ptr);
+      ReportCorruptedFree(
+          tc_globals,
+          std::max(policy.align(), static_cast<std::align_val_t>(kPageSize)),
+          ptr);
     }
     tc_globals.pagemap().SetFreed(p);
     PageAllocatorInterface::AllocationState a{
@@ -962,7 +952,8 @@ ABSL_ATTRIBUTE_NOINLINE static void handle_sampled_or_illformed_ptrs(
   // If we get here, the object is small and this is the last line of defense
   // to report the error.
   TC_ASSERT_EQ((uptr & kBadAlignmentMask) != 0, true);
-  return ReportCorruptedFree(tc_globals, kAlignment, ptr);
+  return ReportCorruptedFree(tc_globals, std::max(policy.align(), kAlignment),
+                             ptr);
 }
 
 template <typename Policy>
