@@ -176,6 +176,14 @@ absl::Duration Profile::Duration() const {
   return impl_->Duration();
 }
 
+std::optional<int64_t> Profile::SamplingInterval() const {
+  if (!impl_) {
+    return std::nullopt;
+  }
+
+  return impl_->SamplingInterval();
+}
+
 AddressRegion::~AddressRegion() = default;
 
 size_t AddressRegionFactory::GetStats(absl::Span<char> buffer) {

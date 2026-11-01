@@ -881,6 +881,9 @@ std::unique_ptr<perftools::profiles::Profile> ProfileBuilder::Finalize() && {
 absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     const ::tcmalloc::Profile& profile, PageFlagsBase* pageflags,
     Residency* residency) {
+  if (profile.SamplingInterval() == 0) {
+    return absl::NotFoundError("Profile sampling is disabled");
+  }
   if (profile.Type() == ProfileType::kDoNotUse) {
 #if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
     defined(ABSL_HAVE_LEAK_SANITIZER) ||    \

@@ -17,6 +17,9 @@
 #ifndef TCMALLOC_STACK_TRACE_TABLE_H_
 #define TCMALLOC_STACK_TRACE_TABLE_H_
 
+#include <cstdint>
+#include <optional>
+
 #include "absl/base/thread_annotations.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
@@ -48,6 +51,13 @@ class StackTraceTable final : public ProfileBase {
   void SetDuration(absl::Duration duration) { duration_ = duration; }
   [[nodiscard]] absl::Duration Duration() const override { return duration_; }
 
+  void SetSamplingInterval(int64_t sampling_interval) {
+    sampling_interval_ = sampling_interval;
+  }
+  [[nodiscard]] std::optional<int64_t> SamplingInterval() const override {
+    return sampling_interval_;
+  }
+
   // Adds stack trace "t" of the sample to table with the given weight of the
   // sample. `sample_weight` is a floating point value used to calculate the
   // the expected number of objects allocated (might be fractional considering
@@ -68,6 +78,7 @@ class StackTraceTable final : public ProfileBase {
   ProfileType type_;
   absl::Duration duration_ = absl::ZeroDuration();
   absl::Time start_time_;
+  std::optional<int64_t> sampling_interval_;
   int depth_total_;
   LinkedSample* all_;
 };
