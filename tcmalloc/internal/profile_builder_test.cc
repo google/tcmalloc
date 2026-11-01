@@ -1658,6 +1658,26 @@ TEST(BuildId, ZeroOneAndCorruptAlignment) {
   EXPECT_EQ(GetBuildId(&info), "");
 }
 
+TEST(ProfileBuilderTest, DisabledSamplingReturnsNotFound) {
+  class DisabledProfile final : public ProfileBase {
+   public:
+    void Iterate(
+        absl::FunctionRef<void(const Profile::Sample&)>) const override {}
+    ProfileType Type() const override { return ProfileType::kAllocations; }
+    std::optional<absl::Time> StartTime() const override {
+      return std::nullopt;
+    }
+    absl::Duration Duration() const override { return absl::ZeroDuration(); }
+    std::optional<int64_t> SamplingInterval() const override { return 0; }
+  };
+
+  Profile profile =
+      ProfileAccessor::MakeProfile(std::make_unique<DisabledProfile>());
+  EXPECT_EQ(profile.SamplingInterval(), 0);
+  EXPECT_EQ(MakeProfileProto(profile).status().code(),
+            absl::StatusCode::kNotFound);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
