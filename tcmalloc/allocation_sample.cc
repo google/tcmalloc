@@ -14,6 +14,7 @@
 
 #include "tcmalloc/allocation_sample.h"
 
+#include <cstdint>
 #include <memory>
 #include <utility>
 
@@ -22,6 +23,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/stack_trace_table.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -31,7 +33,11 @@ AllocationSample::AllocationSample(AllocationSampleList* list, absl::Time start)
     : list_(list), start_(start) {
   mallocs_ = std::make_unique<StackTraceTable>(ProfileType::kAllocations);
   mallocs_->SetStartTime(start_);
-  list->Add(this);
+  const int64_t sampling_interval = Parameters::profile_sampling_interval();
+  mallocs_->SetSamplingInterval(sampling_interval);
+  if (sampling_interval > 0) {
+    list->Add(this);
+  }
 }
 
 AllocationSample::~AllocationSample() {
@@ -40,7 +46,9 @@ AllocationSample::~AllocationSample() {
   }
 
   // deleted before ending profile, do it for them
-  list_->Remove(this);
+  if (mallocs_->SamplingInterval() > 0) {
+    list_->Remove(this);
+  }
 }
 
 Profile AllocationSample::Stop() && {
@@ -49,7 +57,9 @@ Profile AllocationSample::Stop() && {
   // A concurrent call to AllocationSampleList::ReportMalloc can access mallocs_
   // until we remove it from list_.
   if (mallocs_) {
-    list_->Remove(this);
+    if (mallocs_->SamplingInterval() > 0) {
+      list_->Remove(this);
+    }
     mallocs_->SetDuration(absl::Now() - start_);
   }
   return ProfileAccessor::MakeProfile(std::move(mallocs_));
