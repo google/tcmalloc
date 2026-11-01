@@ -327,6 +327,10 @@ class Profile final {
   // (heap, peakheap, etc.), this returns absl::ZeroDuration().
   [[nodiscard]] absl::Duration Duration() const;
 
+  // Sampling interval in bytes when the profile was collected, or std::nullopt
+  // if unspecified. A value of 0 indicates that profile sampling was disabled.
+  [[nodiscard]] std::optional<int64_t> SamplingInterval() const;
+
  private:
   explicit Profile(std::unique_ptr<const tcmalloc_internal::ProfileBase>);
 
@@ -923,6 +927,12 @@ class ProfileBase {
   // The duration the profile was collected for.  For instantaneous profiles
   // (heap, peakheap, etc.), this returns absl::ZeroDuration().
   [[nodiscard]] virtual absl::Duration Duration() const = 0;
+
+  // Sampling interval in bytes when the profile was collected, or std::nullopt
+  // if unspecified. A value of 0 indicates that profile sampling was disabled.
+  [[nodiscard]] virtual std::optional<int64_t> SamplingInterval() const {
+    return std::nullopt;
+  }
 };
 
 enum class MadvisePreference {

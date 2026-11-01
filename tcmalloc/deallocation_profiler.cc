@@ -422,6 +422,14 @@ class DeallocationProfiler {
       return stop_time_ - start_time_;
     }
 
+    void SetSamplingInterval(int64_t sampling_interval) {
+      sampling_interval_ = sampling_interval;
+    }
+
+    std::optional<int64_t> SamplingInterval() const override {
+      return sampling_interval_;
+    }
+
     void StopAndRecord(const AllocsTable& allocs);
 
    private:
@@ -481,6 +489,7 @@ class DeallocationProfiler {
 
     absl::Time start_time_ = absl::Now();
     absl::Time stop_time_ = absl::InfiniteFuture();
+    std::optional<int64_t> sampling_interval_;
   };
 
   // Keep track of allocations that are in flight
@@ -493,6 +502,14 @@ class DeallocationProfiler {
   explicit DeallocationProfiler(DeallocationProfilerList* list, Mode mode)
       : list_(list), mode_(mode) {
     reports_ = std::make_unique<DeallocationStackTraceTable>(mode);
+    if (mode_ == Mode::kLifetimes) {
+      const int64_t sampling_interval =
+          tcmalloc_internal::Parameters::profile_sampling_interval();
+      reports_->SetSamplingInterval(sampling_interval);
+      if (sampling_interval <= 0) {
+        return;
+      }
+    }
     list_->Add(this);
   }
 
@@ -506,7 +523,9 @@ class DeallocationProfiler {
     if (reports_ != nullptr) {
       // We first remove the profiler from the list to avoid racing with
       // potential allocations which may modify the allocs_ table.
-      list_->Remove(this);
+      if (mode_ != Mode::kLifetimes || reports_->SamplingInterval() > 0) {
+        list_->Remove(this);
+      }
       reports_->StopAndRecord(allocs_);
       return tcmalloc_internal::ProfileAccessor::MakeProfile(
           std::move(reports_));
