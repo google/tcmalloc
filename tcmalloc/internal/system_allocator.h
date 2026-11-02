@@ -92,6 +92,21 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+namespace system_allocator_internal {
+using PassthroughRangeFn = void (*)(void* start, size_t length);
+using PassthroughEnabledFn = bool (*)();
+using PassthroughRangeCheckFn = bool (*)(const void* start, size_t length);
+
+void RegisterPassthroughHooks(
+    PassthroughRangeFn notify_release, PassthroughRangeFn synchronize_back,
+    PassthroughEnabledFn is_enabled,
+    PassthroughRangeCheckFn is_passthrough_range = nullptr);
+void InvokePassthroughNotifyRelease(void* start, size_t length);
+void InvokePassthroughSynchronizeBack(void* start, size_t length);
+[[nodiscard]] bool IsPassthroughEnabled();
+[[nodiscard]] bool IsPassthroughAddressRange(const void* start, size_t length);
+}  // namespace system_allocator_internal
+
 struct AddressRange {
   void* ptr;
   size_t bytes;
@@ -182,6 +197,7 @@ class SystemAllocator {
   //
   // REQUIRES: [start, start + length) is a range aligned to 4KiB boundaries.
   void Back(void* start, size_t length) {
+    system_allocator_internal::InvokePassthroughSynchronizeBack(start, length);
     madvise(start, length, MADV_POPULATE_READ | MADV_POPULATE_WRITE);
   }
 
@@ -730,6 +746,8 @@ MemoryModifyStatus SystemAllocator<Topology, NormalPartitions>::Release(
 
   ReleaseStatus result = ReleasePages(new_ptr, new_length);
   if (result == ReleaseStatus::kSuccess) {
+    system_allocator_internal::InvokePassthroughNotifyRelease(new_ptr,
+                                                              new_length);
     return {true, errno};
   } else if (result == ReleaseStatus::kRetryAfterMunlock) {
     // Try unlocking.
@@ -740,8 +758,24 @@ MemoryModifyStatus SystemAllocator<Topology, NormalPartitions>::Release(
 
     if (ret == 0 &&
         ReleasePages(new_ptr, new_length) == ReleaseStatus::kSuccess) {
+      system_allocator_internal::InvokePassthroughNotifyRelease(new_ptr,
+                                                                new_length);
       return {true, errno};
     }
+  }
+
+  // On a 1 GiB passthrough hugetlbfs VMA (`pagesize=1G`), kernel
+  // `madvise(2 MiB, MADV_REMOVE / MADV_DONTNEED)` returns `EINVAL` unless the
+  // guest BPF `fmod_ret` override is attached, because `2 MiB < 1 GiB`.
+  // Cooperative Memory Passthrough unbacks 2 MiB sub-PUD clusters on the host
+  // via `PtMemRangeOffer` in Zone 2 SHM rather than via guest kernel hugetlbfs
+  // truncation, so treat registered 2 MiB passthrough clusters as released and
+  // publish the SHM offer instead of recording a release error.
+  if (system_allocator_internal::IsPassthroughAddressRange(new_ptr,
+                                                           new_length)) {
+    system_allocator_internal::InvokePassthroughNotifyRelease(new_ptr,
+                                                              new_length);
+    return {true, 0};
   }
 
   release_errors_.fetch_add(1, std::memory_order_relaxed);
