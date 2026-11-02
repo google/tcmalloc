@@ -145,7 +145,7 @@ struct Alloc {
     }
 
     size_t popped = state.span->FreelistPopBatch(
-        absl::MakeSpan(state.batch.data(), n), state.object_size,
+        absl::MakeSpan(state.batch).first(n), state.object_size,
         state.objects_per_span, state.bitmap_mode);
     for (size_t i = 0; i < popped; ++i) {
       state.ValidateAndRecordPop(state.batch[i]);

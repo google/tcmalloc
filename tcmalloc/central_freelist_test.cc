@@ -293,7 +293,7 @@ TEST_P(CentralFreeListTest, SinglePopulate) {
   const int num_objects_to_fetch = kMaxObjectsToMove;
   std::vector<void*> objects(num_objects_to_fetch, nullptr);
   const size_t got = e.central_freelist().RemoveRange(
-      absl::MakeSpan(objects.data(), num_objects_to_fetch));
+      absl::MakeSpan(objects).first(num_objects_to_fetch));
   // Confirm we allocated at most kObjectsPerSpan number of objects.
   EXPECT_GT(got, 0);
   EXPECT_LE(got, e.objects_per_span());

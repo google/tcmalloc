@@ -584,7 +584,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
         // b/538576012.
         const size_t size = batch.size();
         const int here = span->FreelistPopBatch(
-            absl::MakeSpan(batch.data() + result, size - result), object_size,
+            absl::MakeSpan(batch).subspan(result, size - result), object_size,
             objects_per_span, bitmap_mode);
         ASSUME(here > 0 && "Failed to make progress.  Freelist corrupted?");
         // As the objects are being popped from the span, its utilization might
