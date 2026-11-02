@@ -535,6 +535,123 @@ TEST_F(TcmallocSlabTest, ResizeMaxCapacities) {
   EXPECT_EQ(max_capacity[kSizeClassToGrow], 2 * kCapacity);
 }
 
+// Grow() must stop short of index 0xffff, which the header reserves.  No
+// layout EstimateSlabBytes() accepts ends past 0xfffe, so place one size class
+// ending at 0xffff to exercise the bound directly.
+TEST_F(TcmallocSlabTest, GrowDeclinesReservedIndex) {
+  if (!IsFast()) {
+    GTEST_SKIP() << "Need fast percpu. Skipping.";
+  }
+  constexpr size_t kSizeClass = 1;
+  constexpr size_t kBigShift = 19;
+  // Headers (rounded up to a slot) and a begin marker precede the first size
+  // class; the next class's begin marker follows it (see InitSlabs()).
+  constexpr size_t kBegin =
+      (kStressSlabs * sizeof(int32_t) + sizeof(void*) - 1) / sizeof(void*) + 1;
+  constexpr size_t kBigCapacity =
+      (size_t{1} << kBigShift) / sizeof(void*) - kBegin - 1;
+  static_assert(kBegin + kBigCapacity == 0xffff);
+  const auto capacity = [](size_t size_class) {
+    return size_class == kSizeClass ? kBigCapacity : 0;
+  };
+
+  slab_.Destroy(sized_aligned_delete);
+  InitSlab(slab_, allocator, capacity, kBigShift);
+  for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
+    slab_.InitCpu(cpu, capacity);
+  }
+  const int cpu = slab_.CacheCpuSlab().first;
+  ASSERT_GE(cpu, 0);
+
+  const auto max_capacity = [] { return kBigCapacity; };
+  // Ending at 0xffff: declined.  Ending at 0xfffe: granted.
+  EXPECT_EQ(slab_.Grow(cpu, kSizeClass, kBigCapacity, max_capacity), 0);
+  EXPECT_EQ(slab_.Grow(cpu, kSizeClass, kBigCapacity - 1, max_capacity),
+            kBigCapacity - 1);
+  EXPECT_EQ(slab_.Capacity(cpu, kSizeClass), kBigCapacity - 1);
+}
+
+// Unlocked Grow() racing UpdateMaxCapacities() between two legal 2^19-byte
+// layouts that both end at 0xfffe can pair a full header from one with <begin>
+// or <max_capacity> from the other and reach 0xffff; it must decline, not
+// assert.
+TEST_F(TcmallocSlabTest, GrowRacingResizeDeclinesReservedIndex) {
+  if (!IsFast()) {
+    GTEST_SKIP() << "Need fast percpu. Skipping.";
+  }
+#if defined(HWADDRESS_SANITIZER)
+  GTEST_SKIP() << "Skipping percpu stress test on HWASan.";
+#endif
+  constexpr size_t kBigShift = 19;
+  constexpr size_t kLastClass = kStressSlabs - 1;
+  const size_t kBytesAvailable =
+      TcmallocSlab::GetBytesAvailable(ToShiftType(kBigShift));
+
+  // Classes 1..3 get kStressCapacity; the last class takes every remaining
+  // slot, so its region ends at 0xfffe.
+  std::atomic<size_t> max_capacity[kStressSlabs] = {};
+  for (size_t sc = 1; sc < kLastClass; ++sc) {
+    max_capacity[sc].store(kStressCapacity, std::memory_order_relaxed);
+  }
+  GetMaxCapacity max_cap_fn{max_capacity};
+  const size_t last_cap =
+      (kBytesAvailable - TcmallocSlab::EstimateSlabBytes(max_cap_fn)) /
+      sizeof(void*);
+  max_capacity[kLastClass].store(last_cap, std::memory_order_relaxed);
+  ASSERT_EQ(TcmallocSlab::EstimateSlabBytes(max_cap_fn), kBytesAvailable);
+
+  slab_.Destroy(sized_aligned_delete);
+  InitSlab(slab_, allocator, max_cap_fn, kBigShift);
+  const int num_cpus = NumCPUs();
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    slab_.InitCpu(cpu, max_cap_fn);
+  }
+
+  std::atomic<bool> stop{false};
+  std::thread grower([&] {
+    while (!stop.load(std::memory_order_relaxed)) {
+      const int cpu = slab_.CacheCpuSlab().first;
+      if (cpu < 0) continue;
+      (void)slab_.Grow(cpu, kLastClass, last_cap,
+                       [&] { return max_cap_fn(kLastClass); });
+    }
+  });
+
+  // Move one slot between class 1 and the last class and back: the total is
+  // unchanged, so both layouts end at 0xfffe and the last <begin> moves by one.
+  void* alt_slabs = AllocSlabs(allocator, kBigShift);
+  size_t alt_slabs_size = GetSlabsAllocSize(ToShiftType(kBigShift), num_cpus);
+  for (int i = 0; i < 10000; ++i) {
+    const size_t delta = i % 2 == 0;
+    PerSizeClassMaxCapacity updates[2] = {
+        {.size_class = 1, .max_capacity = kStressCapacity + delta},
+        {.size_class = kLastClass, .max_capacity = last_cap - delta},
+    };
+    const auto [old_slabs, old_size] = slab_.UpdateMaxCapacities(
+        alt_slabs,
+        [&](size_t sc) {
+          return sc == 1            ? updates[0].max_capacity
+                 : sc == kLastClass ? updates[1].max_capacity
+                                    : max_cap_fn(sc);
+        },
+        [&](int sc, uint16_t cap) {
+          max_capacity[sc].store(cap, std::memory_order_relaxed);
+        },
+        [](size_t) { return true; }, [](int, size_t, void**, size_t, size_t) {},
+        updates, 2);
+    alt_slabs = old_slabs;
+    alt_slabs_size = old_size;
+  }
+  stop.store(true, std::memory_order_relaxed);
+  grower.join();
+
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    EXPECT_LE(slab_.Capacity(cpu, kLastClass), max_cap_fn(kLastClass));
+  }
+  sized_aligned_delete(alt_slabs, alt_slabs_size,
+                       subtle::percpu::SlabAlignment(ToShiftType(kBigShift)));
+}
+
 TEST_F(TcmallocSlabTest, ShrinkEmptyCache) {
   if (MallocExtension::PerCpuCachesActive()) {
     // This test unregisters rseq temporarily, as to decrease flakiness.

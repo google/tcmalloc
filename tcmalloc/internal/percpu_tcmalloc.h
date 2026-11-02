@@ -991,10 +991,17 @@ inline size_t TcmallocSlab<NumClasses>::Grow(
     return 0;
   }
   uint16_t n = std::min<uint16_t>(len, have);
+  // 0xffff is a reserved index, so the capacity must stop short of it.  Grow()
+  // runs without the resize lock: on a 2^19-byte slab whose legal layouts end
+  // at slot 0xfffe, pairing a header from one layout with <begin> or
+  // <max_capacity> from a concurrent resize can reach 0xffff before
+  // StoreCurrentCpu() rejects the store.  Decline rather than assert.
+  if (ABSL_PREDICT_FALSE(static_cast<int>(hdr.current) +
+                             hdr.remaining_capacity + n >=
+                         Header::kReservedIndexValue)) {
+    return 0;
+  }
   hdr.remaining_capacity += n;
-  // 0xffff is an invalid value, so we must not be able to grow to or past that.
-  TC_ASSERT_LT(static_cast<int>(hdr.current) + hdr.remaining_capacity,
-               Header::kReservedIndexValue);
   return StoreCurrentCpu(hdrp, hdr) ? n : 0;
 }
 
