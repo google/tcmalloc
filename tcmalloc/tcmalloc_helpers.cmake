@@ -40,7 +40,7 @@ function(tcmalloc_cc_library)
   endif()
 endfunction()
 
-function(tcmalloc_cc_test)
+function(tcmalloc_cc_binary)
   cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS;TIMEOUT" "SRCS;HDRS;COPTS;LINKOPTS;DEPS;ENV;ARGS" ${ARGN})
   add_executable(${TCMALLOC_NAME} "")
   if(TCMALLOC_SRCS)
@@ -59,6 +59,11 @@ function(tcmalloc_cc_test)
     target_link_libraries(${TCMALLOC_NAME} PUBLIC ${TCMALLOC_DEPS})
   endif()
   target_include_directories(${TCMALLOC_NAME} PUBLIC ${CMAKE_SOURCE_DIR})
+endfunction()
+
+function(tcmalloc_cc_test)
+  cmake_parse_arguments(TCMALLOC "" "NAME;ALIAS;TIMEOUT" "SRCS;HDRS;COPTS;LINKOPTS;DEPS;ENV;ARGS" ${ARGN})
+  tcmalloc_cc_binary(${ARGN})
   add_test(NAME ${TCMALLOC_NAME} COMMAND ${TCMALLOC_NAME} ${TCMALLOC_ARGS})
   # Entries later in the list win, so rule- and variant-provided values override
   # these defaults.
@@ -71,10 +76,6 @@ function(tcmalloc_cc_test)
   if(TCMALLOC_TIMEOUT)
     set_tests_properties(${TCMALLOC_NAME} PROPERTIES TIMEOUT ${TCMALLOC_TIMEOUT})
   endif()
-endfunction()
-
-function(tcmalloc_cc_binary)
-  tcmalloc_cc_test(${ARGN})
 endfunction()
 
 function(create_percpu_tcmalloc_testsuite)
