@@ -575,13 +575,13 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
 #define TCMALLOC_RSEQ_CLOBBER "x16", "x17"
 #define TCMALLOC_RSEQ_RELOC_TYPE "R_AARCH64_NONE"
 #define TCMALLOC_RSEQ_JUMP "b"
-#define TCMALLOC_RSEQ_SET_CS(name)                     \
-  TCMALLOC_RSEQ_TRAMPLINE_SMASH                        \
-  "adrp %[scratch], __rseq_cs_" #name                  \
-  "_%=\n"                                              \
-  "add %[scratch], %[scratch], :lo12:__rseq_cs_" #name \
-  "_%=\n"                                              \
+// clang-format off
+#define TCMALLOC_RSEQ_SET_CS(name)                                   \
+  TCMALLOC_RSEQ_TRAMPLINE_SMASH                                      \
+  "adrp %[scratch], :got:__rseq_cs_" #name "_%=\n"                   \
+  "ldr %[scratch], [%[scratch], :got_lo12:__rseq_cs_" #name "_%=]\n" \
   "str %[scratch], %[rseq_cs_addr]\n"
+// clang-format on
 #endif  // defined(__aarch64__)
 
 #if !defined(__clang_major__) || __clang_major__ >= 9
