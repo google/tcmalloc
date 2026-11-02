@@ -781,6 +781,20 @@ TEST(PercpuTcmallocTest, FuzzPercpuTcmallocRegression) {
        UncacheCpuSlab{}, CacheCpuSlab{}, SwitchCpu{.cpu_index = 1},
        StopCpu{.cpu_index = 1}, StartCpu{.cpu_index = 1}},
       {kMaxCapacity, kMaxCapacity, kMaxCapacity, kMaxCapacity});
+
+  FuzzPercpuTcmalloc(
+      {StopCpu{.cpu_index = 50}, Pop{.size_class = 4294967295},
+       StartCpu{.cpu_index = 8}, Grow{.size_class = 2147483647, .len = 143},
+       Push{.size_class = 0},
+       GrowOtherClass{.cpu_index = 55, .size_class = 468428499, .len = 90},
+       CacheCpuSlab{}, PopBatch{.size_class = 2147483647, .count = 167},
+       PushBatch{.size_class = 1975813631, .count = 252},
+       PushBatch{.size_class = 4294967295, .count = 222}, Drain{.cpu_index = 6},
+       ReleasePerCPUSlabMetadata{.madvise_fail = false},
+       UpdateMaxCapacities{.size_class = 1, .new_max_capacity = 204},
+       SwitchCpu{.cpu_index = 237}, Push{.size_class = 0},
+       PushBatch{.size_class = 4294967295, .count = 15}},
+      {166, 109, 102, 186});
 }
 
 TEST(PercpuTcmallocTest, ResizeSlabsMaxCapacities) {
