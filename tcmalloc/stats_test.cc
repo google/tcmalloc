@@ -24,9 +24,12 @@
 #include "absl/base/internal/cycleclock.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/global_stats.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
@@ -175,6 +178,48 @@ TEST(ClockTest, ClockTicks) {
   const absl::Duration measured = absl::Seconds(a - b);
   EXPECT_LE(actual * 0.99, measured) << actual;
   EXPECT_GE(actual * 1.01, measured) << actual;
+}
+
+TEST(GlobalStatsTest, PageMapMemoryAccounted) {
+  TCMallocStats before, before_no_residence;
+  ExtractTCMallocStats(before, /*report_residence=*/true);
+  ExtractTCMallocStats(before_no_residence, /*report_residence=*/false);
+  const size_t pagemap_bytes_before = before.pagemap_bytes;
+
+  // Ensure several distant pages that require allocating new internal and leaf
+  // nodes in the PageMap radix tree.
+  const PageId p1{100000000};
+  const PageId p2{200000000};
+  {
+    PageHeapSpinLockHolder l;
+    ASSERT_TRUE(tc_globals.pagemap().Ensure(Range(p1, Length(1))));
+    ASSERT_TRUE(tc_globals.pagemap().Ensure(Range(p2, Length(1))));
+  }
+
+  TCMallocStats after, after_no_residence;
+  ExtractTCMallocStats(after, /*report_residence=*/true);
+  ExtractTCMallocStats(after_no_residence, /*report_residence=*/false);
+  const size_t pagemap_bytes_after = after.pagemap_bytes;
+  ASSERT_GT(pagemap_bytes_after, pagemap_bytes_before);
+  const size_t pagemap_increase = pagemap_bytes_after - pagemap_bytes_before;
+
+  // Metadata bytes must properly account for newly allocated pagemap
+  // nodes/leaves.
+  EXPECT_GE(after.metadata_bytes, before.metadata_bytes + pagemap_increase);
+  EXPECT_LE(after.metadata_bytes,
+            before.metadata_bytes + 3 * pagemap_increase / 2);
+
+  EXPECT_GE(after_no_residence.metadata_bytes,
+            before_no_residence.metadata_bytes + pagemap_increase);
+  EXPECT_LE(after_no_residence.metadata_bytes,
+            before_no_residence.metadata_bytes + 3 * pagemap_increase / 2);
+
+  // The difference in metadata bytes between reporting residence or not should
+  // only reflect unresident portions of the pagemap root and per-CPU slabs,
+  // not the entire pagemap dynamically allocated memory.
+  EXPECT_GE(after.metadata_bytes, after_no_residence.metadata_bytes -
+                                      sizeof(tc_globals.pagemap()) -
+                                      after.percpu_metadata_bytes);
 }
 
 }  // namespace
