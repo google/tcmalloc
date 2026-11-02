@@ -576,53 +576,10 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         absl::ToDoubleSeconds(kMaxCollapseLatencyThreshold) * clock_.freq();
     const size_t pages_per_huge_page = kHugePageSize / GetPageSize();
     for (int i = 0; i < num_valid_trackers_; ++i) {
-      PageTracker::HugePageResidencyState state;
       PageTracker* tracker = selected_trackers_[i];
       TC_ASSERT_NE(tracker, nullptr);
-      // Assume element is hugepage if we can't read the value.
-      bool is_hugepage =
-          pf->IsHugepageBacked(tracker->location().start_addr()).value_or(true);
-
-      state.entry_valid = true;
-      state.record_time = clock_.now();
-
-      // If the address is not hugepage backed, obtain the residency
-      // information.
-      state.maybe_hugepage_backed = is_hugepage;
-      if (!is_hugepage) {
-        auto bitmaps =
-            res->GetUnbackedAndSwappedBitmaps(tracker->location().start_addr());
-        state.unbacked = Scale<kPagesPerHugePage.raw_num()>(
-            bitmaps.unbacked, pages_per_huge_page, ReductionOp::kAll);
-        state.swapped = Scale<kPagesPerHugePage.raw_num()>(
-            bitmaps.swapped, pages_per_huge_page, ReductionOp::kAny);
-        auto single_page_bitmaps =
-            pf->GetSinglePageBitmaps(tracker->location().start_addr());
-        state.stale = Scale<kPagesPerHugePage.raw_num()>(
-            single_page_bitmaps.stale, pages_per_huge_page, ReductionOp::kAny);
-
-        const bool backoff =
-            treatment_stats_.collapse_time_max_cycles > max_collapse_cycles;
-        if (enable_collapse_ == EnableCollapse::kEnabled && !backoff) {
-          bool should_collapse =
-              enable_unfiltered_collapse_ ==
-                  EnableUnfilteredCollapse::kEnabled ||
-              (bitmaps.swapped.CountBits() < kMaxSwappedPagesForCollapse &&
-               bitmaps.unbacked.CountBits() < kMaxUnbackedPagesForCollapse);
-          if (should_collapse) {
-            state.maybe_hugepage_backed = TryUserspaceCollapse(tracker);
-            if (state.maybe_hugepage_backed) {
-              state.unbacked.Clear();
-              state.swapped.Clear();
-            }
-          } else {
-            state.collapse_skipped = true;
-          }
-        } else if (enable_collapse_ == EnableCollapse::kEnabled && backoff) {
-          state.collapse_skipped = true;
-          state.collapse_skipped_due_to_backoff = true;
-        }
-      }
+      PageTracker::HugePageResidencyState state = Observe(
+          *tracker, *pf, *res, pages_per_huge_page, max_collapse_cycles);
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
       residency_states_[i].tracker = tracker;
       residency_states_[i].tracker_state = state;
@@ -736,6 +693,59 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     tracker.ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
     tracker.ClearFreedSinceSelected();
+  }
+
+  // Builds the state to record for tracker with pageheap_lock dropped: queries
+  // pageflags, and for a hugepage that is not hugepage backed, queries
+  // residency and attempts a collapse if enabled and eligible.
+  [[nodiscard]] PageTracker::HugePageResidencyState Observe(
+      PageTracker& tracker, PageFlagsBase& pf, Residency& res,
+      size_t pages_per_huge_page, double max_collapse_cycles) {
+    // Assume element is hugepage if we can't read the value.
+    bool is_hugepage =
+        pf.IsHugepageBacked(tracker.location().start_addr()).value_or(true);
+
+    PageTracker::HugePageResidencyState state;
+    state.entry_valid = true;
+    state.record_time = clock_.now();
+
+    // If the address is not hugepage backed, obtain the residency
+    // information.
+    state.maybe_hugepage_backed = is_hugepage;
+    if (!is_hugepage) {
+      auto bitmaps =
+          res.GetUnbackedAndSwappedBitmaps(tracker.location().start_addr());
+      state.unbacked = Scale<kPagesPerHugePage.raw_num()>(
+          bitmaps.unbacked, pages_per_huge_page, ReductionOp::kAll);
+      state.swapped = Scale<kPagesPerHugePage.raw_num()>(
+          bitmaps.swapped, pages_per_huge_page, ReductionOp::kAny);
+      auto single_page_bitmaps =
+          pf.GetSinglePageBitmaps(tracker.location().start_addr());
+      state.stale = Scale<kPagesPerHugePage.raw_num()>(
+          single_page_bitmaps.stale, pages_per_huge_page, ReductionOp::kAny);
+
+      const bool backoff =
+          treatment_stats_.collapse_time_max_cycles > max_collapse_cycles;
+      if (enable_collapse_ == EnableCollapse::kEnabled && !backoff) {
+        bool should_collapse =
+            enable_unfiltered_collapse_ == EnableUnfilteredCollapse::kEnabled ||
+            (bitmaps.swapped.CountBits() < kMaxSwappedPagesForCollapse &&
+             bitmaps.unbacked.CountBits() < kMaxUnbackedPagesForCollapse);
+        if (should_collapse) {
+          state.maybe_hugepage_backed = TryUserspaceCollapse(&tracker);
+          if (state.maybe_hugepage_backed) {
+            state.unbacked.Clear();
+            state.swapped.Clear();
+          }
+        } else {
+          state.collapse_skipped = true;
+        }
+      } else if (enable_collapse_ == EnableCollapse::kEnabled && backoff) {
+        state.collapse_skipped = true;
+        state.collapse_skipped_due_to_backoff = true;
+      }
+    }
+    return state;
   }
 
   [[nodiscard]] bool TryUserspaceCollapse(PageTracker* tracker) {
