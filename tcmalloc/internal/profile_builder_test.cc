@@ -55,6 +55,7 @@
 #include "tcmalloc/internal/residency.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -1656,6 +1657,23 @@ TEST(BuildId, ZeroOneAndCorruptAlignment) {
   pt_note.p_filesz = 24;
   pt_note.p_align = alignof(ElfW(Nhdr));
   EXPECT_EQ(GetBuildId(&info), "");
+}
+
+TEST(ProfileBuilderTest, DisabledSamplingReturnsNotFound) {
+  if (MallocExtension::GetProfileSamplingInterval() < 0) {
+    GTEST_SKIP() << "TCMalloc is not linked in this build configuration";
+  }
+  ScopedProfileSamplingInterval scoped_interval(0);
+
+  Profile heap_profile = MallocExtension::SnapshotCurrent(ProfileType::kHeap);
+  EXPECT_EQ(heap_profile.Type(), ProfileType::kDoNotUse);
+  EXPECT_EQ(MakeProfileProto(heap_profile).status().code(),
+            absl::StatusCode::kNotFound);
+
+  Profile alloc_profile = MallocExtension::StartAllocationProfiling().Stop();
+  EXPECT_EQ(alloc_profile.Type(), ProfileType::kDoNotUse);
+  EXPECT_EQ(MakeProfileProto(alloc_profile).status().code(),
+            absl::StatusCode::kNotFound);
 }
 
 }  // namespace

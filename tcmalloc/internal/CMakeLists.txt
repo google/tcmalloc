@@ -1288,6 +1288,7 @@ tcmalloc_cc_test(
     "tcmalloc::internal_residency"
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc"
+    "tcmalloc::testing_testutil"
 )
 
 tcmalloc_cc_test(

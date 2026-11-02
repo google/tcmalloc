@@ -290,6 +290,9 @@ extern "C" size_t TCMalloc_Internal_GetStats(char* buffer,
 
 extern "C" const ProfileBase* MallocExtension_Internal_SnapshotCurrent(
     ProfileType type) {
+  if (Parameters::profile_sampling_interval() <= 0) {
+    return nullptr;
+  }
   switch (type) {
     case ProfileType::kHeap:
       return DumpHeapProfile(tc_globals).release();
@@ -302,17 +305,26 @@ extern "C" const ProfileBase* MallocExtension_Internal_SnapshotCurrent(
 
 extern "C" AllocationProfilingTokenBase*
 MallocExtension_Internal_StartAllocationProfiling() {
+  if (Parameters::profile_sampling_interval() <= 0) {
+    return nullptr;
+  }
   return new AllocationSample(&tc_globals.allocation_samples, absl::Now());
 }
 
 extern "C" tcmalloc_internal::AllocationProfilingTokenBase*
 MallocExtension_Internal_StartLifetimeProfiling() {
+  if (Parameters::profile_sampling_interval() <= 0) {
+    return nullptr;
+  }
   return new deallocationz::DeallocationSample(&tc_globals.deallocation_samples,
                                                deallocationz::Mode::kLifetimes);
 }
 
 extern "C" tcmalloc_internal::AllocationProfilingTokenBase*
 MallocExtension_Internal_StartEventTracing() {
+  if (Parameters::profile_sampling_interval() <= 0) {
+    return nullptr;
+  }
   return new deallocationz::DeallocationSample(
       &tc_globals.deallocation_samples, deallocationz::Mode::kEventTrace);
 }

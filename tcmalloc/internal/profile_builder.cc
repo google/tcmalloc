@@ -30,6 +30,7 @@
 #include "absl/types/span.h"
 #include "tcmalloc/internal/compressibility.h"
 #include "tcmalloc/internal/pageflags.h"
+#include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
 
 #if defined(__linux__)
@@ -882,6 +883,9 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     const ::tcmalloc::Profile& profile, PageFlagsBase* pageflags,
     Residency* residency) {
   if (profile.Type() == ProfileType::kDoNotUse) {
+    if (MallocExtension::GetProfileSamplingInterval() == 0) {
+      return absl::NotFoundError("Profile sampling is disabled");
+    }
 #if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
     defined(ABSL_HAVE_LEAK_SANITIZER) ||    \
     defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)

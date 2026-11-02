@@ -1255,6 +1255,7 @@ cc_test(
         ":residency",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:profile_cc_proto",
+        "//tcmalloc/testing:testutil",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
