@@ -20,5 +20,8 @@
 #include "absl/flags/declare.h"
 
 ABSL_DECLARE_FLAG(std::string, memfs_malloc_path);
+ABSL_DECLARE_FLAG(bool, memfs_malloc_passthrough);
+ABSL_DECLARE_FLAG(std::string, memfs_malloc_passthrough_shm_path);
+ABSL_DECLARE_FLAG(int32_t, memfs_malloc_passthrough_numa_node);
 
 #endif  // TCMALLOC_MEMFS_MALLOC_H_
