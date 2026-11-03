@@ -20,12 +20,15 @@
 #include <stdint.h>
 #include <sys/types.h>
 
+#include <atomic>
+
 #include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/linked_list.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu_state.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/static_vars.h"
@@ -75,13 +78,11 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
  private:
   friend void TCMalloc_Internal_DestroyThreadCache(ThreadCache* absl_nullable);
 
-  // We inherit rather than include the list as a data structure to reduce
-  // compiler padding.  Without inheritance, the compiler pads the list
-  // structure and then adds it as a member, even though we could fit everything
-  // without padding.
-  class FreeList : public LinkedList {
+  class FreeList {
    private:
-    uint32_t lowater_;     // Low water mark for list length.
+    void* list_ = nullptr;             // Linked list.
+    std::atomic<uint32_t> length_{0};  // Current length.
+    uint32_t lowater_;                 // Low water mark for list length.
     uint32_t max_length_;  // Dynamic max list length based on usage.
     // Tracks the number of times a deallocation has caused
     // length_ > max_length_.  After the kMaxOverages'th time, max_length_
@@ -89,11 +90,29 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
     uint32_t length_overages_;
 
    public:
+    FreeList() = default;
+
+    // Not copy constructible or movable.
+    FreeList(const FreeList&) = delete;
+    FreeList(FreeList&&) = delete;
+    FreeList& operator=(const FreeList&) = delete;
+    FreeList& operator=(FreeList&&) = delete;
+
     void Init() {
+      list_ = nullptr;
+      length_.store(0, std::memory_order_relaxed);
       lowater_ = 0;
       max_length_ = 1;
       length_overages_ = 0;
     }
+
+    // Return current length of list
+    [[nodiscard]] size_t length() const {
+      return length_.load(std::memory_order_relaxed);
+    }
+
+    // Is list empty?
+    [[nodiscard]] bool empty() const { return list_ == nullptr; }
 
     // Return the maximum length of the list.
     [[nodiscard]] size_t max_length() const { return max_length_; }
@@ -111,17 +130,60 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
     [[nodiscard]] int lowwatermark() const { return lowater_; }
     void clear_lowwatermark() { lowater_ = length(); }
 
+    [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE size_t Push(void* ptr) {
+      SLL_Push(&list_, ptr);
+      const uint32_t length = length_.load(std::memory_order_relaxed) + 1;
+      length_.store(length, std::memory_order_relaxed);
+      return length;
+    }
+
     [[nodiscard]] ABSL_ATTRIBUTE_ALWAYS_INLINE bool TryPop(void** ret) {
-      bool out = LinkedList::TryPop(ret);
-      if (ABSL_PREDICT_TRUE(out) && ABSL_PREDICT_FALSE(length() < lowater_)) {
-        lowater_ = length();
+      void* obj = list_;
+      if (ABSL_PREDICT_FALSE(obj == nullptr)) {
+        return false;
       }
-      return out;
+
+      void* next = SLL_Next(obj);
+      list_ = next;
+      const uint32_t len = length_.load(std::memory_order_relaxed) - 1;
+      length_.store(len, std::memory_order_relaxed);
+
+#if defined(__GNUC__)
+      if (ABSL_PREDICT_TRUE(next)) {
+        __builtin_prefetch(next, 0, 0);
+      }
+#endif
+
+      *ret = obj;
+      if (ABSL_PREDICT_FALSE(len < lowater_)) {
+        lowater_ = len;
+      }
+      return true;
+    }
+
+    void PushBatch(int N, void** batch) {
+      TC_ASSERT_GT(N, 0);
+      for (int i = 0; i < N - 1; ++i) {
+        SLL_SetNext(batch[i], batch[i + 1]);
+      }
+      SLL_SetNext(batch[N - 1], list_);
+      list_ = batch[0];
+      length_.store(length_.load(std::memory_order_relaxed) + N,
+                    std::memory_order_relaxed);
     }
 
     void PopBatch(int N, void** batch) {
-      LinkedList::PopBatch(N, batch);
-      if (length() < lowater_) lowater_ = length();
+      void* p = list_;
+      for (int i = 0; i < N; ++i) {
+        batch[i] = p;
+        p = SLL_Next(p);
+      }
+      list_ = p;
+      const uint32_t len = length_.load(std::memory_order_relaxed);
+      TC_ASSERT_GE(len, N);
+      const uint32_t new_len = len - N;
+      length_.store(new_len, std::memory_order_relaxed);
+      if (new_len < lowater_) lowater_ = new_len;
     }
   };
 
@@ -201,8 +263,8 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
 
   FreeList list_[kNumClasses];  // Array indexed by size-class
 
-  size_t size_;      // Combined size of data
-  size_t max_size_;  // size_ > max_size_ --> Scavenge()
+  std::atomic<size_t> size_;      // Combined size of data
+  std::atomic<size_t> max_size_;  // size_ > max_size_ --> Scavenge()
 
   pthread_t tid_;
   bool in_setspecific_;
@@ -230,7 +292,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* ThreadCache::Allocate(
   FreeList* list = &list_[size_class];
   void* ret;
   if (ABSL_PREDICT_TRUE(list->TryPop(&ret))) {
-    size_ -= allocated_size;
+    size_.store(size_.load(std::memory_order_relaxed) - allocated_size,
+                std::memory_order_relaxed);
     return ret;
   }
 
@@ -240,12 +303,14 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* ThreadCache::Allocate(
 inline void ABSL_ATTRIBUTE_ALWAYS_INLINE
 ThreadCache::Deallocate(void* ptr, size_t size_class) {
   FreeList* list = &list_[size_class];
-  size_ += tc_globals.sizemap().class_to_size(size_class);
-  ssize_t size_headroom = max_size_ - size_ - 1;
+  const size_t size = size_.load(std::memory_order_relaxed) +
+                      tc_globals.sizemap().class_to_size(size_class);
+  size_.store(size, std::memory_order_relaxed);
+  ssize_t size_headroom = max_size_.load(std::memory_order_relaxed) - size - 1;
 
-  list->Push(ptr);
+  const size_t list_length = list->Push(ptr);
   ssize_t list_headroom =
-      static_cast<ssize_t>(list->max_length()) - list->length();
+      static_cast<ssize_t>(list->max_length()) - list_length;
 
   // There are two relatively uncommon things that require further work.
   // In the common case we're done, and in that case we need a single branch
