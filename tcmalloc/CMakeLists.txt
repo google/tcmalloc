@@ -376,6 +376,7 @@ tcmalloc_cc_library_variants(
     "tcmalloc::internal_sampled_allocation"
     "tcmalloc::internal_sampled_allocation_recorder"
     "tcmalloc::internal_size_class_info"
+    "tcmalloc::internal_slc_exclusion"
     "tcmalloc::internal_stacktrace_filter"
     "tcmalloc::internal_sysinfo"
     "tcmalloc::internal_system_allocator"

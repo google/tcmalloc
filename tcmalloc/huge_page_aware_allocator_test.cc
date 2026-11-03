@@ -3040,6 +3040,306 @@ TEST(HugePageAwareAllocatorDeathTest, DoubleFreeReportsError) {
   delete_allocation(tail_small);
 }
 
+TEST(HugePageAwareAllocatorSlcTest,
+     SparseFillerLifecycleAndReIncludeBeforeDenseReuse) {
+  FakeHugePageAwareAllocator allocator({.tag = MemoryTag::kNormal});
+  constexpr SpanAllocInfo kSparseInfo = {
+      .objects_per_span = 4,
+      .density = AccessDensityPrediction::kSparse,
+  };
+  constexpr SpanAllocInfo kDenseInfo = {
+      .objects_per_span = 64,
+      .density = AccessDensityPrediction::kDense,
+  };
+  auto delete_span = [&](AllocationState s, SpanAllocInfo info) {
+    PageHeapSpinLockHolder l;
+    allocator.Delete(s, info);
+  };
+
+  // First sparse allocation refills the filler and excludes the 2 MiB hugepage.
+  AllocationState s1 = allocator.New(Length(1), kSparseInfo);
+  ASSERT_TRUE(s1);
+  const HugePage hp = HugePageContaining(s1.r.p);
+  EXPECT_EQ(allocator.forwarder().slc_exclude_calls(), 1u);
+  EXPECT_EQ(allocator.forwarder().slc_include_calls(), 0u);
+  EXPECT_TRUE(allocator.forwarder().IsHugePageSlcExcluded(hp));
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(allocator.SlcExcludedHugePages(), NHugePages(1));
+    EXPECT_EQ(allocator.SlcExcludeCandidateHugePages(), NHugePages(1));
+    EXPECT_EQ(allocator.SlcExcludeEligibleHugePages(), 1);
+    EXPECT_EQ(allocator.SlcExcludeAppliedHugePages(), 1);
+    EXPECT_EQ(allocator.SlcExcludeFailedHugePages(), 0);
+  }
+
+  // Second sparse allocation fits on the same hugepage without another syscall.
+  AllocationState s2 = allocator.New(Length(1), kSparseInfo);
+  ASSERT_TRUE(s2);
+  EXPECT_EQ(HugePageContaining(s2.r.p), hp);
+  EXPECT_EQ(allocator.forwarder().slc_exclude_calls(), 1u);
+
+  // Freeing only one span keeps the hugepage in the filler and SLC-excluded.
+  delete_span(s1, kSparseInfo);
+  EXPECT_EQ(allocator.forwarder().slc_include_calls(), 0u);
+  EXPECT_TRUE(allocator.forwarder().IsHugePageSlcExcluded(hp));
+
+  // Freeing the last span retires the tracker, re-including the hugepage in SLC
+  // before returning it to HugeCache.
+  delete_span(s2, kSparseInfo);
+  EXPECT_EQ(allocator.forwarder().slc_include_calls(), 1u);
+  EXPECT_FALSE(allocator.forwarder().IsHugePageSlcExcluded(hp));
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(allocator.SlcExcludedHugePages(), NHugePages(0));
+    EXPECT_EQ(allocator.SlcExcludeCandidateHugePages(), NHugePages(0));
+    EXPECT_EQ(allocator.SlcIncludeEligibleHugePages(), 1);
+    EXPECT_EQ(allocator.SlcIncludeAppliedHugePages(), 1);
+    EXPECT_EQ(allocator.SlcIncludeFailedHugePages(), 0);
+  }
+
+  // Reusing that cached hugepage for a dense span leaves it SLC-included.
+  AllocationState dense = allocator.New(Length(1), kDenseInfo);
+  ASSERT_TRUE(dense);
+  EXPECT_EQ(HugePageContaining(dense.r.p), hp);
+  EXPECT_EQ(allocator.forwarder().slc_exclude_calls(), 1u);
+  EXPECT_FALSE(allocator.forwarder().IsHugePageSlcExcluded(hp));
+  delete_span(dense, kDenseInfo);
+  EXPECT_EQ(allocator.forwarder().slc_include_calls(), 1u);
+}
+
+TEST(HugePageAwareAllocatorSlcTest,
+     RestrictsHintsStrictlyToNormalSparseFiller) {
+  constexpr SpanAllocInfo kSparseInfo = {
+      .objects_per_span = 2,
+      .density = AccessDensityPrediction::kSparse,
+  };
+  constexpr SpanAllocInfo kDenseInfo = {
+      .objects_per_span = 64,
+      .density = AccessDensityPrediction::kDense,
+  };
+
+  // 1. Dense spans, multi-hugepage donated tails, exact hugepages, aligned
+  //    raw hugepages, and HugeRegions on kNormal are never SLC-excluded.
+  {
+    FakeHugePageAwareAllocator allocator({
+        .tag = MemoryTag::kNormal,
+        .use_huge_region_more_often =
+            HugeRegionUsageOption::kUseForAllLargeAllocs,
+    });
+    auto delete_span = [&](AllocationState s, SpanAllocInfo info) {
+      PageHeapSpinLockHolder l;
+      allocator.Delete(s, info);
+    };
+
+    AllocationState dense = allocator.New(Length(1), kDenseInfo);
+    AllocationState exact_hp = allocator.New(kPagesPerHugePage, kSparseInfo);
+    AllocationState donated =
+        allocator.New(kPagesPerHugePage + Length(1), kSparseInfo);
+    AllocationState aligned =
+        allocator.NewAligned(Length(2), Length(2), kSparseInfo);
+    // Drive slack >= 64 MiB so AllocLarge allocates from a HugeRegion.
+    std::vector<AllocationState> slack_donors;
+    for (int i = 0; i < 40; ++i) {
+      slack_donors.push_back(
+          allocator.New(kPagesPerHugePage + Length(1), kSparseInfo));
+    }
+    AllocationState in_region =
+        allocator.New(kPagesPerHugePage / 2 + Length(1), kSparseInfo);
+
+    EXPECT_EQ(allocator.forwarder().slc_exclude_calls(), 0u);
+    EXPECT_EQ(allocator.forwarder().NumSlcExcludedHugePages(), 0u);
+    {
+      PageHeapSpinLockHolder l;
+      EXPECT_EQ(allocator.SlcExcludeEligibleHugePages(), 0);
+      EXPECT_EQ(allocator.SlcExcludeCandidateHugePages(), NHugePages(0));
+    }
+
+    delete_span(in_region, kSparseInfo);
+    for (AllocationState s : slack_donors) {
+      delete_span(s, kSparseInfo);
+    }
+    delete_span(aligned, kSparseInfo);
+    delete_span(donated, kSparseInfo);
+    delete_span(exact_hp, kSparseInfo);
+    delete_span(dense, kDenseInfo);
+    EXPECT_EQ(allocator.forwarder().slc_include_calls(), 0u);
+  }
+
+  // 2. Sampled/cold heap never excludes even for kSparse filler refills.
+  {
+    FakeHugePageAwareAllocator cold_allocator(
+        {.tag = MemoryTag::kSampledOrCold});
+    AllocationState cold = cold_allocator.New(Length(1), kSparseInfo);
+    ASSERT_TRUE(cold);
+    EXPECT_EQ(cold_allocator.forwarder().slc_exclude_calls(), 0u);
+    {
+      PageHeapSpinLockHolder l;
+      EXPECT_EQ(cold_allocator.SlcExcludeEligibleHugePages(), 0);
+      EXPECT_EQ(cold_allocator.SlcExcludeCandidateHugePages(), NHugePages(0));
+      cold_allocator.Delete(cold, kSparseInfo);
+    }
+    EXPECT_EQ(cold_allocator.forwarder().slc_include_calls(), 0u);
+  }
+
+  // 3. Disabling slc_exclude_sparse_filler suppresses candidate selection.
+  {
+    FakeHugePageAwareAllocator allocator({.tag = MemoryTag::kNormal});
+    allocator.forwarder().slc_exclude_sparse_filler.set(false);
+    AllocationState s = allocator.New(Length(1), kSparseInfo);
+    ASSERT_TRUE(s);
+    EXPECT_EQ(allocator.forwarder().slc_exclude_calls(), 0u);
+    {
+      PageHeapSpinLockHolder l;
+      EXPECT_EQ(allocator.SlcExcludeEligibleHugePages(), 0);
+      EXPECT_EQ(allocator.SlcExcludeCandidateHugePages(), NHugePages(0));
+      allocator.Delete(s, kSparseInfo);
+    }
+  }
+}
+
+TEST(HugePageAwareAllocatorSlcTest, UnavailableAndFailedActuationTelemetry) {
+  constexpr SpanAllocInfo kSparseInfo = {
+      .objects_per_span = 2,
+      .density = AccessDensityPrediction::kSparse,
+  };
+
+  // 1. When SlcExclusionAvailable() is false (e.g. non-ARM64 host), logical
+  //    candidates are still tracked without dropping pageheap_lock or calling
+  //    SlcExcludePages/SlcIncludePages.
+  {
+    FakeHugePageAwareAllocator allocator({.tag = MemoryTag::kNormal});
+    allocator.forwarder().set_slc_exclusion_available(false);
+    AllocationState s = allocator.New(Length(1), kSparseInfo);
+    ASSERT_TRUE(s);
+    EXPECT_EQ(allocator.forwarder().slc_exclude_calls(), 0u);
+    {
+      PageHeapSpinLockHolder l;
+      EXPECT_EQ(allocator.SlcExcludedHugePages(), NHugePages(0));
+      EXPECT_EQ(allocator.SlcExcludeCandidateHugePages(), NHugePages(1));
+      EXPECT_EQ(allocator.SlcExcludeEligibleHugePages(), 1);
+      EXPECT_EQ(allocator.SlcExcludeAppliedHugePages(), 0);
+      EXPECT_EQ(allocator.SlcExcludeFailedHugePages(), 0);
+      allocator.Delete(s, kSparseInfo);
+      EXPECT_EQ(allocator.SlcExcludeCandidateHugePages(), NHugePages(0));
+      EXPECT_EQ(allocator.SlcIncludeEligibleHugePages(), 1);
+      EXPECT_EQ(allocator.SlcIncludeAppliedHugePages(), 0);
+      EXPECT_EQ(allocator.SlcIncludeFailedHugePages(), 0);
+    }
+    EXPECT_EQ(allocator.forwarder().slc_include_calls(), 0u);
+  }
+
+  // 2. When SlcExcludePages fails with -EOPNOTSUPP, failure is recorded,
+  //    availability flips stickily to false so subsequent refills make zero
+  //    syscalls, and ReleaseHugepage skips SlcIncludePages.
+  {
+    FakeHugePageAwareAllocator allocator({.tag = MemoryTag::kNormal});
+    allocator.forwarder().set_slc_exclude_retval(-EOPNOTSUPP);
+    AllocationState s1 = allocator.New(kPagesPerHugePage / 2, kSparseInfo);
+    AllocationState s2 = allocator.New(kPagesPerHugePage / 2, kSparseInfo);
+    // Force a second sparse hugepage refill.
+    AllocationState s3 = allocator.New(kPagesPerHugePage / 2, kSparseInfo);
+    EXPECT_EQ(allocator.forwarder().slc_exclude_calls(), 1u);
+    EXPECT_FALSE(allocator.forwarder().SlcExclusionAvailable());
+    {
+      PageHeapSpinLockHolder l;
+      EXPECT_EQ(allocator.SlcExcludedHugePages(), NHugePages(0));
+      EXPECT_EQ(allocator.SlcExcludeCandidateHugePages(), NHugePages(2));
+      EXPECT_EQ(allocator.SlcExcludeEligibleHugePages(), 2);
+      EXPECT_EQ(allocator.SlcExcludeAppliedHugePages(), 0);
+      EXPECT_EQ(allocator.SlcExcludeFailedHugePages(), 1);
+      allocator.Delete(s3, kSparseInfo);
+      allocator.Delete(s2, kSparseInfo);
+      allocator.Delete(s1, kSparseInfo);
+      EXPECT_EQ(allocator.SlcIncludeEligibleHugePages(), 2);
+      EXPECT_EQ(allocator.SlcIncludeAppliedHugePages(), 0);
+    }
+    EXPECT_EQ(allocator.forwarder().slc_include_calls(), 0u);
+  }
+
+  // 3. When SlcIncludePages fails during ReleaseHugepage, include_failed ticks
+  //    up and live candidate/excluded hugepage gauges still unwind cleanly.
+  {
+    FakeHugePageAwareAllocator allocator({.tag = MemoryTag::kNormal});
+    allocator.forwarder().set_slc_include_retval(-EIO);
+    AllocationState s = allocator.New(Length(1), kSparseInfo);
+    ASSERT_TRUE(s);
+    {
+      PageHeapSpinLockHolder l;
+      EXPECT_EQ(allocator.SlcExcludedHugePages(), NHugePages(1));
+      allocator.Delete(s, kSparseInfo);
+      EXPECT_EQ(allocator.SlcExcludedHugePages(), NHugePages(0));
+      EXPECT_EQ(allocator.SlcExcludeCandidateHugePages(), NHugePages(0));
+      EXPECT_EQ(allocator.SlcIncludeEligibleHugePages(), 1);
+      EXPECT_EQ(allocator.SlcIncludeAppliedHugePages(), 0);
+      EXPECT_EQ(allocator.SlcIncludeFailedHugePages(), 1);
+    }
+    EXPECT_EQ(allocator.forwarder().slc_include_calls(), 1u);
+  }
+}
+
+TEST(HugePageAwareAllocatorSlcTest,
+     ConcurrentSparseAndDenseInterleavingsWhileLockDropped) {
+  constexpr SpanAllocInfo kSparseInfo = {
+      .objects_per_span = 2,
+      .density = AccessDensityPrediction::kSparse,
+  };
+  constexpr SpanAllocInfo kDenseInfo = {
+      .objects_per_span = 64,
+      .density = AccessDensityPrediction::kDense,
+  };
+
+  FakeHugePageAwareAllocator allocator({.tag = MemoryTag::kNormal});
+  constexpr int kNumThreads = 4;
+  constexpr int kIterations = 250;
+  absl::Barrier start_barrier(kNumThreads);
+
+  std::vector<std::thread> threads;
+  threads.reserve(kNumThreads);
+  for (int tid = 0; tid < kNumThreads; ++tid) {
+    threads.emplace_back([&, tid]() {
+      start_barrier.Block();
+      std::vector<std::pair<AllocationState, SpanAllocInfo>> held;
+      held.reserve(8);
+      for (int iter = 0; iter < kIterations; ++iter) {
+        const Length len =
+            (iter % 7 == 0) ? (kPagesPerHugePage + Length(1)) : Length(1);
+        const bool use_sparse = (len > Length(1)) || ((tid + iter) % 2 == 0);
+        const SpanAllocInfo info = use_sparse ? kSparseInfo : kDenseInfo;
+        AllocationState s = allocator.New(len, info);
+        ASSERT_TRUE(s);
+        held.emplace_back(s, info);
+        if (held.size() >= 6) {
+          for (const auto& [span, span_info] : held) {
+            PageHeapSpinLockHolder l;
+            allocator.Delete(span, span_info);
+          }
+          held.clear();
+        }
+      }
+      for (const auto& [span, span_info] : held) {
+        PageHeapSpinLockHolder l;
+        allocator.Delete(span, span_info);
+      }
+    });
+  }
+  for (std::thread& t : threads) {
+    t.join();
+  }
+
+  EXPECT_GT(allocator.forwarder().slc_exclude_calls(), 0u);
+  EXPECT_EQ(allocator.forwarder().slc_include_calls(),
+            allocator.forwarder().slc_exclude_calls());
+  EXPECT_EQ(allocator.forwarder().NumSlcExcludedHugePages(), 0u);
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(allocator.FillerStats().system_bytes, 0u);
+    EXPECT_EQ(allocator.SlcExcludedHugePages(), NHugePages(0));
+    EXPECT_EQ(allocator.SlcExcludeCandidateHugePages(), NHugePages(0));
+    EXPECT_EQ(allocator.SlcExcludeAppliedHugePages(),
+              allocator.SlcIncludeAppliedHugePages());
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

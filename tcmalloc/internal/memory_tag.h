@@ -54,6 +54,10 @@ inline constexpr uintptr_t kNormalTagMask =
                                 kTagShift);
 }
 
+[[nodiscard]] inline bool IsNormalMemory(MemoryTag tag) {
+  return tag == MemoryTag::kNormalP0 || tag == MemoryTag::kNormalP1;
+}
+
 [[nodiscard]] inline bool IsNormalMemory(const void* ptr) {
   // This is slightly faster than checking kNormalP0/P1 separately.
   static_assert((static_cast<uint8_t>(MemoryTag::kNormalP0) &

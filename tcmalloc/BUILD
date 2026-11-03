@@ -352,6 +352,7 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:sampled_allocation",
         "//tcmalloc/internal:sampled_allocation_recorder",
         "//tcmalloc/internal:size_class_info",
+        "//tcmalloc/internal:slc_exclusion",
         "//tcmalloc/internal:stacktrace_filter",
         "//tcmalloc/internal:sysinfo",
         "//tcmalloc/internal:system_allocator",

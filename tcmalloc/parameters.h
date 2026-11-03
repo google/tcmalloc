@@ -297,6 +297,13 @@ class Parameters {
 
   [[nodiscard]] static bool fix_max_capacity_bug();
 
+  [[nodiscard]] static bool slc_exclude_sparse_filler() {
+    return slc_exclude_sparse_filler_.load(std::memory_order_relaxed);
+  }
+  static void set_slc_exclude_sparse_filler(bool value) {
+    slc_exclude_sparse_filler_.store(value, std::memory_order_relaxed);
+  }
+
   [[nodiscard]] static HeapPartitioningMode heap_partitioning_mode();
 
   // TODO: b/527473378 - Remove this function once the experiment is cleaned up.
@@ -350,11 +357,13 @@ class Parameters {
       tcmalloc::tcmalloc_internal::MadviseSampledAllocations v);
   friend void ::TCMalloc_Internal_SetEventTraceMemoryLimit(size_t v);
   friend void ::TCMalloc_Internal_SetReleaseDrainedSlabMetadata(bool v);
+  friend void ::TCMalloc_Internal_SetSlcExcludeSparseFiller(bool v);
 
   static void InitializeFromExperiments();
 
   static std::atomic<bool> background_process_actions_enabled_;
   static std::atomic<int64_t> background_process_sleep_interval_ns_;
+  static std::atomic<bool> slc_exclude_sparse_filler_;
 
   static std::atomic<int64_t> guarded_sampling_interval_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;

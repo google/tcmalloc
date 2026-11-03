@@ -1445,6 +1445,35 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_internal_slc_exclusion
+  ALIAS
+    tcmalloc::internal_slc_exclusion
+  HDRS
+    "slc_exclusion.h"
+  SRCS
+    "slc_exclusion.cc"
+  DEPS
+    "absl::base"
+    "absl::core_headers"
+    "absl::string_view"
+    "tcmalloc::internal_config"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_slc_exclusion_test
+  SRCS
+    "slc_exclusion_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "tcmalloc::internal_slc_exclusion"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_internal_strerror
   ALIAS
     tcmalloc::internal_strerror

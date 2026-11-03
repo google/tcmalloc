@@ -42,6 +42,7 @@
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/packed_ptr.h"
 #include "tcmalloc/internal/prefetch.h"
+#include "tcmalloc/internal/slc_exclusion.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/pagemap.h"
@@ -91,6 +92,7 @@ class StaticForwarder : private Parameters {
   using Parameters::release_max_filler_pages;
   using Parameters::release_partial_alloc_pages;
   using Parameters::release_stale_pages;
+  using Parameters::slc_exclude_sparse_filler;
   using Parameters::subrelease_unbacked_hugepages;
   using Parameters::track_broken_hugepages;
 
@@ -358,6 +360,17 @@ class StaticForwarder : private Parameters {
   }
   static void SetAnonVmaName(Range r, std::optional<absl::string_view> name) {
     state.system_allocator().SetAnonVmaName(r.start_addr(), r.in_bytes(), name);
+  }
+  [[nodiscard]] static bool SlcExclusionAvailable() {
+    return tcmalloc_internal::SlcExclusionAvailable();
+  }
+  [[nodiscard]] static int32_t SlcExcludePages(Range r)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    return tcmalloc_internal::SlcExcludeRange(r.start_addr(), r.in_bytes());
+  }
+  [[nodiscard]] static int32_t SlcIncludePages(Range r)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    return tcmalloc_internal::SlcIncludeRange(r.start_addr(), r.in_bytes());
   }
 
  private:

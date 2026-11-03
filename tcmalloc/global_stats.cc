@@ -40,6 +40,7 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/internal/slc_exclusion.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/malloc_hook_invoke.h"
 #include "tcmalloc/metadata_object_allocator.h"
@@ -601,6 +602,71 @@ void DumpStats(Printer& out, int level) {
                    : "",
                tc_globals.active_partitions());
 
+    {
+      const SlcExclusionStats slc = GetSlcExclusionStats();
+      out.printf("------------------------------------------------\n");
+      out.printf("ARM64 SLC Exclusion (Sparse Filler)\n");
+      out.printf("------------------------------------------------\n");
+      out.printf(
+          "SLC exclusion: parameter=%d, available=%d, backend_state=%s, "
+          "prog_fd=%v, open_errno=%v\n",
+          Parameters::slc_exclude_sparse_filler() ? 1 : 0,
+          SlcExclusionAvailable() ? 1 : 0,
+          SlcExclusionBackendStateToString(slc.backend_state), slc.prog_fd,
+          slc.open_errno);
+      out.printf(
+          "SLC exclusion syscalls: exclude=%v (succeeded=%v, errors=%v, "
+          "last_retval=%v), include=%v (succeeded=%v, errors=%v, "
+          "last_retval=%v)\n",
+          slc.exclude_syscalls, slc.exclude_succeeded, slc.exclude_errors,
+          slc.last_exclude_retval, slc.include_syscalls, slc.include_succeeded,
+          slc.include_errors, slc.last_include_retval);
+      size_t dense_classes = 0;
+      size_t sparse_classes = 0;
+      for (size_t size_class = 1; size_class < kNumBaseClasses; ++size_class) {
+        if (tc_globals.sizemap().class_to_size(size_class) == 0) continue;
+        if (tc_globals.central_freelist(size_class).objects_per_span() >
+            central_freelist_internal::kFewObjectsAllocMaxLimit) {
+          ++dense_classes;
+        } else {
+          ++sparse_classes;
+        }
+      }
+      out.printf("SLC exclusion normal base size classes: dense=%zu:",
+                 dense_classes);
+      for (size_t size_class = 1; size_class < kNumBaseClasses; ++size_class) {
+        const size_t size = tc_globals.sizemap().class_to_size(size_class);
+        if (size == 0) continue;
+        const size_t objects_per_span =
+            tc_globals.central_freelist(size_class).objects_per_span();
+        if (objects_per_span >
+            central_freelist_internal::kFewObjectsAllocMaxLimit) {
+          out.printf(
+              " %zu(%zuB,%zupg,%zuobj)", size_class, size,
+              Length(tc_globals.sizemap().class_to_pages(size_class)).raw_num(),
+              objects_per_span);
+        }
+      }
+      out.printf("\n");
+      out.printf(
+          "SLC exclusion normal base size classes: sparse/SLC-target=%zu:",
+          sparse_classes);
+      for (size_t size_class = 1; size_class < kNumBaseClasses; ++size_class) {
+        const size_t size = tc_globals.sizemap().class_to_size(size_class);
+        if (size == 0) continue;
+        const size_t objects_per_span =
+            tc_globals.central_freelist(size_class).objects_per_span();
+        if (objects_per_span <=
+            central_freelist_internal::kFewObjectsAllocMaxLimit) {
+          out.printf(
+              " %zu(%zuB,%zupg,%zuobj)", size_class, size,
+              Length(tc_globals.sizemap().class_to_pages(size_class)).raw_num(),
+              objects_per_span);
+        }
+      }
+      out.printf("\n");
+    }
+
     out.printf("------------------------------------------------\n");
     out.printf("Parameters\n");
     out.printf("------------------------------------------------\n");
@@ -719,6 +785,8 @@ void DumpStats(Printer& out, int level) {
             : 0);
     out.printf("PARAMETER tcmalloc_fix_max_capacity_bug %d\n",
                Parameters::fix_max_capacity_bug());
+    out.printf("PARAMETER tcmalloc_slc_exclude_sparse_filler %d\n",
+               Parameters::slc_exclude_sparse_filler() ? 1 : 0);
   }
 }
 
@@ -996,6 +1064,24 @@ void DumpStatsInPbtxt(Printer& out, int level) {
 
   region.PrintBool("tcmalloc_fix_max_capacity_bug",
                    Parameters::fix_max_capacity_bug());
+  region.PrintBool("tcmalloc_slc_exclude_sparse_filler",
+                   Parameters::slc_exclude_sparse_filler());
+  {
+    const SlcExclusionStats slc = GetSlcExclusionStats();
+    PbtxtRegion slc_region = region.CreateSubRegion("slc_exclusion");
+    slc_region.PrintRaw("backend_state",
+                        SlcExclusionBackendStateToString(slc.backend_state));
+    slc_region.PrintI64("prog_fd", slc.prog_fd);
+    slc_region.PrintI64("open_errno", slc.open_errno);
+    slc_region.PrintI64("exclude_syscalls", slc.exclude_syscalls);
+    slc_region.PrintI64("exclude_succeeded", slc.exclude_succeeded);
+    slc_region.PrintI64("exclude_errors", slc.exclude_errors);
+    slc_region.PrintI64("last_exclude_retval", slc.last_exclude_retval);
+    slc_region.PrintI64("include_syscalls", slc.include_syscalls);
+    slc_region.PrintI64("include_succeeded", slc.include_succeeded);
+    slc_region.PrintI64("include_errors", slc.include_errors);
+    slc_region.PrintI64("last_include_retval", slc.last_include_retval);
+  }
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,

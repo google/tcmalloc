@@ -185,6 +185,46 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     return reused_broken_huge_pages_;
   }
 
+  [[nodiscard]] HugeLength SlcExcludedHugePages() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return slc_excluded_huge_pages_;
+  }
+
+  [[nodiscard]] HugeLength SlcExcludeCandidateHugePages() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return slc_exclude_candidate_huge_pages_;
+  }
+
+  [[nodiscard]] int64_t SlcExcludeEligibleHugePages() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return slc_exclude_eligible_huge_pages_;
+  }
+
+  [[nodiscard]] int64_t SlcExcludeAppliedHugePages() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return slc_exclude_applied_huge_pages_;
+  }
+
+  [[nodiscard]] int64_t SlcExcludeFailedHugePages() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return slc_exclude_failed_huge_pages_;
+  }
+
+  [[nodiscard]] int64_t SlcIncludeEligibleHugePages() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return slc_include_eligible_huge_pages_;
+  }
+
+  [[nodiscard]] int64_t SlcIncludeAppliedHugePages() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return slc_include_applied_huge_pages_;
+  }
+
+  [[nodiscard]] int64_t SlcIncludeFailedHugePages() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return slc_include_failed_huge_pages_;
+  }
+
   [[nodiscard]] const HugeCache* cache() const { return &cache_; }
 
   [[nodiscard]] const HugeRegionSet<HugeRegion>& region() const
@@ -369,6 +409,14 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // reused_broken_huge_pages_ tracks the number of live hugepage trackers in
   // the filler that were allocated from previously broken hugepages.
   HugeLength reused_broken_huge_pages_ ABSL_GUARDED_BY(pageheap_lock);
+  HugeLength slc_excluded_huge_pages_ ABSL_GUARDED_BY(pageheap_lock);
+  HugeLength slc_exclude_candidate_huge_pages_ ABSL_GUARDED_BY(pageheap_lock);
+  int64_t slc_exclude_eligible_huge_pages_ ABSL_GUARDED_BY(pageheap_lock) = 0;
+  int64_t slc_exclude_applied_huge_pages_ ABSL_GUARDED_BY(pageheap_lock) = 0;
+  int64_t slc_exclude_failed_huge_pages_ ABSL_GUARDED_BY(pageheap_lock) = 0;
+  int64_t slc_include_eligible_huge_pages_ ABSL_GUARDED_BY(pageheap_lock) = 0;
+  int64_t slc_include_applied_huge_pages_ ABSL_GUARDED_BY(pageheap_lock) = 0;
+  int64_t slc_include_failed_huge_pages_ ABSL_GUARDED_BY(pageheap_lock) = 0;
 
   void GetSpanStats(SmallSpanStats* small, LargeSpanStats* large) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -377,11 +425,16 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
                                     bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
+  struct SlcTrackerState {
+    bool candidate = false;
+    bool excluded = false;
+  };
+
   // Allocate the first <n> from p, and contribute the rest to the filler.  If
   // "donated" is true, the contribution will be marked as coming from the
   // tail of a multi-hugepage alloc.  Returns the allocated section.
   PageId AllocAndContribute(HugePage p, Length n, SpanAllocInfo span_alloc_info,
-                            bool donated)
+                            bool donated, SlcTrackerState slc_state)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Helpers for New().
 
@@ -479,7 +532,8 @@ inline void HugePageAwareAllocator<Forwarder>::ClearTracker(
 
 template <class Forwarder>
 inline PageId HugePageAwareAllocator<Forwarder>::AllocAndContribute(
-    HugePage p, Length n, SpanAllocInfo span_alloc_info, bool donated) {
+    HugePage p, Length n, SpanAllocInfo span_alloc_info, bool donated,
+    SlcTrackerState slc_state) {
   TC_CHECK_NE(p.start_addr(), nullptr);
   const bool was_broken = IsHugepageBroken(p);
   FillerType::Tracker* pt =
@@ -489,6 +543,16 @@ inline PageId HugePageAwareAllocator<Forwarder>::AllocAndContribute(
     if (forwarder_.track_broken_hugepages() == TrackBrokenHugepages::kEnabled) {
       pt->set_unbroken(/*status=*/false);
     }
+  }
+  if (slc_state.candidate) {
+    TC_ASSERT(!donated);
+    pt->set_slc_exclude_candidate(true);
+    ++slc_exclude_candidate_huge_pages_;
+  }
+  if (slc_state.excluded) {
+    TC_ASSERT(slc_state.candidate);
+    pt->set_slc_excluded(true);
+    ++slc_excluded_huge_pages_;
   }
   // TODO(b/572530574): When allocating from an unbacked range (*from_released),
   // mark the unallocated tail pages [n, kPagesPerHugePage) unbacked in pt.
@@ -525,7 +589,28 @@ inline PageId HugePageAwareAllocator<Forwarder>::RefillFiller(
   // isn't very large), and the next allocation will just repeat this
   // process.
   forwarder_.ShrinkToUsageLimit(n, *from_released);
-  return AllocAndContribute(r.start(), n, span_alloc_info, /*donated=*/false);
+
+  SlcTrackerState slc_state;
+  if (IsNormalMemory(tag_) &&
+      span_alloc_info.density == AccessDensityPrediction::kSparse &&
+      forwarder_.slc_exclude_sparse_filler()) {
+    slc_state.candidate = true;
+    ++slc_exclude_eligible_huge_pages_;
+    if (forwarder_.SlcExclusionAvailable()) {
+      pageheap_lock.unlock();
+      const int32_t retval = forwarder_.SlcExcludePages(
+          Range(r.start().first_page(), kPagesPerHugePage));
+      pageheap_lock.lock();
+      if (retval == 0) {
+        slc_state.excluded = true;
+        ++slc_exclude_applied_huge_pages_;
+      } else {
+        ++slc_exclude_failed_huge_pages_;
+      }
+    }
+  }
+  return AllocAndContribute(r.start(), n, span_alloc_info, /*donated=*/false,
+                            slc_state);
 }
 
 template <class Forwarder>
@@ -671,7 +756,8 @@ HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
 
   Length here = kPagesPerHugePage - slack;
   TC_ASSERT_GT(here, Length(0));
-  AllocAndContribute(last, here, span_alloc_info, /*donated=*/true);
+  AllocAndContribute(last, here, span_alloc_info, /*donated=*/true,
+                     SlcTrackerState{});
   auto span = Finalize(Range(r.start().first_page(), n), *from_released);
   span.donated = true;
   return span;
@@ -898,20 +984,45 @@ inline void HugePageAwareAllocator<Forwarder>::ReleaseHugepage(
     --reused_broken_huge_pages_;
   }
 
+  const bool was_released = pt->released();
+  const bool was_slc_candidate = pt->slc_exclude_candidate();
+  const bool was_slc_excluded = pt->slc_excluded();
+  if (was_slc_candidate) {
+    TC_ASSERT_GT(slc_exclude_candidate_huge_pages_, NHugePages(0));
+    --slc_exclude_candidate_huge_pages_;
+    ++slc_include_eligible_huge_pages_;
+  }
+  if (was_slc_excluded) {
+    TC_ASSERT(was_slc_candidate);
+    TC_ASSERT_GT(slc_excluded_huge_pages_, NHugePages(0));
+    --slc_excluded_huge_pages_;
+  }
+
   HugeRange r = {pt->location(), NHugePages(1)};
   ClearTracker(pt->location(), pt->unbroken() ? HugePageSplitState::kUnbroken
                                               : HugePageSplitState::kBroken);
+  tracker_allocator_.Delete(pt);
+
+  if (was_slc_excluded) {
+    pageheap_lock.unlock();
+    const int32_t retval = forwarder_.SlcIncludePages(
+        Range(r.start().first_page(), kPagesPerHugePage));
+    pageheap_lock.lock();
+    if (retval == 0) {
+      ++slc_include_applied_huge_pages_;
+    } else {
+      ++slc_include_failed_huge_pages_;
+    }
+  }
 
   // TODO(b/572530574): Avoid coalescing or preferring broken hugepages ahead of
   // intact THPs in HugeCache, and evict broken cached pages first in
   // ShrinkCache.
-  if (pt->released()) {
+  if (was_released) {
     cache_.ReleaseUnbacked(r);
   } else {
     cache_.Release(r);
   }
-
-  tracker_allocator_.Delete(pt);
 }
 
 // public
@@ -1106,6 +1217,16 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer& out,
       donated_huge_pages_, abandoned_pages_);
   out.printf("HugePageAware: filler reused broken hugepages %v\n",
              reused_broken_huge_pages_);
+  out.printf(
+      "HugePageAware: filler SLC exclusion: %v live excluded (%6.1f MiB), "
+      "%v live candidates (%6.1f MiB); exclude eligible=%v applied=%v "
+      "failed=%v; include eligible=%v applied=%v failed=%v\n",
+      slc_excluded_huge_pages_, BytesToMiB(slc_excluded_huge_pages_.in_bytes()),
+      slc_exclude_candidate_huge_pages_,
+      BytesToMiB(slc_exclude_candidate_huge_pages_.in_bytes()),
+      slc_exclude_eligible_huge_pages_, slc_exclude_applied_huge_pages_,
+      slc_exclude_failed_huge_pages_, slc_include_eligible_huge_pages_,
+      slc_include_applied_huge_pages_, slc_include_failed_huge_pages_);
 
   // Component debug output
   // Filler is by far the most important; print (some) of it
@@ -1175,6 +1296,22 @@ inline void HugePageAwareAllocator<Forwarder>::PrintInPbtxt(
     hpaa.PrintI64("filler_abandoned_pages", abandoned_pages_.raw_num());
     hpaa.PrintI64("filler_reused_broken_huge_pages",
                   reused_broken_huge_pages_.raw_num());
+    hpaa.PrintI64("filler_slc_excluded_huge_pages",
+                  slc_excluded_huge_pages_.raw_num());
+    hpaa.PrintI64("filler_slc_exclude_candidate_huge_pages",
+                  slc_exclude_candidate_huge_pages_.raw_num());
+    hpaa.PrintI64("filler_slc_exclude_eligible_huge_pages",
+                  slc_exclude_eligible_huge_pages_);
+    hpaa.PrintI64("filler_slc_exclude_applied_huge_pages",
+                  slc_exclude_applied_huge_pages_);
+    hpaa.PrintI64("filler_slc_exclude_failed_huge_pages",
+                  slc_exclude_failed_huge_pages_);
+    hpaa.PrintI64("filler_slc_include_eligible_huge_pages",
+                  slc_include_eligible_huge_pages_);
+    hpaa.PrintI64("filler_slc_include_applied_huge_pages",
+                  slc_include_applied_huge_pages_);
+    hpaa.PrintI64("filler_slc_include_failed_huge_pages",
+                  slc_include_failed_huge_pages_);
   }
 }
 

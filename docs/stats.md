@@ -971,6 +971,7 @@ PARAMETER tcmalloc_enable_unfiltered_collapse 0
 PARAMETER tcmalloc_release_stale_pages 0
 PARAMETER tcmalloc_release_drained_slab_metadata 0
 PARAMETER tcmalloc_cfl_subbucket_prioritization 0
+PARAMETER tcmalloc_slc_exclude_sparse_filler 1
 ```
 
 *   **Configured limits and related statistics:** Shows the configured soft and
