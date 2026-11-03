@@ -126,13 +126,13 @@ TEST(Arena, ReportUnmapped) {
   EXPECT_EQ(stats_after_alloc.bytes_allocated, 10);
   EXPECT_EQ(stats_after_alloc.bytes_nonresident, 0);
 
-  arena.UpdateAllocatedAndNonresident(-5, 5);
+  arena.UpdateAllocatedAndNonresident(-5, 5, ArenaAlloc::kTest);
   stats_after_alloc = arena.stats();
 
   EXPECT_EQ(stats_after_alloc.bytes_allocated, 5);
   EXPECT_EQ(stats_after_alloc.bytes_nonresident, 5);
 
-  arena.UpdateAllocatedAndNonresident(3, -3);
+  arena.UpdateAllocatedAndNonresident(3, -3, ArenaAlloc::kTest);
   stats_after_alloc = arena.stats();
 
   EXPECT_EQ(stats_after_alloc.bytes_allocated, 8);
@@ -145,12 +145,12 @@ TEST(Arena, BytesImpending) {
   ArenaStats stats = arena.stats();
   EXPECT_EQ(stats.bytes_allocated, 0);
 
-  arena.UpdateAllocatedAndNonresident(100, 0);
+  arena.UpdateAllocatedAndNonresident(100, 0, ArenaAlloc::kTest);
   stats = arena.stats();
 
   EXPECT_EQ(stats.bytes_allocated, 100);
 
-  arena.UpdateAllocatedAndNonresident(-100, 0);
+  arena.UpdateAllocatedAndNonresident(-100, 0, ArenaAlloc::kTest);
   void* ptr = arena.Alloc(ArenaAlloc::kTest, 100, Align(1));
   stats = arena.stats();
 
