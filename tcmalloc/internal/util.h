@@ -131,11 +131,19 @@ class ScopedSigmask {
 inline ScopedSigmask::ScopedSigmask() noexcept {
   sigset_t set;
   sigfillset(&set);
-  Setmask(SIG_SETMASK, &set, &old_set_);
+  Setmask(SIG_BLOCK, &set, &old_set_);
 }
 
 inline ScopedSigmask::~ScopedSigmask() noexcept {
-  Setmask(SIG_SETMASK, &old_set_, nullptr);
+  // pthread_sigmask filters libc-internal signals (such as glibc's SIGTIMER)
+  // out of the new mask, so SIG_SETMASK would unblock them on threads that
+  // blocked them with a raw syscall.  Unblock only what was unblocked on entry.
+  sigset_t unblock;
+  sigemptyset(&unblock);
+  for (int sig = 1; sig < NSIG; ++sig) {
+    if (sigismember(&old_set_, sig) == 0) sigaddset(&unblock, sig);
+  }
+  Setmask(SIG_UNBLOCK, &unblock, nullptr);
 }
 
 inline void ScopedSigmask::Setmask(int how, sigset_t* set, sigset_t* old) {

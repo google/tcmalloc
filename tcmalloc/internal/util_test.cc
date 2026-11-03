@@ -24,11 +24,15 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#if defined(__linux__)
+#include <sys/syscall.h>
+#endif
 #include <sys/time.h>
 #include <unistd.h>
 
 #include <atomic>
 #include <string>
+#include <thread>  // NOLINT(build/c++11)
 
 #include "gtest/gtest.h"
 #include "absl/flags/flag.h"
@@ -379,6 +383,35 @@ TEST(UtilTest, SafeCopyMemoryMultipleChunks) {
   // Empty chunks
   EXPECT_FALSE(SafeCopyMemory(absl::Span<const absl::string_view>{}, dst));
 }
+
+#if defined(__GLIBC__) && defined(SYS_rt_sigprocmask)
+uint64_t KernelSigmask() {
+  uint64_t mask = 0;  // MSan does not see the syscall's write.
+  syscall(SYS_rt_sigprocmask, SIG_BLOCK, nullptr, &mask, sizeof(mask));
+  return mask;
+}
+
+// Returns `sig`'s bit in the kernel's signal mask.
+uint64_t SigmaskBit(int sig) { return uint64_t{1} << (sig - 1); }
+
+// glibc's SIGEV_THREAD timer helper thread blocks SIGTIMER with a raw syscall;
+// pthread_sigmask(SIG_SETMASK) cannot restore it.
+TEST(ScopedSigmaskTest, PreservesSigtimer) {
+  std::thread([] {
+    // glibc uses the first real-time signal as SIGTIMER (and SIGCANCEL).
+    const uint64_t sigtimer = SigmaskBit(__SIGRTMIN);
+    ASSERT_EQ(syscall(SYS_rt_sigprocmask, SIG_BLOCK, &sigtimer, nullptr,
+                      sizeof(sigtimer)),
+              0);
+    const uint64_t before = KernelSigmask();
+    {
+      ScopedSigmask mask;
+      EXPECT_NE(KernelSigmask() & SigmaskBit(SIGUSR1), 0u);
+    }
+    EXPECT_EQ(KernelSigmask(), before);
+  }).join();
+}
+#endif  // __GLIBC__ && SYS_rt_sigprocmask
 
 }  // namespace
 }  // namespace tcmalloc_internal
