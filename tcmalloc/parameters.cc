@@ -619,8 +619,8 @@ void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t value) {
   using tcmalloc::tcmalloc_internal::PageAllocator;
   const size_t old_limit =
       tc_globals.page_allocator().limit(PageAllocator::kHard);
-  tc_globals.page_allocator().set_limit(value, PageAllocator::kHard);
   if (value != old_limit) {
+    tc_globals.page_allocator().set_limit(value, PageAllocator::kHard);
     TC_LOG("[tcmalloc] set page heap hard limit to %v bytes", value);
   }
 }

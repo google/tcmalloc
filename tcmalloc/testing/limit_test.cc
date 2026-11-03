@@ -401,5 +401,28 @@ TEST_F(LimitTest, ExceedingSoftLimitDoesntCrashWithHardLimit) {
               testing::ExitedWithCode(0), "");
 }
 
+TEST_F(LimitTest, SetHardMemoryLimitDoesNotTripleCountSoftLimitHits) {
+  constexpr size_t kLargeAlloc = 32 << 20;
+  void* ptr = ::operator new(kLargeAlloc);
+  const size_t used = physical_memory_used();
+  ASSERT_GT(used, 1 << 20);
+
+  // Set soft limit below current physical usage.
+  MallocExtension::SetMemoryLimit(used / 2, MallocExtension::LimitKind::kSoft);
+  const size_t hits_before =
+      *MallocExtension::GetNumericProperty("tcmalloc.soft_limit_hits");
+
+  // Setting a hard limit above current usage triggers ShrinkToUsageLimit once.
+  MallocExtension::SetMemoryLimit(used + (100 << 20),
+                                  MallocExtension::LimitKind::kHard);
+  const size_t hits_after =
+      *MallocExtension::GetNumericProperty("tcmalloc.soft_limit_hits");
+  EXPECT_EQ(hits_after - hits_before, 1);
+
+  MallocExtension::SetMemoryLimit(0, MallocExtension::LimitKind::kSoft);
+  MallocExtension::SetMemoryLimit(0, MallocExtension::LimitKind::kHard);
+  ::operator delete(ptr);
+}
+
 }  // namespace
 }  // namespace tcmalloc
