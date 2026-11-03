@@ -26,6 +26,8 @@
 #include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/time/time.h"
+#include "tcmalloc/access_density_predictor.h"
 #include "tcmalloc/allocation_sample.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/central_freelist.h"
@@ -175,6 +177,12 @@ class Static final {
     return per_size_class_counts_;
   }
 
+  [[nodiscard]] AccessDensityPredictor& access_density_predictor() {
+    return access_density_predictor_;
+  }
+
+  void UpdateAccessDensityPredictions(absl::Time now);
+
   AllocationSampleList allocation_samples;
 
   deallocationz::DeallocationProfilerList deallocation_samples;
@@ -258,6 +266,7 @@ class Static final {
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;
   GwpAsanState gwp_asan_state_;
   PerSizeClassCounts per_size_class_counts_;
+  AccessDensityPredictor access_density_predictor_;
   PageAllocatorStorage page_allocator_;
   ProdPageMap pagemap_;
   SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>,

@@ -202,6 +202,7 @@ tcmalloc_cc_library_variants(
     tcmalloc::common
   ALWAYSLINK
   HDRS
+    "access_density_predictor.h"
     "allocation_sample.h"
     "allocation_sampling.h"
     "arena.h"
@@ -249,6 +250,7 @@ tcmalloc_cc_library_variants(
     "transfer_cache_internals.h"
     "transfer_cache_stats.h"
   SRCS
+    "access_density_predictor.h"
     "allocation_sample.cc"
     "allocation_sampling.cc"
     "arena.cc"
@@ -376,6 +378,7 @@ tcmalloc_cc_library_variants(
     "tcmalloc::internal_sampled_allocation"
     "tcmalloc::internal_sampled_allocation_recorder"
     "tcmalloc::internal_size_class_info"
+    "tcmalloc::internal_slc_exclusion"
     "tcmalloc::internal_stacktrace_filter"
     "tcmalloc::internal_sysinfo"
     "tcmalloc::internal_system_allocator"
@@ -1205,6 +1208,29 @@ tcmalloc_cc_test(
     "tcmalloc::mock_central_freelist"
     "tcmalloc::mock_transfer_cache"
     "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_test_variants(
+  NAME
+    tcmalloc_access_density_predictor_test
+  SRCS
+    "access_density_predictor_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::cleanup"
+    "absl::core_headers"
+    "absl::span"
+    "absl::str_format"
+    "absl::time"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+    "tcmalloc::internal_slc_exclusion"
+    "tcmalloc::malloc_extension"
+    "tcmalloc::testing_testutil"
+  TIMEOUT
+    300
 )
 
 tcmalloc_cc_test_variants(

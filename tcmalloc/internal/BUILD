@@ -1413,6 +1413,32 @@ cc_test(
 )
 
 cc_library(
+    name = "slc_exclusion",
+    srcs = ["slc_exclusion.cc"],
+    hdrs = ["slc_exclusion.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+cc_test(
+    name = "slc_exclusion_test",
+    srcs = ["slc_exclusion_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":slc_exclusion",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "strerror",
     srcs = ["strerror.cc"],
     hdrs = ["strerror.h"],

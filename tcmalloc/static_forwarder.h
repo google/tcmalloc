@@ -27,8 +27,8 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "tcmalloc/access_density_predictor.h"
 #include "tcmalloc/arena.h"
-#include "tcmalloc/central_freelist_options.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/error_reporting.h"
 #include "tcmalloc/experiment.h"
@@ -42,6 +42,7 @@
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/packed_ptr.h"
 #include "tcmalloc/internal/prefetch.h"
+#include "tcmalloc/internal/slc_exclusion.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/pagemap.h"
@@ -69,6 +70,7 @@ extern Static tc_globals;
 template <typename State, State& state>
 class StaticForwarder : private Parameters {
  public:
+  using Parameters::access_density_predictor;
   using Parameters::back_size_threshold_bytes;
   using Parameters::back_small_allocations;
   using Parameters::background_release_rate;
@@ -91,6 +93,7 @@ class StaticForwarder : private Parameters {
   using Parameters::release_max_filler_pages;
   using Parameters::release_partial_alloc_pages;
   using Parameters::release_stale_pages;
+  using Parameters::slc_exclude_sparse_filler;
   using Parameters::subrelease_unbacked_hugepages;
   using Parameters::track_broken_hugepages;
 
@@ -242,7 +245,8 @@ class StaticForwarder : private Parameters {
                                                         Length pages_per_span)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     const MemoryTag tag = MemoryTagFromSizeClass(size_class);
-    const AccessDensityPrediction density = AccessDensity(objects_per_span);
+    const AccessDensityPrediction density =
+        AccessDensity(size_class, objects_per_span, pages_per_span);
 
     SpanAllocInfo span_alloc_info = {.objects_per_span = objects_per_span,
                                      .density = density};
@@ -268,6 +272,10 @@ class StaticForwarder : private Parameters {
     TC_ASSERT_NE(free_spans.size(), 0);
     TC_ASSERT_LE(free_spans.size(), kMaxObjectsToMove);
     const MemoryTag tag = GetMemoryTag(free_spans[0]->start_address());
+    const int size_class =
+        state.pagemap()
+            .GetExistingDescriptor(free_spans[0]->first_page())
+            .sizeclass();
     PageAllocatorInterface::AllocationState allocs[kMaxObjectsToMove];
     // Unregister size class doesn't require holding any locks.
     for (int i = 0, n = free_spans.size(); i < n; ++i) {
@@ -295,7 +303,8 @@ class StaticForwarder : private Parameters {
       allocs[i].donated = donated;
     }
     Span::Delete(free_spans);
-    const AccessDensityPrediction density = AccessDensity(objects_per_span);
+    const AccessDensityPrediction density =
+        AccessDensity(size_class, objects_per_span, pages_per_span);
     SpanAllocInfo span_alloc_info = {.objects_per_span = objects_per_span,
                                      .density = density};
     ReturnAllocsToPageHeap(tag, absl::MakeSpan(allocs, free_spans.size()),
@@ -359,6 +368,17 @@ class StaticForwarder : private Parameters {
   static void SetAnonVmaName(Range r, std::optional<absl::string_view> name) {
     state.system_allocator().SetAnonVmaName(r.start_addr(), r.in_bytes(), name);
   }
+  [[nodiscard]] static bool SlcExclusionAvailable() {
+    return tcmalloc_internal::SlcExclusionAvailable();
+  }
+  [[nodiscard]] static int32_t SlcExcludePages(Range r)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    return tcmalloc_internal::SlcExcludeRange(r.start_addr(), r.in_bytes());
+  }
+  [[nodiscard]] static int32_t SlcIncludePages(Range r)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    return tcmalloc_internal::SlcIncludeRange(r.start_addr(), r.in_bytes());
+  }
 
  private:
   ABSL_ATTRIBUTE_NOINLINE static void InvokeInsertRangeHookSlow(
@@ -382,15 +402,13 @@ class StaticForwarder : private Parameters {
   }
 
   [[nodiscard]] static AccessDensityPrediction AccessDensity(
-      int objects_per_span) {
-    // Use number of objects per span as a proxy for estimating access density
-    // of the span. If number of objects per span is higher than
-    // kFewObjectsAllocMaxLimit threshold, we assume that the span would be
-    // long-lived.
-    return objects_per_span >
-                   central_freelist_internal::kFewObjectsAllocMaxLimit
-               ? AccessDensityPrediction::kDense
-               : AccessDensityPrediction::kSparse;
+      int size_class, size_t objects_per_span, Length pages_per_span) {
+    if (!access_density_predictor()) {
+      return AccessDensityPredictor::StaticPredict(objects_per_span,
+                                                   pages_per_span);
+    }
+    return state.access_density_predictor().Predict(
+        size_class, objects_per_span, pages_per_span);
   }
 
   [[noreturn]] ABSL_ATTRIBUTE_NOINLINE static void HandleDetectedUB(

@@ -35,6 +35,7 @@
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/cache_topology.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
@@ -582,13 +583,20 @@ class TransferCacheManagerBase {
   }
 
   [[nodiscard]] int RemoveRange(int size_class, absl::Span<void*> batch) {
-    return cache_[size_class].freelist.RemoveRange(batch);
+    const int got = cache_[size_class].freelist.RemoveRange(batch);
+    remove_object_counts_[size_class].Add(got);
+    return got;
   }
 
   [[nodiscard]] static constexpr size_t tc_length(int size_class) { return 0; }
 
-  [[nodiscard]] static constexpr TransferCacheStats GetStats(int size_class) {
-    return {};
+  [[nodiscard]] TransferCacheStats GetStats(int size_class) const {
+    TransferCacheStats stats = {};
+    // TransferCacheManagerBase has no transfer cache and forwards directly to
+    // CentralFreeList, so every object removed here is a transfer-cache miss.
+    stats.remove_object_misses = static_cast<size_t>(
+        std::max<int64_t>(0, remove_object_counts_[size_class].value()));
+    return stats;
   }
 
   [[nodiscard]] const FreeList& central_freelist(int size_class) const {
@@ -612,6 +620,7 @@ class TransferCacheManagerBase {
     bool dummy;
   };
   Cache cache_[kNumClasses];
+  StatsCounters<kNumClasses> remove_object_counts_;
 } ABSL_CACHELINE_ALIGNED;
 
 using TransferCacheManager =

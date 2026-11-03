@@ -190,6 +190,7 @@ cc_library(
 create_tcmalloc_libraries(
     name = "common",
     srcs = [
+        "access_density_predictor.h",
         "allocation_sample.cc",
         "allocation_sampling.cc",
         "arena.cc",
@@ -258,6 +259,7 @@ create_tcmalloc_libraries(
         "transfer_cache_stats.h",
     ],
     hdrs = [
+        "access_density_predictor.h",
         "allocation_sample.h",
         "allocation_sampling.h",
         "arena.h",
@@ -352,6 +354,7 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:sampled_allocation",
         "//tcmalloc/internal:sampled_allocation_recorder",
         "//tcmalloc/internal:size_class_info",
+        "//tcmalloc/internal:slc_exclusion",
         "//tcmalloc/internal:stacktrace_filter",
         "//tcmalloc/internal:sysinfo",
         "//tcmalloc/internal:system_allocator",
@@ -990,6 +993,26 @@ cc_test(
         "@com_google_fuzztest//fuzztest",
         "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
         "@com_google_googletest//:gtest",
+    ],
+)
+
+create_tcmalloc_testsuite(
+    name = "access_density_predictor_test",
+    timeout = "moderate",
+    srcs = ["access_density_predictor_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":malloc_extension",
+        "//tcmalloc/internal:config",
+        "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:slc_exclusion",
+        "//tcmalloc/testing:testutil",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/cleanup",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
     ],
 )
 

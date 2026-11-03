@@ -73,6 +73,7 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
   absl::Time last_size_class_max_capacity_resize = prev_time;
   absl::Time last_slab_resize_check = prev_time;
   absl::Time last_hpaa_hugepage_check = prev_time;
+  absl::Time last_access_density_update = prev_time;
 
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   absl::Time last_transfer_cache_plunder_check = prev_time;
@@ -89,6 +90,11 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
   // are serialized and SetBackgroundProcessActionsEnabled(false) waits for any
   // in-flight iteration to complete.
   absl::MutexLock l(tcmalloc::tcmalloc_internal::background_mutex);
+  if (tcmalloc::MallocExtension::GetBackgroundProcessActionsEnabled() &&
+      Parameters::access_density_predictor()) {
+    last_access_density_update = absl::Now();
+    tc_globals.UpdateAccessDensityPredictions(last_access_density_update);
+  }
   // TODO(b/527641380): ScopedBackgroundProcessActionsEnabled does not work as
   // intended if actions are temporarily disabled and re-enabled, as the
   // background thread exits this loop and terminates permanently.
@@ -129,6 +135,10 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
     // different treatments (e.g. usermode collapse, custom name sampled VMAs,
     // etc.) once every hpaa_hugepage_check_period.
     const absl::Duration hpaa_hugepage_check_period = 5 * sleep_time;
+    const absl::Duration access_density_update_period =
+        tc_globals.access_density_predictor().AnyPartitionInitialized()
+            ? 5 * sleep_time
+            : sleep_time;
 
     absl::Time now = absl::Now();
 
@@ -194,6 +204,12 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
         last_transfer_cache_resize_check = now;
       }
 #endif
+
+      if (Parameters::access_density_predictor() &&
+          now - last_access_density_update >= access_density_update_period) {
+        tc_globals.UpdateAccessDensityPredictions(now);
+        last_access_density_update = now;
+      }
 
       if (now - last_hpaa_hugepage_check >= hpaa_hugepage_check_period) {
         tc_globals.page_allocator().TreatHugepageTrackers(

@@ -136,6 +136,16 @@ class FakeStaticForwarderWithUnback : public FakeHugePageStaticForwarder {
     FakeHugePageStaticForwarder::SetAnonVmaName(r, name);
   }
 
+  int32_t SlcExcludePages(Range r) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    lock_dropped_callback_();
+    return FakeHugePageStaticForwarder::SlcExcludePages(r);
+  }
+
+  int32_t SlcIncludePages(Range r) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    lock_dropped_callback_();
+    return FakeHugePageStaticForwarder::SlcIncludePages(r);
+  }
+
   // New and NewAligned back the span after LockAndAlloc has released
   // pageheap_lock, so the span is already accounted as used by the allocator
   // but not yet recorded by the fuzzer.
@@ -580,6 +590,17 @@ struct SetMadvNoHugepageHugeRegions {
   }
 };
 
+struct SetSlcExcludeSparseFiller {
+  bool value;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetSlcExcludeSparseFiller& s) {
+    absl::Format(&sink, "SetSlcExcludeSparseFiller{.value=%v}", s.value);
+  }
+};
+
 // Sets what FakePageFlags and FakeResidency report for every tracker that the
 // next treatments scan.
 struct UpdateBitmaps {
@@ -639,7 +660,8 @@ using ParamOp = std::variant<
     SetBackSizeThresholdBytes, ReentrantSubprogram, SetEnableUnfilteredCollapse,
     SetReleaseMaxFillerPages, SetPreferBackedFillerPages,
     SetEnableReleaseStalePages, SetCollapseReleasedHugepages,
-    SetMadvNoHugepageHugeRegions, UpdateBitmaps, SetUsageLimitPressure>;
+    SetMadvNoHugepageHugeRegions, SetSlcExcludeSparseFiller, UpdateBitmaps,
+    SetUsageLimitPressure>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -846,6 +868,7 @@ struct State {
       // once any in-flight operation has finished.
       TC_CHECK_LE(regions_free_backed.in_bytes(), regions_stats.free_bytes);
       CheckReleasedPagesNonResident();
+      CheckSlcExcludedHugePages();
     }
     auto parked_only = [&](size_t over) {
       return over == 0 || (mid_operation && over % kHugePageSize == 0);
@@ -919,6 +942,24 @@ struct State {
                      "%v", first + Length(i));
           });
         });
+  }
+
+  void CheckSlcExcludedHugePages() {
+    PageHeapSpinLockHolder l;
+    TC_CHECK_EQ(allocator.SlcExcludedHugePages().raw_num(),
+                allocator.forwarder().NumSlcExcludedHugePages());
+    if (!IsNormalMemory(tag)) {
+      TC_CHECK_EQ(allocator.SlcExcludeCandidateHugePages(), NHugePages(0));
+      TC_CHECK_EQ(allocator.forwarder().NumSlcExcludedHugePages(), 0u);
+    }
+    allocator.forwarder().ForEachSlcExcludedHugePage([&](HugePage hp) {
+      const PageTracker* pt = allocator.forwarder().GetHugepage(hp).Get();
+      TC_CHECK_NE(pt, nullptr);
+      TC_CHECK(pt->slc_excluded());
+      TC_CHECK(pt->slc_exclude_candidate());
+      TC_CHECK(!pt->HasDenseSpans());
+      TC_CHECK(!pt->was_donated());
+    });
   }
 
   // Marks every TCMalloc page whose native pages are all set in
@@ -1325,6 +1366,10 @@ void SetMadvNoHugepageHugeRegions::Perform(State& state) const {
             : MadviseRegionsNoHugepage::kDisabled);
 }
 
+void SetSlcExcludeSparseFiller::Perform(State& state) const {
+  state.allocator.forwarder().slc_exclude_sparse_filler.set(value);
+}
+
 void SetUsageLimitPressure::Perform(State& state) const {
   state.usage_limit_pressure = Length(pages);
 }
@@ -1389,6 +1434,8 @@ PageReleaseStats RunHPAA(FuzzHugePageAwareAllocatorOptions fuzz_options,
   TC_CHECK_EQ(state.allocator.DonatedHugePages(), NHugePages(0));
   TC_CHECK_EQ(state.allocator.AbandonedPages(), Length(0));
   TC_CHECK_EQ(state.allocator.ReusedBrokenHugePages(), NHugePages(0));
+  TC_CHECK_EQ(state.allocator.SlcExcludeCandidateHugePages(), NHugePages(0));
+  TC_CHECK_EQ(state.allocator.SlcExcludedHugePages(), NHugePages(0));
   // Nor may any region hold a used page; with every span returned, every
   // backed page in a region is on a free, backed hugepage.
   const BackingStats regions = state.allocator.RegionsStats();
@@ -1489,6 +1536,8 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
       fuzztest::Map(
           [](SetMadvNoHugepageHugeRegions s) { return ChangeParam{s}; },
           fuzztest::Arbitrary<SetMadvNoHugepageHugeRegions>()),
+      fuzztest::Map([](SetSlcExcludeSparseFiller s) { return ChangeParam{s}; },
+                    fuzztest::Arbitrary<SetSlcExcludeSparseFiller>()),
       fuzztest::Map([](UpdateBitmaps u) { return ChangeParam{u}; },
                     fuzztest::Arbitrary<UpdateBitmaps>()),
       // Nonzero pressure makes every allocation release; keep it off half the

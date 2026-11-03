@@ -221,6 +221,8 @@ TEST(StaticForwarderTest, PageMap) {
 }
 
 TEST(StaticForwarderTest, Parameters) {
+  EXPECT_EQ(ProdForwarder::access_density_predictor(),
+            Parameters::access_density_predictor());
   EXPECT_EQ(ProdForwarder::back_size_threshold_bytes(),
             Parameters::back_size_threshold_bytes());
   EXPECT_EQ(ProdForwarder::back_small_allocations(),
@@ -264,6 +266,8 @@ TEST(StaticForwarderTest, Parameters) {
             Parameters::track_broken_hugepages());
   EXPECT_EQ(ProdForwarder::fix_max_capacity_bug(),
             Parameters::fix_max_capacity_bug());
+  EXPECT_EQ(ProdForwarder::slc_exclude_sparse_filler(),
+            Parameters::slc_exclude_sparse_filler());
 }
 
 class StaticForwarderSpanTest : public testing::TestWithParam<size_t> {
