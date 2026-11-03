@@ -327,7 +327,6 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:exponential_biased",
         "//tcmalloc/internal:gwp_asan_state",
         "//tcmalloc/internal:hardware_pages",
-        "//tcmalloc/internal:hook_list",
         "//tcmalloc/internal:is_aligned_to",
         "//tcmalloc/internal:linked_list",
         "//tcmalloc/internal:logging",
@@ -1055,6 +1054,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common_8k_pages",
+        "//tcmalloc/internal:hardware_pages",
         "//tcmalloc/internal:logging",
         "//tcmalloc/testing:testutil",
         "@com_google_absl//absl/time",
