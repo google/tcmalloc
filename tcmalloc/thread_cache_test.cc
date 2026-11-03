@@ -12,21 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "tcmalloc/thread_cache.h"
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <sys/mman.h>
 
+#include <atomic>
 #include <limits>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
 
 #include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
+#include "absl/synchronization/notification.h"
 #include "absl/time/time.h"
+#include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/static_vars.h"
+#include "tcmalloc/tcmalloc_policy.h"
 #include "tcmalloc/testing/smaps.h"
 #include "tcmalloc/testing/testutil.h"
 
@@ -59,6 +67,10 @@ class ThreadCacheTest : public ::testing::Test {
 // Make sure that creating and destroying many mallocing threads
 // does not leak memory.
 TEST_F(ThreadCacheTest, NoLeakOnThreadDestruction) {
+  if (tcmalloc_internal::kSanitizerPresent) {
+    GTEST_SKIP() << "Running under sanitizers";
+  }
+
   // Test only valid in per-thread mode
   ASSERT_FALSE(MallocExtension::PerCpuCachesActive());
 
@@ -111,6 +123,43 @@ TEST_F(ThreadCacheTest, NoLeakOnThreadDestruction) {
   // of the allocation done.
   EXPECT_GE(192 * 1024, end_size - start_size)
       << "Before: " << start_size << " After: " << end_size;
+}
+
+TEST_F(ThreadCacheTest, ConcurrentStatsAndResize) {
+  using tcmalloc_internal::CppPolicy;
+  using tcmalloc_internal::kMinThreadCacheSize;
+  using tcmalloc_internal::kNumClasses;
+  using tcmalloc_internal::tc_globals;
+  using tcmalloc_internal::ThreadCache;
+
+  absl::Notification ready;
+  std::atomic<bool> stop{false};
+
+  std::thread worker([&]() {
+    ThreadCache* tc = ThreadCache::GetCache();
+    const size_t size_class =
+        tc_globals.sizemap().SizeClass(CppPolicy(), sizeof(void*));
+    void* p = tc->Allocate(size_class);
+    ready.Notify();
+    while (!stop.load(std::memory_order_relaxed)) {
+      tc->Deallocate(p, size_class);
+      p = tc->Allocate(size_class);
+    }
+    tc->Deallocate(p, size_class);
+  });
+
+  ready.WaitForNotification();
+  const int64_t orig_size = ThreadCache::overall_thread_cache_size();
+  for (int i = 0; i < 500; ++i) {
+    uint64_t total_bytes = 0;
+    uint64_t class_count[kNumClasses] = {0};
+    (void)ThreadCache::GetStats(&total_bytes, class_count);
+    ThreadCache::set_overall_thread_cache_size(kMinThreadCacheSize * 2);
+    ThreadCache::set_overall_thread_cache_size(orig_size);
+  }
+  stop.store(true, std::memory_order_relaxed);
+  worker.join();
+  EXPECT_EQ(ThreadCache::overall_thread_cache_size(), orig_size);
 }
 
 }  // namespace
