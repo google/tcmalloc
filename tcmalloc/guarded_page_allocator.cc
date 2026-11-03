@@ -593,7 +593,27 @@ uintptr_t GuardedPageAllocator::GetNearestValidPage(uintptr_t addr) const {
 }
 
 size_t GuardedPageAllocator::GetNearestSlot(uintptr_t addr) const {
-  return AddrToSlot(GetPageAddr(GetNearestValidPage(addr)));
+  const size_t nearest_slot =
+      AddrToSlot(GetPageAddr(GetNearestValidPage(addr)));
+  if (data_[nearest_slot].allocation_start != 0 || addr < first_page_addr_) {
+    return nearest_slot;
+  }
+  const uintptr_t last_page_addr =
+      first_page_addr_ + 2 * (total_pages_ - 1) * page_size_;
+  if (addr >= last_page_addr + page_size_) {
+    return nearest_slot;
+  }
+  const uintptr_t offset = addr - first_page_addr_;
+  if ((offset / page_size_) % 2 == 0) {
+    return nearest_slot;
+  }
+  const size_t left_slot = (offset / page_size_) / 2;
+  const size_t other_slot =
+      (nearest_slot == left_slot) ? (left_slot + 1) : left_slot;
+  if (other_slot < total_pages_ && data_[other_slot].allocation_start != 0) {
+    return other_slot;
+  }
+  return nearest_slot;
 }
 
 bool GuardedPageAllocator::WriteOverflowOccurred(size_t slot) const {
