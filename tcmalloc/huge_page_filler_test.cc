@@ -37,6 +37,7 @@
 #include "absl/algorithm/container.h"
 #include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
+#include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_map.h"
@@ -303,7 +304,10 @@ class MockCollapse final : public MemoryModifyFunction {
   MockCollapse() = default;
   [[nodiscard]] MemoryModifyStatus operator()(Range r) override {
     EXPECT_EQ(r.n, kPagesPerHugePage);
-    ++collapsed_[r.start_addr()];
+    {
+      absl::base_internal::SpinLockHolder l(lock_);
+      ++collapsed_[r.start_addr()];
+    }
     FakeClock::Advance(latency_);
     if (unlocked_hook_ != nullptr) {
       unlocked_hook_(r);
@@ -317,12 +321,14 @@ class MockCollapse final : public MemoryModifyFunction {
   bool TriedCollapse(void* addr) const {
     PageId p = PageIdContaining(addr);
     HugePage hp = HugePageContaining(p);
+    absl::base_internal::SpinLockHolder l(lock_);
     return collapsed_.contains(hp.start_addr());
   }
 
   int TimesCollapsed(void* addr) {
     PageId p = PageIdContaining(addr);
     HugePage hp = HugePageContaining(p);
+    absl::base_internal::SpinLockHolder l(lock_);
     return collapsed_.contains(hp.start_addr()) ? collapsed_[hp.start_addr()]
                                                 : 0;
   }
@@ -332,7 +338,8 @@ class MockCollapse final : public MemoryModifyFunction {
   void SetLatency(absl::Duration latency) { latency_ = latency; }
 
  private:
-  absl::flat_hash_map<void*, int> collapsed_;
+  mutable absl::base_internal::SpinLock lock_;
+  absl::flat_hash_map<void*, int> collapsed_ ABSL_GUARDED_BY(lock_);
   bool success_ = true;
   int error_number_ = 0;
   absl::Duration latency_;
@@ -2351,6 +2358,80 @@ TEST_F(FillerTest, ReleaseDuringCollapse) {
   EXPECT_TRUE(Delete(a));
 }
 
+// A second treatment pass that runs while an earlier pass has dropped
+// pageheap_lock must skip trackers the earlier pass already pinned, rather than
+// re-selecting them, collapsing them a second time, or clearing their
+// treatment pin before the earlier pass finishes.
+TEST_F(FillerTest, ConcurrentTreatmentDoesNotClobberPins) {
+  randomize_density_ = false;
+  PAlloc a = Allocate(Length(1));
+
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(a.p.start_addr(), /*is_hugepage_backed=*/false);
+  pageflags.SetStaleBitmap(a.p.start_addr(), {});
+  residency.SetUnbackedAndSwappedBitmaps(a.p.start_addr(), {}, {});
+
+  int collapse_calls = 0;
+  collapse_.unlocked_hook_ = [&](Range r) {
+    if (++collapse_calls > 1) {
+      return;
+    }
+    EXPECT_EQ(HugePageContaining(r.p), a.pt->location());
+    // A nested pass with collapse disabled must skip a.pt rather than
+    // selecting it and clearing its kCollapse pin in Restore().
+    TreatHugepageTrackers(EnableCollapse::kDisabled,
+                          EnableUnfilteredCollapse::kDisabled,
+                          ReleaseStalePages::kDisabled, &pageflags, &residency);
+    // A nested pass with collapse enabled must also skip a.pt rather than
+    // calling Collapse a second time while BeingCollapsed() is set.
+    TreatHugepageTrackers(EnableCollapse::kEnabled,
+                          EnableUnfilteredCollapse::kDisabled,
+                          ReleaseStalePages::kDisabled, &pageflags, &residency);
+    // Free the last allocation on a.pt while the outer treatment still holds
+    // a.pt: it must remain pinned and be parked rather than retired.
+    EXPECT_FALSE(DeleteRaw(a));
+  };
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  collapse_.unlocked_hook_ = nullptr;
+
+  EXPECT_EQ(collapse_calls, 1);
+  EXPECT_EQ(DrainFreedTrackers(), 1);
+  CheckStats();
+
+  PAlloc b = Allocate(Length(1));
+  b.pt->SetTagState({.sampled_for_tagging = true});
+  FakeClock::Advance(absl::Minutes(6));
+  pageflags.MarkHugePageBacked(b.p.start_addr(), /*is_hugepage_backed=*/true);
+
+  set_anon_vma_name_.SetIgnoreName(true);
+  int sampled_calls = 0;
+  set_anon_vma_name_.unlocked_hook_ =
+      [&](Range r, std::optional<absl::string_view> name) {
+        if (!name.has_value() || ++sampled_calls > 1) {
+          return;
+        }
+        EXPECT_EQ(HugePageContaining(r.p), b.pt->location());
+        FakeClock::Advance(absl::Minutes(6));
+        // Even if kRecordInterval elapses while the outer pass is naming b.pt,
+        // a nested pass must skip b.pt while its kSampled pin is held.
+        TreatHugepageTrackers(
+            EnableCollapse::kDisabled, EnableUnfilteredCollapse::kDisabled,
+            ReleaseStalePages::kDisabled, &pageflags, &residency);
+        EXPECT_FALSE(DeleteRaw(b));
+      };
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  set_anon_vma_name_.unlocked_hook_ = nullptr;
+
+  EXPECT_EQ(sampled_calls, 1);
+  EXPECT_EQ(DrainFreedTrackers(), 1);
+  CheckStats();
+}
+
 // Releases and collapses from the background while allocations are returned
 // and made concurrently.  Every operation that drops pageheap_lock must cope
 // with the trackers changing underneath it.
@@ -2390,8 +2471,8 @@ TEST_F(FillerTest, ParallelReleaseCollapseAndFree) {
   auto on_drop = [&](Range) { std::this_thread::yield(); };
   blocking_unback_without_lock_.unlocked_hook_ = on_drop;
   collapse_.unlocked_hook_ = on_drop;
-  // Both background threads are running before the foreground loop starts.
-  absl::Barrier started(3);
+  // All background threads are running before the foreground loop starts.
+  absl::Barrier started(4);
   std::thread release_thread([&]() {
     started.Block();
     while (!done.load(std::memory_order_acquire)) {
@@ -2400,14 +2481,16 @@ TEST_F(FillerTest, ParallelReleaseCollapseAndFree) {
       ReleasePartialPages(kPagesPerHugePage);
     }
   });
-  std::thread collapse_thread([&]() {
+  auto run_collapse = [&]() {
     started.Block();
     while (!done.load(std::memory_order_acquire)) {
       TreatHugepageTrackers(
           EnableCollapse::kEnabled, EnableUnfilteredCollapse::kDisabled,
           ReleaseStalePages::kEnabled, &pageflags, &residency);
     }
-  });
+  };
+  std::thread collapse_thread1(run_collapse);
+  std::thread collapse_thread2(run_collapse);
   started.Block();
 
   // See ParallelCollapseRelease for why DeleteRaw is used here.  Deallocations
@@ -2446,7 +2529,8 @@ TEST_F(FillerTest, ParallelReleaseCollapseAndFree) {
 
   done = true;
   release_thread.join();
-  collapse_thread.join();
+  collapse_thread1.join();
+  collapse_thread2.join();
   blocking_unback_without_lock_.unlocked_hook_ = nullptr;
   collapse_.unlocked_hook_ = nullptr;
 

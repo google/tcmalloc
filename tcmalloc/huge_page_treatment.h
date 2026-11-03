@@ -276,6 +276,7 @@ class SampledTrackerTreatment final : public HugePageTreatment {
   void SelectEligibleTrackers(PageTracker& pt)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override {
     if (num_valid_trackers_ >= kTotalTrackersToScan) return;
+    if (pt.PinnedByTreatment(HugePageTreatmentType::kSampled)) return;
 
     // Collect all the addresses under pageheap lock that are to be sampled for
     // tagging, and that were last scanned more than kRecordInterval ago.
@@ -506,6 +507,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
                      CompareForHugePageTreatment);
     };
 
+    if (pt.PinnedByTreatment(HugePageTreatmentType::kCollapse)) return;
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     PageTracker::HugePageResidencyState state = pt.GetHugePageResidencyState();
 #else

@@ -678,7 +678,6 @@ struct State {
   // Bumped whenever a reentrant subprogram runs, so an operation can tell
   // whether other instructions interleaved with it.
   size_t reentrant_runs = 0;
-  bool treating_trackers = false;
   std::string output;
 };
 
@@ -1044,10 +1043,6 @@ void GatherSpanStats::Perform(State& state) const {
 }
 
 void TreatTrackers::Perform(State& state) const {
-  if (state.treating_trackers) {
-    return;
-  }
-  state.treating_trackers = true;
   FakePageFlags pageflags(state);
   FakeResidency residency(state);
   PageHeapSpinLockHolder l;
@@ -1062,7 +1057,6 @@ void TreatTrackers::Perform(State& state) const {
       collapse_released ? CollapseReleasedHugePages::kEnabled
                         : CollapseReleasedHugePages::kDisabled,
       &pageflags, &residency);
-  state.treating_trackers = false;
   state.DrainFullyFreedTrackers();
   if (state.subrelease_unbacked_mode == SubreleaseUnbackedMode::kEnabled) {
     // HandleUnbackedHugePage marks already-unbacked free pages as released
@@ -2005,6 +1999,21 @@ TEST(HugePageFillerTest, CollapseReleasedInterleavedDeallocateDuringCollapse) {
                             .enable_unfiltered_collapse = true,
                             .collapse_released = true}},
              SubreleaseUnbackedMode::kDisabled);
+}
+
+TEST(HugePageFillerTest, NestedTreatTrackers) {
+  FuzzFiller(
+      {UpdateBitmaps{.hugepage_backed_set = true,
+                     .hugepage_backed_val = false,
+                     .unbacked_bitmap_val = 0,
+                     .swapped_bitmap_val = 0},
+       Allocate{.length = 1, .num_objects = 1},
+       ReentrantSubprogram{
+           .subprogram = {TreatTrackers{.enable_collapse = false},
+                          TreatTrackers{.enable_collapse = true},
+                          Deallocate{.tracker_index = 0, .alloc_index = 0}}},
+       TreatTrackers{.enable_collapse = true}},
+      SubreleaseUnbackedMode::kDisabled);
 }
 
 }  // namespace
