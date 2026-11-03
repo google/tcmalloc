@@ -1014,6 +1014,8 @@ SystemAllocator<Topology, NormalPartitions>::ReleasePages(void* start,
 
     if (ret == 0) {
       status = ReleaseStatus::kSuccess;
+    } else if (errno == EINVAL) {
+      status = ReleaseStatus::kRetryAfterMunlock;
     }
   }
 #endif

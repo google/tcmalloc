@@ -145,6 +145,30 @@ TEST(SystemAllocatorTest, ReleaseLockedMemory) {
   EXPECT_EQ(allocator.release_errors(), 0);
 }
 
+TEST(SystemAllocatorTest, ReleaseLockedMemoryWithFreeOnlyPreference) {
+  constexpr size_t kMinMmapAlloc = 1 << 30;
+  NumaTopology<2> topology;
+  topology.Init();
+  SystemAllocator<NumaTopology<2>, 1> allocator(topology, kMinMmapAlloc);
+  allocator.set_madvise_preference(MadvisePreference::kFreeOnly);
+
+  const size_t kPageSize = GetPageSize();
+  AddressRange res =
+      allocator.Allocate(kPageSize, kPageSize, MemoryTag::kNormal);
+  ASSERT_NE(res.ptr, nullptr);
+
+  if (madvise(res.ptr, res.bytes, MADV_FREE) != 0) {
+    GTEST_SKIP() << "MADV_FREE is disabled in this environment";
+  }
+
+  if (mlock(res.ptr, res.bytes) == 0) {
+    memset(res.ptr, 0xAB, res.bytes);
+  }
+  MemoryModifyStatus status = allocator.Release(res.ptr, res.bytes);
+  EXPECT_TRUE(status.success);
+  EXPECT_EQ(allocator.release_errors(), 0);
+}
+
 TEST(SystemAllocatorTest, SetAnonVmaNameHandlesEmptyAndSubstringViews) {
   constexpr size_t kMinMmapAlloc = 1 << 30;
   NumaTopology<2> topology;
