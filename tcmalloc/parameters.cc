@@ -150,11 +150,6 @@ void Parameters::InitializeFromExperiments() {
                                       std::memory_order_relaxed);
   }
 
-  if (IsExperimentActive(Experiment::TCMALLOC_RELEASE_FREE_STALE)) {
-    release_stale_pages_.store(ReleaseStalePages::kEnabled,
-                               std::memory_order_relaxed);
-  }
-
   if (IsExperimentActive(
           Experiment::TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION)) {
     release_drained_slab_metadata_.store(false, std::memory_order_relaxed);

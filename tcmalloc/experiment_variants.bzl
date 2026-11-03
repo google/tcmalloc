@@ -35,12 +35,6 @@ experiment_variants = [
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION"},
     },
     {
-        "name": "tcmalloc_release_free_stale",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_RELEASE_FREE_STALE"},
-    },
-    {
         "name": "tcmalloc_collapse_released_hugepages",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],
