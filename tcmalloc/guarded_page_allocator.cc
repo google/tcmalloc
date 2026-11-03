@@ -246,7 +246,8 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(
 
   // Record stack trace.
   // Count the number of pages that have been used at least once.
-  if (ABSL_PREDICT_FALSE(d.allocation_start == 0)) {
+  if (ABSL_PREDICT_FALSE(
+          __atomic_load_n(&d.allocation_start, __ATOMIC_RELAXED) == 0)) {
     pages_touched_.Add(1);
   }
 
@@ -256,15 +257,16 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(
   d.alloc_trace.depth = stack_trace.depth;
   d.alloc_trace.thread_id = absl::base_internal::GetTID();
   d.dealloc_trace.depth = 0;
-  d.requested_size = size;
+  __atomic_store_n(&d.requested_size, size, __ATOMIC_RELAXED);
   d.requested_alignment = static_cast<std::align_val_t>(std::max(
       alignment, std::max(kAlignment, static_cast<std::align_val_t>(
                                           __STDCPP_DEFAULT_NEW_ALIGNMENT__))));
-  d.allocation_start = reinterpret_cast<uintptr_t>(result);
-  d.dealloc_count.store(0, std::memory_order_relaxed);
-  TC_ASSERT(!d.write_overflow_detected);
+  const uintptr_t allocation_start = reinterpret_cast<uintptr_t>(result);
+  __atomic_store_n(&d.allocation_start, allocation_start, __ATOMIC_RELAXED);
+  d.dealloc_count.store(0, std::memory_order_release);
+  TC_ASSERT(!__atomic_load_n(&d.write_overflow_detected, __ATOMIC_RELAXED));
   TC_ASSERT(static_cast<size_t>(alignment) == 0 ||
-            d.allocation_start % static_cast<size_t>(alignment) == 0);
+            allocation_start % static_cast<size_t>(alignment) == 0);
 
   stacktrace_filter_.Add({stack_trace.stack, stack_trace.depth}, 1);
   return {result, Profile::Sample::GuardedStatus::Guarded};
@@ -286,7 +288,8 @@ void GuardedPageAllocator::Deallocate(void* absl_nonnull ptr) {
 
   // On double-free, do not overwrite the original deallocation metadata, so
   // that the report produced shows the original deallocation stack trace.
-  if (d.dealloc_count.fetch_add(1, std::memory_order_relaxed) != 0) {
+  if (d.dealloc_count.fetch_add(1, std::memory_order_acq_rel) != 0) {
+    (void)ProtectPage(reinterpret_cast<void*>(page_addr), page_size_);
     ForceTouchPage(ptr);
   }
 
@@ -301,11 +304,12 @@ void GuardedPageAllocator::Deallocate(void* absl_nonnull ptr) {
   stacktrace_filter_.Add({d.alloc_trace.stack, d.alloc_trace.depth}, -1);
 
   // For zero-byte allocations WriteOverflowOccurred() and mprotect are skipped.
-  if (d.requested_size > 0) {
+  if (__atomic_load_n(&d.requested_size, __ATOMIC_RELAXED) > 0) {
     // Needs to be done before mprotect() because it accesses the object page to
     // check canary bytes.
-    if (WriteOverflowOccurred(slot)) {
-      d.write_overflow_detected = true;
+    const bool write_overflow = WriteOverflowOccurred(slot);
+    if (write_overflow) {
+      __atomic_store_n(&d.write_overflow_detected, true, __ATOMIC_RELAXED);
     }
 
     // Calling madvise/mprotect should also be done outside the
@@ -316,14 +320,16 @@ void GuardedPageAllocator::Deallocate(void* absl_nonnull ptr) {
     TC_CHECK_EQ(0, result.error);
     d.mprotect_quarantined = result.mprotect_quarantined;
 
-    if (d.write_overflow_detected) {
+    if (write_overflow) {
       ForceTouchPage(ptr);
     }
   }
 
-  if (ABSL_PREDICT_FALSE(absl::bit_cast<void*>(d.allocation_start) != ptr)) {
+  const uintptr_t allocation_start =
+      __atomic_load_n(&d.allocation_start, __ATOMIC_RELAXED);
+  if (ABSL_PREDICT_FALSE(absl::bit_cast<void*>(allocation_start) != ptr)) {
     // TODO(ckennelly): Plumb d.dealloc_trace into this call.
-    const bool left_aligned = SlotToAddr(slot) == d.allocation_start;
+    const bool left_aligned = SlotToAddr(slot) == allocation_start;
     const std::align_val_t expected_alignment =
         left_aligned ? static_cast<std::align_val_t>(page_size_)
                      : d.requested_alignment;
@@ -333,7 +339,9 @@ void GuardedPageAllocator::Deallocate(void* absl_nonnull ptr) {
   }
 
   AllocationGuardSpinLockHolder h(guarded_page_lock_);
-  FreeSlot(slot);
+  if (d.dealloc_count.load(std::memory_order_acquire) == 1) {
+    FreeSlot(slot);
+  }
 }
 
 size_t GuardedPageAllocator::GetRequestedSize(
@@ -537,6 +545,11 @@ ssize_t GuardedPageAllocator::ReserveFreeSlot() {
   TC_ASSERT(!used_pages_.GetBit(slot));
   used_pages_.SetBit(slot);
 
+  SlotMetadata& d = data_[slot];
+  d.dealloc_trace.depth = 0;
+  __atomic_store_n(&d.write_overflow_detected, false, __ATOMIC_RELAXED);
+  d.dealloc_count.store(0, std::memory_order_release);
+
   // Both writes to allocated_pages_ happen under the guarded_page_lock_, so
   // we do not have to use an atomic fetch_add(), which is more expensive due to
   // typically imposing a full memory barrier when lowered on e.g. x86. Recent
@@ -600,7 +613,8 @@ bool GuardedPageAllocator::WriteOverflowOccurred(size_t slot) const {
   if (!ShouldRightAlign(slot)) return false;
   uint8_t magic = GetWriteOverflowMagic(slot);
   uintptr_t alloc_end =
-      data_[slot].allocation_start + data_[slot].requested_size;
+      __atomic_load_n(&data_[slot].allocation_start, __ATOMIC_RELAXED) +
+      __atomic_load_n(&data_[slot].requested_size, __ATOMIC_RELAXED);
   uintptr_t page_end = SlotToAddr(slot) + page_size_;
   uintptr_t magic_end = std::min(page_end, alloc_end + kMagicSize);
   for (uintptr_t p = alloc_end; p < magic_end; ++p) {
@@ -611,18 +625,22 @@ bool GuardedPageAllocator::WriteOverflowOccurred(size_t slot) const {
 
 GuardedAllocationsErrorType GuardedPageAllocator::GetErrorType(
     uintptr_t addr, const SlotMetadata& d) const {
-  if (!d.allocation_start) return GuardedAllocationsErrorType::kUnknown;
-  size_t dealloc_count = d.dealloc_count.load(std::memory_order_relaxed);
+  const uintptr_t allocation_start =
+      __atomic_load_n(&d.allocation_start, __ATOMIC_RELAXED);
+  if (!allocation_start) return GuardedAllocationsErrorType::kUnknown;
+  size_t dealloc_count = d.dealloc_count.load(std::memory_order_acquire);
   if (dealloc_count >= 2) return GuardedAllocationsErrorType::kDoubleFree;
-  if (d.write_overflow_detected)
+  if (__atomic_load_n(&d.write_overflow_detected, __ATOMIC_RELAXED))
     return GuardedAllocationsErrorType::kBufferOverflowOnDealloc;
   if (dealloc_count == 1) {
     return GuardedAllocationsErrorType::kUseAfterFree;
   }
-  if (addr < d.allocation_start) {
+  if (addr < allocation_start) {
     return GuardedAllocationsErrorType::kBufferUnderflow;
   }
-  if (addr >= d.allocation_start + d.requested_size) {
+  const size_t requested_size =
+      __atomic_load_n(&d.requested_size, __ATOMIC_RELAXED);
+  if (addr >= allocation_start + requested_size) {
     return GuardedAllocationsErrorType::kBufferOverflow;
   }
   return GuardedAllocationsErrorType::kUnknown;
