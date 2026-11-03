@@ -123,13 +123,13 @@ TEST(Arena, ReportUnmapped) {
   EXPECT_EQ(stats_after_alloc.bytes_allocated, 10);
   EXPECT_EQ(stats_after_alloc.bytes_nonresident, 0);
 
-  arena.UpdateAllocatedAndNonresident(-5, 5);
+  arena.UpdateAllocatedAndNonresident(-5, 5, ArenaAlloc::kTest);
   stats_after_alloc = arena.stats();
 
   EXPECT_EQ(stats_after_alloc.bytes_allocated, 5);
   EXPECT_EQ(stats_after_alloc.bytes_nonresident, 5);
 
-  arena.UpdateAllocatedAndNonresident(3, -3);
+  arena.UpdateAllocatedAndNonresident(3, -3, ArenaAlloc::kTest);
   stats_after_alloc = arena.stats();
 
   EXPECT_EQ(stats_after_alloc.bytes_allocated, 8);
@@ -465,6 +465,19 @@ TEST(Arena, New) {
   EXPECT_EQ(reinterpret_cast<uintptr_t>(obj) % alignof(AlignedObject), 0);
   EXPECT_EQ(obj->x, 10);
   EXPECT_EQ(obj->y, 20);
+}
+
+TEST(Arena, PerTypeStatsConsistentAfterUpdateAllocatedAndNonresident) {
+  Arena arena;
+  void* p = arena.Alloc(ArenaAlloc::kCpuCache, 100, Align(1));
+  ASSERT_NE(p, nullptr);
+  arena.UpdateAllocatedAndNonresident(-40, 40);
+  ArenaStats stats = arena.stats();
+  size_t total_per_type = 0;
+  for (size_t i = 0; i < kNumArenaAllocs; ++i) {
+    total_per_type += stats.bytes_allocated_per_type[i];
+  }
+  EXPECT_EQ(total_per_type, stats.bytes_allocated);
 }
 
 }  // namespace

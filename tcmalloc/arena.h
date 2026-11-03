@@ -150,10 +150,17 @@ class ABSL_CACHELINE_ALIGNED Arena {
   }
 
   // Updates the stats for allocated and non-resident bytes.
-  void UpdateAllocatedAndNonresident(int64_t allocated, int64_t nonresident) {
+  void UpdateAllocatedAndNonresident(int64_t allocated, int64_t nonresident,
+                                     ArenaAlloc type = ArenaAlloc::kCpuCache) {
     AllocationGuardSpinLockHolder l(arena_lock_);
     TC_ASSERT_GE(static_cast<int64_t>(bytes_allocated_) + allocated, 0);
     bytes_allocated_ += allocated;
+    const size_t type_index = static_cast<size_t>(type);
+    TC_ASSERT_LT(type_index, kNumArenaAllocs);
+    TC_ASSERT_GE(
+        static_cast<int64_t>(bytes_allocated_per_type_[type_index]) + allocated,
+        0);
+    bytes_allocated_per_type_[type_index] += allocated;
     TC_ASSERT_GE(static_cast<int64_t>(bytes_nonresident_) + nonresident, 0);
     bytes_nonresident_ += nonresident;
   }
