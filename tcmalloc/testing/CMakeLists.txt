@@ -472,7 +472,6 @@ tcmalloc_cc_test_variants(
     "absl::core_headers"
     "absl::str_format"
     "absl::string_view"
-    "tcmalloc::internal_environment"
     "tcmalloc::malloc_extension"
     "tcmalloc::testing_rseq_util"
 )
@@ -488,10 +487,7 @@ tcmalloc_cc_test_variants(
     "GTest::gmock"
     "absl::core_headers"
     "tcmalloc::internal_config"
-    "tcmalloc::internal_environment"
-    "tcmalloc::internal_parameter_accessors"
     "tcmalloc::malloc_extension"
-    "tcmalloc::testing_rseq_util"
 )
 
 tcmalloc_cc_test_variants(
@@ -507,10 +503,7 @@ tcmalloc_cc_test_variants(
     "GTest::gmock"
     "absl::core_headers"
     "tcmalloc::internal_config"
-    "tcmalloc::internal_environment"
-    "tcmalloc::internal_parameter_accessors"
     "tcmalloc::malloc_extension"
-    "tcmalloc::testing_rseq_util"
 )
 
 tcmalloc_cc_test_variants(
@@ -522,7 +515,6 @@ tcmalloc_cc_test_variants(
     "absl::core_headers"
     "absl::str_format"
     "absl::string_view"
-    "tcmalloc::internal_environment"
     "tcmalloc::malloc_extension"
     "tcmalloc::testing_rseq_util"
 )
