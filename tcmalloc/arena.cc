@@ -126,6 +126,7 @@ void Arena::AllocSlow(size_t bytes, size_t align) {
 }
 
 void* Arena::Alloc(ArenaAlloc type, size_t bytes, std::align_val_t alignment) {
+  TC_ASSERT_GT(bytes, 0);
   size_t align = static_cast<size_t>(alignment);
   TC_ASSERT(absl::has_single_bit(align));
 
