@@ -23,14 +23,20 @@ class ScopedAllocationAllow {
  public:
   ScopedAllocationAllow() {
 #ifndef NDEBUG
-    --AllocationGuard::disallowed_;
+    saved_disallowed_ = AllocationGuard::disallowed_;
+    AllocationGuard::disallowed_ = 0;
 #endif
   }
   ~ScopedAllocationAllow() {
 #ifndef NDEBUG
-    ++AllocationGuard::disallowed_;
+    AllocationGuard::disallowed_ = saved_disallowed_;
 #endif
   }
+
+ private:
+#ifndef NDEBUG
+  int saved_disallowed_ = 0;
+#endif
 };
 
 }  // namespace tcmalloc::tcmalloc_internal
