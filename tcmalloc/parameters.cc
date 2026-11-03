@@ -126,20 +126,6 @@ static std::atomic<bool>& hpaa_subrelease_ptr() {
 }
 
 void Parameters::InitializeFromExperiments() {
-#if !defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-  if (IsExperimentActive(Experiment::TCMALLOC_DEMAND_CYCLE_120S)) {
-    skip_subrelease_short_interval_ns_.store(
-        absl::ToInt64Nanoseconds(absl::Seconds(60)), std::memory_order_relaxed);
-    skip_subrelease_long_interval_ns_.store(
-        absl::ToInt64Nanoseconds(absl::Seconds(300)),
-        std::memory_order_relaxed);
-    skip_subrelease_cold_short_interval_ns_.store(
-        absl::ToInt64Nanoseconds(absl::Seconds(60)), std::memory_order_relaxed);
-    skip_subrelease_cold_long_interval_ns_.store(
-        absl::ToInt64Nanoseconds(absl::Seconds(300)),
-        std::memory_order_relaxed);
-  }
-#endif
 
   if (IsExperimentActive(Experiment::TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES)) {
     track_broken_hugepages_.store(TrackBrokenHugepages::kEnabled,

@@ -24,7 +24,6 @@ enum class Experiment : int {
   // clang-format off
   // go/keep-sorted start
   TCMALLOC_CFL_PRIORITIZATION_ABLATION,  // TODO: b/567166830 - Complete experiment.
-  TCMALLOC_DEMAND_CYCLE_120S,  // TODO: b/540987155 - Complete experiment.
   TCMALLOC_PGHO_EXPERIMENT,  // TODO: b/460486507 - Complete experiment.
   TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION,  // TODO: b/205153285 - Complete experiment.
   TCMALLOC_RELEASE_FREE_STALE,  // TODO: b/527473378 - Complete experiment.
@@ -58,7 +57,6 @@ struct ExperimentConfig {
 inline constexpr ExperimentConfig experiments[] = {
     // go/keep-sorted start
     {Experiment::TCMALLOC_CFL_PRIORITIZATION_ABLATION, "TCMALLOC_CFL_PRIORITIZATION_ABLATION"},
-    {Experiment::TCMALLOC_DEMAND_CYCLE_120S, "TCMALLOC_DEMAND_CYCLE_120S"},
     {Experiment::TCMALLOC_PGHO_EXPERIMENT, "TCMALLOC_PGHO_EXPERIMENT"},
     {Experiment::TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION, "TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION"},
     {Experiment::TCMALLOC_RELEASE_FREE_STALE, "TCMALLOC_RELEASE_FREE_STALE"},
