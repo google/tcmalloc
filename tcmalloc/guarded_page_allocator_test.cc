@@ -336,6 +336,41 @@ TEST_F(GuardedPageAllocatorTest, Print) {
   EXPECT_THAT(buf, testing::ContainsRegex("GWP-ASan Status"));
 }
 
+TEST_F(GuardedPageAllocatorTest, GuardPageFaultNearUnallocatedNeighborSlot) {
+  auto alloc_with_status =
+      gpa_.Allocate(PageSize(), std::align_val_t{0}, GetStackTrace());
+  ASSERT_EQ(alloc_with_status.status, Profile::Sample::GuardedStatus::Guarded);
+  char* buf = static_cast<char*>(alloc_with_status.alloc);
+  ASSERT_NE(buf, nullptr);
+
+  int tested_directions = 0;
+  // Upper half of the right guard page (when this is not the last slot).
+  if (gpa_.PointerIsMine(buf + 2 * PageSize())) {
+    GuardedAllocationsStackTrace* alloc_trace = nullptr;
+    GuardedAllocationsStackTrace* dealloc_trace = nullptr;
+    EXPECT_EQ(gpa_.GetStackTraces(buf + PageSize() + PageSize() / 2,
+                                  &alloc_trace, &dealloc_trace),
+              GuardedAllocationsErrorType::kBufferOverflow);
+    ASSERT_NE(alloc_trace, nullptr);
+    EXPECT_GT(alloc_trace->depth, 0);
+    ++tested_directions;
+  }
+  // Lower half of the left guard page (when this is not the first slot).
+  if (gpa_.PointerIsMine(buf - 2 * PageSize())) {
+    GuardedAllocationsStackTrace* alloc_trace = nullptr;
+    GuardedAllocationsStackTrace* dealloc_trace = nullptr;
+    EXPECT_EQ(gpa_.GetStackTraces(buf - PageSize() + PageSize() / 4,
+                                  &alloc_trace, &dealloc_trace),
+              GuardedAllocationsErrorType::kBufferUnderflow);
+    ASSERT_NE(alloc_trace, nullptr);
+    EXPECT_GT(alloc_trace->depth, 0);
+    ++tested_directions;
+  }
+  EXPECT_GT(tested_directions, 0);
+
+  gpa_.Deallocate(buf);
+}
+
 TEST_F(GuardedPageAllocatorTest, ZeroByteAllocationAndDeallocation) {
   auto alloc_with_status =
       gpa_.Allocate(0, std::align_val_t{0}, GetStackTrace());
