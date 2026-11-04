@@ -842,6 +842,8 @@ class HugePageFiller {
   [[nodiscard]] TrackerType* absl_nullable HandleFullyFreedTracker(
       TrackerType* absl_nonnull pt, int64_t now)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void UnbackFullyFreedTracker(TrackerType* absl_nonnull pt)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Like AddToFillerList(), but for use when donating from the tail of a
   // multi-hugepage allocation.
   void DonateToFillerList(TrackerType* absl_nonnull pt);
@@ -1167,34 +1169,18 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
   --size_;
   ClearWasReleased(pt);
   if (pt->released()) {
-    const Length free_pages = kPagesPerHugePage;
     const Length released_pages = pt->released_pages();
-    TC_ASSERT_GE(free_pages, released_pages);
+    TC_ASSERT_GE(kPagesPerHugePage, released_pages);
     TC_ASSERT_GE(unmapped_, released_pages);
     unmapped_ -= released_pages;
 
-    if (free_pages > released_pages) {
-      // pt is partially released.  As the rest of the hugepage-aware
-      // allocator works in terms of whole hugepages, we need to release the
-      // rest of the hugepage.  This simplifies subsequent accounting by
-      // allowing us to work with hugepage-granularity, rather than needing to
-      // retain pt's state indefinitely.
-      bool success =
-          unback_without_lock_(HugeRange(pt->location(), NHugePages(1)))
-              .success;
-      // pageheap_lock was dropped for the unback.  Another thread may have
-      // reported filler stats at a later time meanwhile, and reporting with the
-      // earlier time below would read as a clock regression to the time series
-      // tracker, which discards its demand history in response.
+    if (!pt->BeingCollapsed()) {
+      UnbackFullyFreedTracker(pt);
+      // pageheap_lock may have been dropped for the unback.  Another thread may
+      // have reported filler stats at a later time meanwhile, and reporting
+      // with the earlier time below would read as a clock regression to the
+      // time series tracker, which discards its demand history in response.
       now = clock_.now();
-
-      if (ABSL_PREDICT_TRUE(success)) {
-        const Length unmapped = free_pages - released_pages;
-        unmapping_unaccounted_ += unmapped;
-        subrelease_stats_.total_pages_subreleased += unmapped;
-      } else {
-        pt->ResetReleased();
-      }
     }
   }
 
@@ -1212,6 +1198,33 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
     pt->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
   }
   return pt;
+}
+
+template <class TrackerType>
+inline void HugePageFiller<TrackerType>::UnbackFullyFreedTracker(
+    TrackerType* pt) {
+  TC_ASSERT(pt->fully_freed());
+  TC_ASSERT(pt->released());
+  const Length free_pages = kPagesPerHugePage;
+  const Length released_pages = pt->released_pages();
+  TC_ASSERT_GE(free_pages, released_pages);
+
+  if (free_pages > released_pages) {
+    // pt is partially released.  As the rest of the hugepage-aware
+    // allocator works in terms of whole hugepages, we need to release the
+    // rest of the hugepage.  This simplifies subsequent accounting by
+    // allowing us to work with hugepage-granularity, rather than needing to
+    // retain pt's state indefinitely.
+    bool success =
+        unback_without_lock_(HugeRange(pt->location(), NHugePages(1))).success;
+    if (ABSL_PREDICT_TRUE(success)) {
+      const Length unmapped = free_pages - released_pages;
+      unmapping_unaccounted_ += unmapped;
+      subrelease_stats_.total_pages_subreleased += unmapped;
+    } else {
+      pt->ResetReleased();
+    }
+  }
 }
 
 template <class TrackerType>
@@ -1891,6 +1904,9 @@ inline MemoryModifyStatus HugePageFiller<TrackerType>::Collapse(
         TC_ASSERT(!pt->BeingReleased());
         OnCollapseSuccess(pt, preserve_donated_on_collapse, collapse_released);
       }
+    } else if (pt->fully_freed() && pt->released()) {
+      UnbackFullyFreedTracker(pt);
+      UpdateFillerStatsTracker(clock_.now());
     }
     pt->SetBeingCollapsed(/*value=*/false);
   }
