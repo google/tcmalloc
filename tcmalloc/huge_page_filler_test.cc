@@ -3798,6 +3798,72 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedRecovery) {
   DeleteVector(p1);
 }
 
+TEST_F(FillerTestWithSubreleaseUnbacked,
+       FullBrokenTrackerWithZeroReleasedPagesMisclassifiedAsFullyReleased) {
+  randomize_density_ = false;
+  SpanAllocInfo info = {.objects_per_span = 1,
+                        .density = AccessDensityPrediction::kSparse};
+
+  // 1. Allocate kPagesPerHugePage - 2 pages on a single tracker.
+  PAlloc a1 = AllocateWithSpanAllocInfo(kPagesPerHugePage - Length(2), info);
+  PageTracker* pt = a1.pt;
+  ASSERT_NE(pt, nullptr);
+
+  // 2. Mark the tracker as non-hugepage-backed with 0 unbacked pages and run
+  // treatment with collapse failing so the tracker becomes broken
+  // (unbroken() == false) with 0 released pages (released() == false).
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(a1.p.start_addr(), /*is_hugepage_backed=*/false);
+  Bitmap<kMaxResidencyBits> empty_unbacked, empty_swapped;
+  residency.SetUnbackedAndSwappedBitmaps(a1.p.start_addr(), empty_unbacked,
+                                         empty_swapped);
+  pageflags.SetStaleBitmap(a1.p.start_addr(), {});
+  collapse_.SetSuccess(/*success=*/false);
+  collapse_.SetErrorNumber(EINVAL);
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_FALSE(pt->unbroken());
+  EXPECT_FALSE(pt->released());
+  EXPECT_EQ(pt->released_pages(), Length(0));
+
+  // 3. Allocate 1 of the 2 remaining free pages; because the tracker was never
+  // released, was_released() must remain false.
+  PAlloc a2 = AllocateWithSpanAllocInfo(Length(1), info);
+  ASSERT_EQ(a2.pt, pt);
+  EXPECT_FALSE(pt->released());
+  EXPECT_FALSE(pt->was_released());
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
+
+  // 4. Allocate the final free page so the broken tracker is 100% full
+  // (free_pages() == 0, released_pages() == 0).
+  PAlloc a3 = AllocateWithSpanAllocInfo(Length(1), info);
+  ASSERT_EQ(a3.pt, pt);
+  EXPECT_EQ(pt->free_pages(), Length(0));
+  EXPECT_EQ(pt->released_pages(), Length(0));
+  EXPECT_FALSE(pt->released());
+  EXPECT_FALSE(pt->was_released());
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
+
+  // A 100%-full tracker with 0 released pages must be classified as full
+  // (n_full == 1, n_fully_released == 0, used_pages_in_released == 0).
+  HugePageFillerStats stats = filler_.GetStats();
+  EXPECT_EQ(stats.n_full[AccessDensityPrediction::kSparse], NHugePages(1));
+  EXPECT_EQ(stats.n_fully_released[AccessDensityPrediction::kSparse],
+            NHugePages(0));
+  EXPECT_EQ(stats.n_released[AccessDensityPrediction::kSparse], NHugePages(0));
+  EXPECT_EQ(filler_.used_pages_in_released(), Length(0));
+
+  // Freeing a span moves the non-full broken tracker back to
+  // regular_alloc_partial_released_.
+  DeleteRaw(a3);
+  EXPECT_EQ(filler_.used_pages_in_partial_released(),
+            kPagesPerHugePage - Length(1));
+  DeleteRaw(a2);
+  DeleteRaw(a1);
+}
+
 // This test confirms that when a tracker is hugepage backed, unbacked
 // subrelease is skipped.
 TEST_F(FillerTestWithSubreleaseUnbacked,
@@ -5102,8 +5168,10 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
   // 3. Allocate the remaining pages (so it becomes fully allocated).
   auto half2 = AllocateVectorWithSpanAllocInfo(N / 2, pa.span_alloc_info);
   // It is now fully allocated.
-  // In our new design, it should STILL be marked broken (unbroken_ == false).
-  EXPECT_EQ(filler_.used_pages_in_released(), N);
+  // In our new design, it should STILL be marked broken (unbroken_ == false),
+  // while being classified as a full hugepage in regular_alloc_.
+  EXPECT_FALSE(pa.pt->unbroken());
+  EXPECT_EQ(filler_.used_pages_in_released(), Length(0));
   EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(1));
 
   // Verify it is not yet hugepage backed in stats.
@@ -5130,7 +5198,7 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
   EXPECT_EQ(collapse_.TimesCollapsed(pa.p.start_addr()), 1);
 
   // In our design, successful collapse should flip unbroken_ to true.
-  // So it should move from regular_alloc_released_ to regular_alloc_.
+  EXPECT_TRUE(pa.pt->unbroken());
   EXPECT_EQ(filler_.used_pages_in_released(), Length(0));
   EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(1));
 

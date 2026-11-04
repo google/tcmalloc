@@ -1053,7 +1053,7 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info,
     pt = regular_alloc_partial_released_.GetLeast(type, listindex);
     if (pt) {
       TC_ASSERT(!pt->donated());
-      was_released = true;
+      was_released = pt->released();
       TC_ASSERT_GE(n_used_partial_released_[type], pt->used_pages());
       n_used_partial_released_[type] -= pt->used_pages();
       break;
@@ -2470,10 +2470,10 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
   size_t i = ListFor(*pt);
 
   if (!pt->released() &&
-      (pt->unbroken() ||
+      (pt->unbroken() || pt->free_pages() == Length(0) ||
        subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kDisabled)) {
     regular_alloc_.Remove(pt, i, type);
-  } else if (pt->free_pages() <= pt->released_pages()) {
+  } else if (pt->released() && pt->free_pages() <= pt->released_pages()) {
     regular_alloc_released_.Remove(pt, i, type);
     TC_ASSERT_GE(n_used_released_[type], pt->used_pages());
     n_used_released_[type] -= pt->used_pages();
@@ -2539,10 +2539,10 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
   size_t i = ListFor(*pt);
 
   if (!pt->released() &&
-      (pt->unbroken() ||
+      (pt->unbroken() || pt->free_pages() == Length(0) ||
        subrelease_unbacked_mode_ == SubreleaseUnbackedMode::kDisabled)) {
     regular_alloc_.Add(pt, i, type);
-  } else if (pt->free_pages() <= pt->released_pages()) {
+  } else if (pt->released() && pt->free_pages() <= pt->released_pages()) {
     regular_alloc_released_.Add(pt, i, type);
     n_used_released_[type] += pt->used_pages();
   } else {
