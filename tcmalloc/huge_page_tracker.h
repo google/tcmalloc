@@ -393,6 +393,14 @@ class PageTracker : public TList<PageTracker>::Elem {
   void SetAnonVmaName(MemoryTagFunction& set_anon_vma_name,
                       std::optional<absl::string_view> name);
 
+  [[nodiscard]] bool slc_exclude_candidate() const {
+    return slc_exclude_candidate_;
+  }
+  void set_slc_exclude_candidate(bool value) { slc_exclude_candidate_ = value; }
+
+  [[nodiscard]] bool slc_excluded() const { return slc_excluded_; }
+  void set_slc_excluded(bool value) { slc_excluded_ = value; }
+
   struct HardwarePageResidencyInfo {
     HardwareLength n_free_swapped;
     HardwareLength n_used_swapped;
@@ -478,6 +486,8 @@ class PageTracker : public TList<PageTracker>::Elem {
   // treatment pass read /proc/self/pagemap and then returned to this tracker
   // before Restore() must have passed through Put during this window.
   bool freed_since_selected_ = false;
+  bool slc_exclude_candidate_ = false;
+  bool slc_excluded_ = false;
 
   [[nodiscard]] bool ReleasePages(Range r, MemoryModifyFunction& unback) {
     bool success = unback(r).success;

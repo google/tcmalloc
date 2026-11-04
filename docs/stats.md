@@ -911,6 +911,40 @@ Guard Region Fallbacks: 0
 PARAMETER tcmalloc_guarded_sample_parameter 50
 ```
 
+### Access Density Predictor Status
+
+The `AccessDensityPredictor` section reports the status of dynamic
+allocation-rate classification of normal size classes into dense and sparse
+`HugePageFiller` trackers:
+
+*   `enabled` indicates whether dynamic prediction is enabled (`1`, matching
+    `PARAMETER tcmalloc_access_density_predictor 1`) or disabled (`0`, falling
+    back to the static objects-per-span heuristic).
+*   `updates` is the number of completed allocation-rate sampling epochs since
+    startup.
+*   For each active normal heap partition:
+    *   `initialized` indicates whether that partition has observed allocation
+        traffic and published dynamic predictions, and `dense_size_classes` /
+        `sparse_size_classes` report the number of normal size classes currently
+        routed to dense vs. sparse filler trackers.
+    *   `dense_classes` and `sparse_classes` list the exact size classes (and
+        object byte sizes) assigned to each filler partition (`none` if empty).
+    *   Each `class` line reports the size class's object size, span length in
+        TCMalloc pages, objects per span, active filler partition
+        (`filler=dense` or `filler=sparse`), and windowed EWMA frontend and
+        backend object allocation rates (`objs/s`).
+
+```
+------------------------------------------------
+AccessDensityPredictor: enabled=1, updates=12
+AccessDensityPredictor: partition 0: initialized=1, dense_size_classes=18, sparse_size_classes=31
+  dense_classes: 1(8B) 2(16B) ... 26(2048B)
+  sparse_classes: 19(576B) ... 23(1152B) ... 49(262144B)
+  class   1 [        8 bytes ] :   1 pages;     1024 objs/span; filler=dense;  frontend_rate=    1250.0 objs/s; backend_rate=      15.0 objs/s
+  class  23 [     1152 bytes ] :   2 pages;       14 objs/span; filler=sparse; frontend_rate=   50000.0 objs/s; backend_rate=    1500.0 objs/s
+  class  26 [     2048 bytes ] :   1 pages;        4 objs/span; filler=dense;  frontend_rate=   16000.0 objs/s; backend_rate=   16000.0 objs/s
+```
+
 ### Configured Limits and Parameters
 
 After the GWP-ASan section, TCMalloc prints configured heap limits, aggregate
@@ -971,6 +1005,8 @@ PARAMETER tcmalloc_enable_unfiltered_collapse 0
 PARAMETER tcmalloc_release_stale_pages 0
 PARAMETER tcmalloc_release_drained_slab_metadata 0
 PARAMETER tcmalloc_cfl_subbucket_prioritization 0
+PARAMETER tcmalloc_access_density_predictor 1
+PARAMETER tcmalloc_slc_exclude_sparse_filler 1
 ```
 
 *   **Configured limits and related statistics:** Shows the configured soft and

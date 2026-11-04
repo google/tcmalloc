@@ -15,14 +15,18 @@
 #include "tcmalloc/static_vars.h"
 
 #include <stddef.h>
+#include <stdint.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstring>
 
 #include "absl/base/attributes.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/optimization.h"
+#include "absl/time/time.h"
 #include "absl/types/span.h"
+#include "tcmalloc/access_density_predictor.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/experiment.h"
@@ -79,6 +83,29 @@ size_t Static::metadata_bytes() {
 size_t Static::pagemap_residence() {
   // Determine residence of the root node of the pagemap.
   return MInCore::residence(&pagemap_, sizeof(pagemap_));
+}
+
+void Static::UpdateAccessDensityPredictions(absl::Time now) {
+  InitIfNecessary();
+  AccessDensityPredictor::SizeClassInfo classes[kColdClassesStart];
+  for (size_t sc = 1; sc < kColdClassesStart; ++sc) {
+    const uint64_t frontend_allocs = static_cast<uint64_t>(
+        std::max<int64_t>(0, per_size_class_counts_[sc].value()));
+    const TransferCacheStats tc_stats = transfer_cache_.GetStats(sc);
+    const TransferCacheStats sharded_stats =
+        sharded_transfer_cache_.GetStats(sc);
+    const uint64_t backend_allocs =
+        static_cast<uint64_t>(sharded_stats.remove_object_hits) +
+        static_cast<uint64_t>(tc_stats.remove_object_hits) +
+        static_cast<uint64_t>(tc_stats.remove_object_misses);
+    classes[sc] = AccessDensityPredictor::SizeClassInfo{
+        .object_size = sizemap_.class_to_size(sc),
+        .pages_per_span = sizemap_.class_to_pages(sc),
+        .frontend_allocated_objects = frontend_allocs,
+        .backend_allocated_objects = backend_allocs,
+    };
+  }
+  access_density_predictor_.Update(now, active_partitions(), classes);
 }
 
 SizeClassConfiguration Static::size_class_configuration() {

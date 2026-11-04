@@ -35,6 +35,7 @@
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/slc_exclusion.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/testing/rseq_util.h"
@@ -201,6 +202,15 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, HasSubstr(absl::StrCat(
                        "tcmalloc_fix_max_capacity_bug: ",
                        Parameters::fix_max_capacity_bug() ? "true" : "false")));
+  EXPECT_THAT(buf,
+              HasSubstr(absl::StrCat(
+                  "tcmalloc_access_density_predictor: ",
+                  Parameters::access_density_predictor() ? "true" : "false")));
+  EXPECT_THAT(buf, HasSubstr("access_density_predictor {"));
+  EXPECT_THAT(buf,
+              HasSubstr(absl::StrCat(
+                  "tcmalloc_slc_exclude_sparse_filler: ",
+                  Parameters::slc_exclude_sparse_filler() ? "true" : "false")));
 
   sized_delete(alloc, kSize);
 }
@@ -257,6 +267,12 @@ TEST_F(GetStatsTest, Parameters) {
       Parameters::prefer_backed_filler_pages() ==
       tcmalloc_internal::PreferBackedPages::kEnabled;
   Parameters::set_prefer_backed_filler_pages(false);
+  const bool old_access_density_predictor =
+      Parameters::access_density_predictor();
+  Parameters::set_access_density_predictor(false);
+  const bool old_slc_exclude_sparse_filler =
+      Parameters::slc_exclude_sparse_filler();
+  Parameters::set_slc_exclude_sparse_filler(false);
   const hot_cold_t old_min_hot_access_hint = Parameters::min_hot_access_hint();
   ScopedMadviseSampledAllocations s(MadviseSampledAllocations::kDisabled);
   ASSERT_NE(&TCMalloc_Internal_GetBackSmallAllocations, nullptr);
@@ -340,6 +356,8 @@ TEST_F(GetStatsTest, Parameters) {
         buf, HasSubstr(R"(PARAMETER tcmalloc_collapse_released_hugepages 0)"));
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_prefer_backed_filler_pages 0)"));
+    EXPECT_THAT(buf,
+                HasSubstr(R"(PARAMETER tcmalloc_slc_exclude_sparse_filler 0)"));
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_madvise_sampled_allocations 0)"));
 
@@ -359,6 +377,8 @@ TEST_F(GetStatsTest, Parameters) {
                 HasSubstr(R"(tcmalloc_collapse_released_hugepages: false)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_prefer_backed_filler_pages: false)"));
+    EXPECT_THAT(pbtxt,
+                HasSubstr(R"(tcmalloc_slc_exclude_sparse_filler: false)"));
 #ifdef TCMALLOC_DEPRECATED_PERTHREAD
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_per_cpu_caches: false)"));
 #endif  // TCMALLOC_DEPRECATED_PERTHREAD
@@ -406,6 +426,13 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(buf, HasSubstr(absl::StrCat(
                          "PARAMETER tcmalloc_fix_max_capacity_bug ",
                          Parameters::fix_max_capacity_bug() ? 1 : 0)));
+    EXPECT_THAT(buf,
+                HasSubstr(R"(PARAMETER tcmalloc_access_density_predictor 0)"));
+    EXPECT_THAT(buf, HasSubstr(R"(AccessDensityPredictor: enabled=0,)"));
+    EXPECT_THAT(buf, HasSubstr(R"(  dense_classes: )"));
+    EXPECT_THAT(buf, HasSubstr(R"(  sparse_classes: )"));
+    EXPECT_THAT(pbtxt,
+                HasSubstr(R"(tcmalloc_access_density_predictor: false)"));
   }
 
   Parameters::set_hpaa_subrelease(true);
@@ -426,6 +453,8 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_preserve_donated_on_collapse(true);
   Parameters::set_collapse_released_hugepages(true);
   Parameters::set_prefer_backed_filler_pages(true);
+  Parameters::set_access_density_predictor(true);
+  Parameters::set_slc_exclude_sparse_filler(true);
   Parameters::set_min_hot_access_hint(hot_cold_t{3});
   Parameters::set_madvise_sampled_allocations(
       MadviseSampledAllocations::kEnabled);
@@ -474,6 +503,8 @@ TEST_F(GetStatsTest, Parameters) {
         buf, HasSubstr(R"(PARAMETER tcmalloc_collapse_released_hugepages 1)"));
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_prefer_backed_filler_pages 1)"));
+    EXPECT_THAT(buf,
+                HasSubstr(R"(PARAMETER tcmalloc_slc_exclude_sparse_filler 1)"));
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_madvise_sampled_allocations 1)"));
     EXPECT_THAT(buf,
@@ -511,10 +542,16 @@ TEST_F(GetStatsTest, Parameters) {
                 HasSubstr(R"(tcmalloc_collapse_released_hugepages: true)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_prefer_backed_filler_pages: true)"));
+    EXPECT_THAT(pbtxt,
+                HasSubstr(R"(tcmalloc_slc_exclude_sparse_filler: true)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 3)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_madvise_sampled_allocations: true)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(back_small_allocations: true)"));
+    EXPECT_THAT(buf,
+                HasSubstr(R"(PARAMETER tcmalloc_access_density_predictor 1)"));
+    EXPECT_THAT(buf, HasSubstr(R"(AccessDensityPredictor: enabled=1,)"));
+    EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_access_density_predictor: true)"));
   }
 
   Parameters::set_hpaa_subrelease(old_hpaa_subrelease);
@@ -531,6 +568,8 @@ TEST_F(GetStatsTest, Parameters) {
       old_preserve_donated_on_collapse);
   Parameters::set_collapse_released_hugepages(old_collapse_released_hugepages);
   Parameters::set_prefer_backed_filler_pages(old_prefer_backed_filler_pages);
+  Parameters::set_access_density_predictor(old_access_density_predictor);
+  Parameters::set_slc_exclude_sparse_filler(old_slc_exclude_sparse_filler);
   Parameters::set_min_hot_access_hint(old_min_hot_access_hint);
   TCMalloc_Internal_SetBackSmallAllocations(old_back_small_allocations);
 }
@@ -685,6 +724,52 @@ TEST_F(GetStatsTest, HugeRegionTimeseries) {
     if (p != nullptr) {
       sized_delete(p, kAllocSize);
     }
+  }
+}
+
+TEST_F(GetStatsTest, SlcExclusionStats) {
+  if (tcmalloc_internal::kSanitizerPresent) {
+    return;
+  }
+
+  auto noop_actuator = +[](void*, size_t, bool, void*) -> int32_t { return 0; };
+  tcmalloc_internal::ScopedSlcExclusionActuatorForTesting scoped_actuator(
+      noop_actuator, nullptr);
+
+  // Keep a small object class hot so even in 256 KiB page builds (where 64 KiB
+  // spans are 1 page), 64 KiB remains in the sparse partition under ADP.
+  for (int i = 0; i < 100000; ++i) {
+    void* p = ::operator new(8);
+    sized_delete(p, 8);
+  }
+
+  // Allocate 16 MiB of 64 KiB objects (<= 16 objects/span across all page-size
+  // configurations -> sparse filler) so HPAA refills at least one sparse filler
+  // hugepage through StaticForwarder.
+  constexpr size_t kSparseObjSize = 64 * 1024;
+  constexpr int kNumSparseObjs = 256;
+  std::vector<void*> ptrs;
+  ptrs.reserve(kNumSparseObjs);
+  for (int i = 0; i < kNumSparseObjs; ++i) {
+    ptrs.push_back(::operator new(kSparseObjSize));
+  }
+
+  const std::string text = MallocExtension::GetStats();
+  EXPECT_THAT(text, HasSubstr("ARM64 SLC Exclusion (Sparse Filler)"));
+  EXPECT_THAT(text, HasSubstr("backend_state=SLC_EXCLUSION_TEST_OVERRIDE"));
+  EXPECT_THAT(
+      text, HasSubstr("SLC exclusion normal partition 0 size classes: dense="));
+  EXPECT_THAT(text, HasSubstr("SLC exclusion normal partition 0 size classes: "
+                              "sparse/SLC-target="));
+  EXPECT_THAT(text,
+              HasSubstr("PARAMETER tcmalloc_slc_exclude_sparse_filler 1"));
+
+  const std::string pbtxt = GetStatsInPbTxt();
+  EXPECT_THAT(pbtxt, HasSubstr("tcmalloc_slc_exclude_sparse_filler: true"));
+  EXPECT_THAT(pbtxt, HasSubstr("slc_exclusion {"));
+
+  for (void* p : ptrs) {
+    sized_delete(p, kSparseObjSize);
   }
 }
 

@@ -24,6 +24,7 @@
 #include "absl/base/optimization.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "tcmalloc/access_density_predictor.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
@@ -40,6 +41,7 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/internal/slc_exclusion.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/malloc_hook_invoke.h"
 #include "tcmalloc/metadata_object_allocator.h"
@@ -554,6 +556,16 @@ void DumpStats(Printer& out, int level) {
                                         pageflags);
     }
     tc_globals.guardedpage_allocator().Print(out);
+    tc_globals.access_density_predictor().Print(
+        out, Parameters::access_density_predictor(),
+        tc_globals.active_partitions(), [&](size_t sc) {
+          return AccessDensityPredictor::ClassGeometry{
+              .object_size = tc_globals.sizemap().class_to_size(sc),
+              .objects_per_span =
+                  tc_globals.central_freelist(sc).objects_per_span(),
+              .pages_per_span = tc_globals.sizemap().class_to_pages(sc),
+          };
+        });
 
     out.printf("------------------------------------------------\n");
     out.printf("Configured limits and related statistics\n");
@@ -600,6 +612,92 @@ void DumpStats(Printer& out, int level) {
                                                                 : "NUMA ")
                    : "",
                tc_globals.active_partitions());
+
+    {
+      const SlcExclusionStats slc = GetSlcExclusionStats();
+      out.printf("------------------------------------------------\n");
+      out.printf("ARM64 SLC Exclusion (Sparse Filler)\n");
+      out.printf("------------------------------------------------\n");
+      out.printf(
+          "SLC exclusion: parameter=%d, available=%d, backend_state=%s, "
+          "prog_fd=%v, open_errno=%v\n",
+          Parameters::slc_exclude_sparse_filler() ? 1 : 0,
+          SlcExclusionAvailable() ? 1 : 0,
+          SlcExclusionBackendStateToString(slc.backend_state), slc.prog_fd,
+          slc.open_errno);
+      out.printf(
+          "SLC exclusion syscalls: exclude=%v (succeeded=%v, errors=%v, "
+          "last_retval=%v), include=%v (succeeded=%v, errors=%v, "
+          "last_retval=%v)\n",
+          slc.exclude_syscalls, slc.exclude_succeeded, slc.exclude_errors,
+          slc.last_exclude_retval, slc.include_syscalls, slc.include_succeeded,
+          slc.include_errors, slc.last_include_retval);
+      auto is_dense_class = [&](size_t size_class) {
+        const size_t objects_per_span =
+            tc_globals.central_freelist(size_class).objects_per_span();
+        const Length pages = tc_globals.sizemap().class_to_pages(size_class);
+        const AccessDensityPrediction pred =
+            Parameters::access_density_predictor()
+                ? tc_globals.access_density_predictor().Predict(
+                      static_cast<int>(size_class), objects_per_span, pages)
+                : AccessDensityPredictor::StaticPredict(objects_per_span,
+                                                        pages);
+        return pred == AccessDensityPrediction::kDense;
+      };
+      const size_t active_partitions = tc_globals.active_partitions();
+      for (size_t p = 0; p < active_partitions; ++p) {
+        const size_t size_class_base = p * kNumBaseClasses;
+        size_t dense_classes = 0;
+        size_t sparse_classes = 0;
+        for (size_t base_size_class = 1; base_size_class < kNumBaseClasses;
+             ++base_size_class) {
+          const size_t size_class = size_class_base + base_size_class;
+          if (tc_globals.sizemap().class_to_size(size_class) == 0) continue;
+          if (is_dense_class(size_class)) {
+            ++dense_classes;
+          } else {
+            ++sparse_classes;
+          }
+        }
+        out.printf(
+            "SLC exclusion normal partition %zu size classes: dense=%zu:", p,
+            dense_classes);
+        for (size_t base_size_class = 1; base_size_class < kNumBaseClasses;
+             ++base_size_class) {
+          const size_t size_class = size_class_base + base_size_class;
+          const size_t size = tc_globals.sizemap().class_to_size(size_class);
+          if (size == 0) continue;
+          const size_t objects_per_span =
+              tc_globals.central_freelist(size_class).objects_per_span();
+          if (is_dense_class(size_class)) {
+            out.printf(" %zu(%zuB,%zupg,%zuobj)", size_class, size,
+                       Length(tc_globals.sizemap().class_to_pages(size_class))
+                           .raw_num(),
+                       objects_per_span);
+          }
+        }
+        out.printf("\n");
+        out.printf(
+            "SLC exclusion normal partition %zu size classes: "
+            "sparse/SLC-target=%zu:",
+            p, sparse_classes);
+        for (size_t base_size_class = 1; base_size_class < kNumBaseClasses;
+             ++base_size_class) {
+          const size_t size_class = size_class_base + base_size_class;
+          const size_t size = tc_globals.sizemap().class_to_size(size_class);
+          if (size == 0) continue;
+          const size_t objects_per_span =
+              tc_globals.central_freelist(size_class).objects_per_span();
+          if (!is_dense_class(size_class)) {
+            out.printf(" %zu(%zuB,%zupg,%zuobj)", size_class, size,
+                       Length(tc_globals.sizemap().class_to_pages(size_class))
+                           .raw_num(),
+                       objects_per_span);
+          }
+        }
+        out.printf("\n");
+      }
+    }
 
     out.printf("------------------------------------------------\n");
     out.printf("Parameters\n");
@@ -719,6 +817,10 @@ void DumpStats(Printer& out, int level) {
             : 0);
     out.printf("PARAMETER tcmalloc_fix_max_capacity_bug %d\n",
                Parameters::fix_max_capacity_bug());
+    out.printf("PARAMETER tcmalloc_access_density_predictor %d\n",
+               Parameters::access_density_predictor() ? 1 : 0);
+    out.printf("PARAMETER tcmalloc_slc_exclude_sparse_filler %d\n",
+               Parameters::slc_exclude_sparse_filler() ? 1 : 0);
   }
 }
 
@@ -895,6 +997,16 @@ void DumpStatsInPbtxt(Printer& out, int level) {
     auto gwp_asan = region.CreateSubRegion("gwp_asan");
     tc_globals.guardedpage_allocator().PrintInPbtxt(gwp_asan);
   }
+  tc_globals.access_density_predictor().PrintInPbtxt(
+      region, Parameters::access_density_predictor(),
+      tc_globals.active_partitions(), [&](size_t sc) {
+        return AccessDensityPredictor::ClassGeometry{
+            .object_size = tc_globals.sizemap().class_to_size(sc),
+            .objects_per_span =
+                tc_globals.central_freelist(sc).objects_per_span(),
+            .pages_per_span = tc_globals.sizemap().class_to_pages(sc),
+        };
+      });
 
   region.PrintI64("memory_release_failures",
                   tc_globals.system_allocator().release_errors());
@@ -996,6 +1108,26 @@ void DumpStatsInPbtxt(Printer& out, int level) {
 
   region.PrintBool("tcmalloc_fix_max_capacity_bug",
                    Parameters::fix_max_capacity_bug());
+  region.PrintBool("tcmalloc_access_density_predictor",
+                   Parameters::access_density_predictor());
+  region.PrintBool("tcmalloc_slc_exclude_sparse_filler",
+                   Parameters::slc_exclude_sparse_filler());
+  {
+    const SlcExclusionStats slc = GetSlcExclusionStats();
+    PbtxtRegion slc_region = region.CreateSubRegion("slc_exclusion");
+    slc_region.PrintRaw("backend_state",
+                        SlcExclusionBackendStateToString(slc.backend_state));
+    slc_region.PrintI64("prog_fd", slc.prog_fd);
+    slc_region.PrintI64("open_errno", slc.open_errno);
+    slc_region.PrintI64("exclude_syscalls", slc.exclude_syscalls);
+    slc_region.PrintI64("exclude_succeeded", slc.exclude_succeeded);
+    slc_region.PrintI64("exclude_errors", slc.exclude_errors);
+    slc_region.PrintI64("last_exclude_retval", slc.last_exclude_retval);
+    slc_region.PrintI64("include_syscalls", slc.include_syscalls);
+    slc_region.PrintI64("include_succeeded", slc.include_succeeded);
+    slc_region.PrintI64("include_errors", slc.include_errors);
+    slc_region.PrintI64("last_include_retval", slc.last_include_retval);
+  }
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,

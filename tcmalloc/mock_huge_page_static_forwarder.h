@@ -16,6 +16,7 @@
 #define TCMALLOC_MOCK_HUGE_PAGE_STATIC_FORWARDER_H_
 
 #include <atomic>
+#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -115,12 +116,50 @@ class FakeHugePageStaticForwarder : private Parameters {
       Parameters::preserve_donated_on_collapse()};
   FakeParameter<CollapseReleasedHugePages> collapse_released_hugepages{
       Parameters::collapse_released_hugepages()};
+  FakeParameter<bool> slc_exclude_sparse_filler{
+      Parameters::slc_exclude_sparse_filler()};
   // NOLINTEND(readability-identifier-naming)
 
   [[nodiscard]] bool release_succeeds() const { return release_succeeds_; }
   void set_release_succeeds(bool value) { release_succeeds_ = value; }
   void set_collapse_succeeds(bool value) { collapse_succeeds_ = value; }
   void set_error_number(int value) { error_number_ = value; }
+
+  [[nodiscard]] bool SlcExclusionAvailable() const {
+    return slc_exclusion_available_.load(std::memory_order_acquire);
+  }
+  void set_slc_exclusion_available(bool value) {
+    slc_exclusion_available_.store(value, std::memory_order_release);
+  }
+  void set_slc_exclude_retval(int32_t value) {
+    slc_exclude_retval_.store(value, std::memory_order_relaxed);
+  }
+  void set_slc_include_retval(int32_t value) {
+    slc_include_retval_.store(value, std::memory_order_relaxed);
+  }
+  [[nodiscard]] size_t slc_exclude_calls() const {
+    absl::base_internal::SpinLockHolder h(live_spans_lock_);
+    return slc_exclude_calls_;
+  }
+  [[nodiscard]] size_t slc_include_calls() const {
+    absl::base_internal::SpinLockHolder h(live_spans_lock_);
+    return slc_include_calls_;
+  }
+  [[nodiscard]] bool IsHugePageSlcExcluded(HugePage hp) const {
+    absl::base_internal::SpinLockHolder h(live_spans_lock_);
+    return slc_excluded_hugepages_.contains(hp);
+  }
+  [[nodiscard]] size_t NumSlcExcludedHugePages() const {
+    absl::base_internal::SpinLockHolder h(live_spans_lock_);
+    return slc_excluded_hugepages_.size();
+  }
+  template <typename Fn>
+  void ForEachSlcExcludedHugePage(Fn&& fn) const {
+    absl::base_internal::SpinLockHolder h(live_spans_lock_);
+    for (const HugePage hp : slc_excluded_hugepages_) {
+      fn(hp);
+    }
+  }
 
   [[nodiscard]] Clock clock() const {
     return Clock{.now = FakeClock, .freq = FakeClockFrequency};
@@ -250,6 +289,45 @@ class FakeHugePageStaticForwarder : private Parameters {
   void SetAnonVmaName(
       Range, std::optional<absl::string_view> name) { /* unimplemented */ }
 
+  [[nodiscard]] int32_t SlcExcludePages(Range r)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    const uintptr_t start =
+        reinterpret_cast<uintptr_t>(r.p.start_addr()) & ~kTagMask;
+    const uintptr_t end = start + r.n.in_bytes();
+    TC_CHECK_LE(end, fake_allocation_);
+    TC_CHECK_EQ(r.p, HugePageContaining(r.p).first_page());
+    TC_CHECK_EQ(r.n, kPagesPerHugePage);
+    CheckNotLive(r);
+    absl::base_internal::SpinLockHolder h(live_spans_lock_);
+    ++slc_exclude_calls_;
+    const int32_t retval = slc_exclude_retval_.load(std::memory_order_relaxed);
+    if (retval == 0) {
+      slc_excluded_hugepages_.insert(HugePageContaining(r.p));
+    } else if (retval == -EOPNOTSUPP || retval == -ENOSYS) {
+      slc_exclusion_available_.store(false, std::memory_order_release);
+    }
+    return retval;
+  }
+
+  [[nodiscard]] int32_t SlcIncludePages(Range r)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    const uintptr_t start =
+        reinterpret_cast<uintptr_t>(r.p.start_addr()) & ~kTagMask;
+    const uintptr_t end = start + r.n.in_bytes();
+    TC_CHECK_LE(end, fake_allocation_);
+    TC_CHECK_EQ(r.p, HugePageContaining(r.p).first_page());
+    TC_CHECK_EQ(r.n, kPagesPerHugePage);
+    CheckNotLive(r);
+    absl::base_internal::SpinLockHolder h(live_spans_lock_);
+    ++slc_include_calls_;
+    TC_CHECK(slc_excluded_hugepages_.contains(HugePageContaining(r.p)));
+    const int32_t retval = slc_include_retval_.load(std::memory_order_relaxed);
+    if (retval == 0) {
+      TC_CHECK_EQ(slc_excluded_hugepages_.erase(HugePageContaining(r.p)), 1u);
+    }
+    return retval;
+  }
+
  private:
   // A released range overlaps no live span.  This is the property at risk once
   // unback runs with pageheap_lock dropped: a page handed to another thread in
@@ -337,6 +415,14 @@ class FakeHugePageStaticForwarder : private Parameters {
   absl::flat_hash_set<PageId, absl::Hash<PageId>, std::equal_to<PageId>,
                       AllocAdaptor<PageId>>
       non_resident_pages_ ABSL_GUARDED_BY(live_spans_lock_);
+  absl::flat_hash_set<HugePage, absl::Hash<HugePage>, std::equal_to<HugePage>,
+                      AllocAdaptor<HugePage>>
+      slc_excluded_hugepages_ ABSL_GUARDED_BY(live_spans_lock_);
+  std::atomic<bool> slc_exclusion_available_{true};
+  std::atomic<int32_t> slc_exclude_retval_{0};
+  std::atomic<int32_t> slc_include_retval_{0};
+  size_t slc_exclude_calls_ ABSL_GUARDED_BY(live_spans_lock_) = 0;
+  size_t slc_include_calls_ ABSL_GUARDED_BY(live_spans_lock_) = 0;
   bool last_may_have_grown_{false};
 };
 

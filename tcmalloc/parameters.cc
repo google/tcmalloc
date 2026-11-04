@@ -160,6 +160,13 @@ void Parameters::InitializeFromExperiments() {
     min_hot_access_hint_.store(static_cast<tcmalloc::hot_cold_t>(2),
                                std::memory_order_relaxed);
   }
+
+  if (const char* e = thread_safe_getenv("TCMALLOC_SLC_EXCLUDE_SPARSE_FILLER");
+      e != nullptr) {
+    const bool enabled =
+        !(strcasecmp(e, "false") == 0 || std::strcmp(e, "0") == 0);
+    slc_exclude_sparse_filler_.store(enabled, std::memory_order_relaxed);
+  }
 }
 
 uint64_t Parameters::heap_size_hard_limit() {
@@ -280,6 +287,7 @@ ABSL_CONST_INIT std::atomic<ReleaseStalePages> Parameters::release_stale_pages_(
 
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_drained_slab_metadata_(
     true);
+ABSL_CONST_INIT std::atomic<bool> Parameters::slc_exclude_sparse_filler_(true);
 
 static std::atomic<bool>& fix_max_capacity_bug_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -383,6 +391,8 @@ ABSL_CONST_INIT std::atomic<bool>
 ABSL_CONST_INIT std::atomic<int64_t>
     Parameters::background_process_sleep_interval_ns_(
         absl::ToInt64Nanoseconds(absl::Seconds(1)));
+ABSL_CONST_INIT std::atomic<bool> Parameters::access_density_predictor_enabled_(
+    true);
 
 EnableCollapse Parameters::usermode_hugepage_collapse() {
   return usermode_hugepage_collapse_enabled_.load(std::memory_order_relaxed);
@@ -926,6 +936,16 @@ bool TCMalloc_Internal_GetFixMaxCapacityBug() {
 void TCMalloc_Internal_SetFixMaxCapacityBug(bool v) {
   tcmalloc::tcmalloc_internal::fix_max_capacity_bug_enabled().store(
       v, std::memory_order_relaxed);
+}
+
+bool TCMalloc_Internal_GetSlcExcludeSparseFiller() {
+  tc_globals.InitIfNecessary();
+  return Parameters::slc_exclude_sparse_filler();
+}
+
+void TCMalloc_Internal_SetSlcExcludeSparseFiller(bool v) {
+  tc_globals.InitIfNecessary();
+  Parameters::slc_exclude_sparse_filler_.store(v, std::memory_order_relaxed);
 }
 }  // extern "C"
 

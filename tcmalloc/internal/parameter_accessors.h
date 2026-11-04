@@ -172,6 +172,9 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseDrainedSlabMetadata(
 [[nodiscard]] ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetFixMaxCapacityBug();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetFixMaxCapacityBug(bool v);
 [[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetSlcExcludeSparseFiller();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetSlcExcludeSparseFiller(bool v);
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
 TCMalloc_Internal_GetPageAllocationStatus(
     const void* ptr,
     tcmalloc::tcmalloc_internal::PageAllocationStatus* absl_nonnull status);
