@@ -181,8 +181,9 @@ class FakePageFlags : public PageFlagsBase {
   PageFlagsBitmaps GetSinglePageBitmaps(const void* addr) override {
     PageId p = PageIdContaining(addr);
     HugePage hp = HugePageContaining(p);
-    EXPECT_TRUE(page_flags_bitmaps_.contains(hp.start_addr()));
-    return page_flags_bitmaps_[hp.start_addr()];
+    auto it = page_flags_bitmaps_.find(hp.start_addr());
+    EXPECT_NE(it, page_flags_bitmaps_.end());
+    return it->second;
   }
 
   void SetStaleBitmap(const void* addr, const ResidencyBitmap& stale) {
@@ -229,8 +230,9 @@ class FakeResidency : public Residency {
   SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override {
     PageId p = PageIdContaining(addr);
     HugePage hp = HugePageContaining(p);
-    EXPECT_TRUE(residency_bitmaps_.contains(hp.start_addr()));
-    SinglePageBitmaps ret = residency_bitmaps_[hp.start_addr()];
+    auto it = residency_bitmaps_.find(hp.start_addr());
+    EXPECT_NE(it, residency_bitmaps_.end());
+    SinglePageBitmaps ret = it->second;
     if (unlocked_hook_ != nullptr) {
       unlocked_hook_(addr);
     }
