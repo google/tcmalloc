@@ -823,12 +823,6 @@ struct State {
     }
     TC_CHECK_EQ(release_stats, expected_stats);
     TC_CHECK_EQ(live_ranges.size(), allocs.size());
-    // The hugepages the regions count as free and backed are free, except
-    // those being released: HugeRegionSet learns of a release only when it
-    // returns, so it over-counts by the range in flight meanwhile.
-    TC_CHECK_LE(regions_free_backed.in_bytes(),
-                regions_stats.free_bytes +
-                    allocator.forwarder().pending_release_.in_bytes());
     // Everything not free or unmapped is held by a live span, except for
     // pages whose release is in flight.
     TC_CHECK_GE(stats.system_bytes, stats.free_bytes + stats.unmapped_bytes);
@@ -847,6 +841,10 @@ struct State {
     // it drops the lock to unback the remainder.
     const bool mid_operation = depth > 0 || lock_drops > 0;
     if (!mid_operation) {
+      // HugeRegionSet::ReleasePages subtracts unbacked hugepages from
+      // free_backed_count_ only when the sweep returns, so check the bound
+      // once any in-flight operation has finished.
+      TC_CHECK_LE(regions_free_backed.in_bytes(), regions_stats.free_bytes);
       CheckReleasedPagesNonResident();
     }
     auto parked_only = [&](size_t over) {
@@ -968,6 +966,7 @@ struct State {
   // Bumped whenever a reentrant subprogram runs, so an operation can tell
   // whether other instructions interleaved with it.
   size_t reentrant_runs = 0;
+  bool treating_trackers = false;
   std::string output;
 };
 
@@ -1193,8 +1192,19 @@ void AdvanceClock::Perform(State& state) const {
 }
 
 void TreatTrackers::Perform(State& state) const {
+  // Treatment drops pageheap_lock around collapse and VMA naming, so a
+  // reentrant subprogram could start a second treatment.  Production runs
+  // treatment from a single background thread, and nested treatments would
+  // clear each other's DontFreeTracker bits, so never nest them.
+  // TODO(b/565392619): Fuzz concurrent treatments once tracker state survives
+  // multiple treatment threads.
+  if (state.treating_trackers) {
+    return;
+  }
+  state.treating_trackers = true;
   state.allocator.TreatHugepageTrackers(enable_collapse, &state.pageflags,
                                         &state.residency);
+  state.treating_trackers = false;
 }
 
 void ResetSubreleaseIntervals::Perform(State& state) const {
@@ -2219,25 +2229,34 @@ TEST(HugePageAwareAllocatorTest,
            TreatTrackers{.enable_collapse = EnableCollapse::kEnabled}}});
 }
 
-TEST(HugePageAwareAllocatorTest, NestedTreatTrackers) {
-  FuzzHPAA(
+// HugeRegionSet::ReleasePages subtracts unbacked hugepages from
+// free_backed_count_ only when the sweep returns, whereas HugeRegion subtracts
+// each contiguous batch before dropping pageheap_lock.
+TEST(HugePageAwareAllocatorTest, MultiBatchRegionRelease) {
+  const size_t pages_per_hp = kPagesPerHugePage.raw_num();
+  const size_t threshold_pages =
+      HLFromBytes(64 * 1024 * 1024).in_pages().raw_num();
+  const size_t slack_per_span = pages_per_hp - 1;
+  const size_t warmup = (threshold_pages + slack_per_span - 1) / slack_per_span;
+
+  // `warmup` spans cross the 64 MiB slack threshold to open a HugeRegion, and
+  // three more spans s0..s2 cover HPs 0..3; freeing s2 and s0 leaves HPs 0 and
+  // 3 free-and-backed, separated by s1 on HPs 1..2.
+  std::vector<Instruction> instructions(
+      warmup + 3,
+      Instruction{Alloc{.length = pages_per_hp + 1, .num_objects = 1}});
+  instructions.push_back(Instruction{Dealloc{.index = warmup + 2}});
+  instructions.push_back(Instruction{Dealloc{.index = warmup}});
+  instructions.push_back(Instruction{ReleasePagesBreakingHugepages{
+      .desired = 2 * pages_per_hp, .soft_limit_exceeded = true}});
+
+  const PageReleaseStats stats = RunHPAA(
       FuzzHugePageAwareAllocatorOptions{
           .tag = MemoryTag::kNormal,
-          .use_huge_region_more_often = HugeRegionUsageOption::kDefault},
-      {Instruction{Alloc{.length = 1,
-                         .num_objects = 1,
-                         .alignment = 1,
-                         .use_aligned = false,
-                         .dense = false}},
-       Instruction{ChangeParam{SetTrackBrokenHugepages{.value = true}}},
-       Instruction{ChangeParam{ReentrantSubprogram{
-           {Instruction{
-                TreatTrackers{.enable_collapse = EnableCollapse::kDisabled}},
-            Instruction{
-                TreatTrackers{.enable_collapse = EnableCollapse::kEnabled}},
-            Instruction{Dealloc{.index = 0}}}}}},
-       Instruction{
-           TreatTrackers{.enable_collapse = EnableCollapse::kEnabled}}});
+          .use_huge_region_more_often =
+              HugeRegionUsageOption::kUseForAllLargeAllocs},
+      instructions);
+  EXPECT_EQ(stats.soft_limit_exceeded, NHugePages(2).in_pages());
 }
 
 }  // namespace
