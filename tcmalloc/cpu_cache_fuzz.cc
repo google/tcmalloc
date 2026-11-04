@@ -85,7 +85,7 @@ class ArenaShardedForwarder : public FakeShardedTransferCacheForwarder {
 };
 
 // CpuCache keeps every slab it has ever allocated in slabs_by_shift_ for reuse
-// and only returns the current one in Deactivate().  Across thousands of fuzz
+// and only returns the current one in ~CpuCache().  Across thousands of fuzz
 // iterations the remainder would exhaust vm.max_map_count, so record every
 // mapping handed out and unmap the survivors when the harness tears down.
 //
@@ -102,6 +102,8 @@ class FuzzForwarder : public TestStaticForwarder {
   using ShardedManager =
       ShardedTransferCacheManagerBase<ArenaShardedForwarder, FakeCpuLayout,
                                       FakeCentralFreeList>;
+
+  ~FuzzForwarder() { ReleaseLeakedMappings(); }
 
   static void* AllocCpuCache(size_t size, std::align_val_t alignment) {
     void* ptr = TestStaticForwarder::AllocCpuCache(size, alignment);
@@ -442,7 +444,6 @@ State::~State() {
     cache_.Drain(cpu);
   }
   TC_CHECK_EQ(cache_.TotalUsedBytes(), 0);
-  cache_.Deactivate();
 
   // Return everything the CPU caches pushed into the transfer caches to
   // FakeCentralFreeList so that nothing leaks.
@@ -467,7 +468,6 @@ State::~State() {
   forwarder().SetShardedCacheForLargeClassesOnly(false);
 
   fake_cpu_.reset();
-  FuzzForwarder::ReleaseLeakedMappings();
 }
 
 // Instructions.  Each carries the fuzzer-chosen operands, a Perform method that

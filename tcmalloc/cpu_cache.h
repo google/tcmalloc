@@ -210,6 +210,7 @@ class CpuCache {
   static constexpr double kCacheCapacityThreshold = 0.20;
 
   constexpr CpuCache() = default;
+  ~CpuCache() ABSL_LOCKS_EXCLUDED(resize_lock_, pageheap_lock);
 
   // We explicitly initialize global state (to be safe for
   // use in global constructors) so our constructor must be trivial;
@@ -217,9 +218,6 @@ class CpuCache {
   void Init();
 
   void Activate() ABSL_LOCKS_EXCLUDED(resize_lock_, pageheap_lock);
-
-  // For testing
-  void Deactivate() ABSL_LOCKS_EXCLUDED(resize_lock_, pageheap_lock);
 
   // Allocate an object of the given size class.
   // Returns nullptr when allocation fails.
@@ -1149,7 +1147,10 @@ inline void CpuCache<Forwarder>::Activate() {
 }
 
 template <class Forwarder>
-inline void CpuCache<Forwarder>::Deactivate() {
+inline CpuCache<Forwarder>::~CpuCache() {
+  if (resize_ == nullptr) {
+    return;
+  }
   int num_cpus = NumCPUs();
   ResizeInfo* resize;
   {

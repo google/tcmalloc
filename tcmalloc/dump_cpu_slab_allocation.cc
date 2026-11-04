@@ -41,7 +41,10 @@ class DumpForwarder {
   DumpForwarder() { numa_topology_.Init(); }
 
   static void* AllocCpuCache(size_t size, std::align_val_t alignment) {
-    return new char[size];
+    return ::operator new(size, alignment);
+  }
+  static void Dealloc(void* ptr, size_t size, std::align_val_t alignment) {
+    ::operator delete(ptr, size, alignment);
   }
   const NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() const {
     return numa_topology_;
@@ -50,8 +53,14 @@ class DumpForwarder {
       ShardedTransferCacheManagerBase<FakeShardedTransferCacheForwarder,
                                       FakeCpuLayout,
                                       MinimalFakeCentralFreeList>;
+  ShardedManager& sharded_transfer_cache() { return sharded_transfer_cache_; }
   const ShardedManager& sharded_transfer_cache() const {
     return sharded_transfer_cache_;
+  }
+  ThreeSizeClassManager<FakeCentralFreeList,
+                        internal_transfer_cache::TransferCache>&
+  transfer_cache() {
+    return transfer_cache_;
   }
   size_t active_partitions() const { return num_active_partitions_; }
   size_t num_objects_to_move(size_t size_class) const { return 1; }
@@ -71,6 +80,9 @@ class DumpForwarder {
  private:
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;
   ShardedManager sharded_transfer_cache_{nullptr};
+  ThreeSizeClassManager<FakeCentralFreeList,
+                        internal_transfer_cache::TransferCache>
+      transfer_cache_;
   size_t num_active_partitions_ = 1;
 };
 

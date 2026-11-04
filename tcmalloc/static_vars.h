@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include <atomic>
+#include <utility>
 
 #include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
@@ -101,7 +102,7 @@ class Static final {
 
   [[nodiscard]] SizeMap& sizemap() { return sizemap_; }
 
-  [[nodiscard]] auto& cpu_cache() { return cpu_cache_; }
+  [[nodiscard]] auto& cpu_cache() { return cpu_cache_.value; }
 
   [[nodiscard]] PeakHeapTracker& peak_heap_tracker() {
     return peak_heap_tracker_;
@@ -232,13 +233,26 @@ class Static final {
     uintptr_t extra;  // To force alignment
   };
 
+  // Avoid running ~CpuCache() at process exit on compilers without
+  // [[clang::no_destroy]] (such as GCC).
+  template <typename T>
+  union NoDestructorStorage {
+    template <typename... Args>
+    constexpr explicit NoDestructorStorage(Args&&... args)
+        : value(std::forward<Args>(args)...) {}
+
+    ~NoDestructorStorage() {}
+
+    T value;
+  };
+
   // Cacheline-align our SizeMap and CpuCache.  They both have very hot arrays
   // as their first member variables, and aligning them reduces the number of
   // cache lines these arrays use.
   Arena arena_;
   ABSL_CACHELINE_ALIGNED SizeMap sizemap_;
-  ABSL_CACHELINE_ALIGNED CpuCache<StaticForwarder<Static, tc_globals>>
-      cpu_cache_;
+  ABSL_CACHELINE_ALIGNED
+  NoDestructorStorage<CpuCache<StaticForwarder<Static, tc_globals>>> cpu_cache_;
   TransferCacheManager transfer_cache_;
   ShardedTransferCacheManager sharded_transfer_cache_{nullptr};
   GuardedPageAllocator guardedpage_allocator_;

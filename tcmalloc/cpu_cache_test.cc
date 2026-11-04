@@ -194,7 +194,6 @@ TEST(CpuCacheTest, UsesShardedAsBackingCache) {
   EXPECT_EQ(tc_stats.insert_hits, 0);
   EXPECT_EQ(tc_stats.insert_misses, 0);
   forwarder.SetGenericShardedCache(false);
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, DrainShardedFromUnregisteredThread) {
@@ -231,7 +230,6 @@ TEST(CpuCacheTest, DrainShardedFromUnregisteredThread) {
   TransferCacheStats tc_stats = forwarder.transfer_cache().GetStats(kSizeClass);
   EXPECT_EQ(tc_stats.insert_hits, 1);
   forwarder.SetGenericShardedCache(false);
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, ResizeInfoNoFalseSharing) {
@@ -388,7 +386,6 @@ TEST(CpuCacheTest, Metadata) {
 
   // Tear down.
   cache.Deallocate(ptr, kSizeClass);
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, CacheMissStats) {
@@ -455,7 +452,6 @@ TEST(CpuCacheTest, CacheMissStats) {
 
   // Tear down.
   cache.Deallocate(ptr, kSizeClass);
-  cache.Deactivate();
 }
 
 static void ResizeSizeClasses(CpuCache& cache, const std::atomic<bool>& stop) {
@@ -639,8 +635,6 @@ TEST(CpuCacheTest, ResizeMaxCapacityTest) {
     EXPECT_EQ(cache.GetCapacityOfSizeClass(kCpuId, kLargeClass),
               resized_max_capacity);
   }
-  // Drain caches.
-  cache.Deactivate();
 }
 
 static void ResizeMaxCapacities(CpuCache& cache,
@@ -706,7 +700,6 @@ TEST(CpuCacheTest, StressMaxCapacityResize) {
   EXPECT_EQ(new_max_capacity, old_max_capacity);
 
   EXPECT_EQ(capacity, kTotalCapacity);
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, StressSizeClassResize) {
@@ -747,8 +740,6 @@ TEST(CpuCacheTest, StressSizeClassResize) {
     capacity += cache.Capacity(cpu);
   }
   EXPECT_EQ(capacity, kTotalCapacity);
-
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, StealCpuCache) {
@@ -788,8 +779,6 @@ TEST(CpuCacheTest, StealCpuCache) {
     capacity += cache.Capacity(cpu);
   }
   EXPECT_EQ(capacity, kTotalCapacity);
-
-  cache.Deactivate();
 }
 
 // Test that when dynamic slab is enabled, nothing goes horribly wrong and that
@@ -890,8 +879,6 @@ TEST(CpuCacheTest, DynamicSlab) {
   for (auto& t : threads) {
     t.join();
   }
-
-  cache.Deactivate();
 }
 
 // In this test, we check if we can resize size classes based on the number of
@@ -997,9 +984,6 @@ TEST(CpuCacheTest, ResizeSizeClassesTest) {
   EXPECT_EQ(cache.Unallocated(kCpuId), unallocated_bytes);
   EXPECT_EQ(cache.Allocated(kCpuId), max_cpu_cache_size - unallocated_bytes);
   EXPECT_EQ(cache.TotalObjectsOfClass(kSmallClass), batch_size_small);
-
-  // Drain caches.
-  cache.Deactivate();
 }
 
 // Runs a single allocate and deallocate operation to warm up the cache. Once a
@@ -1117,7 +1101,6 @@ TEST_F(DynamicWideSlabTest, DynamicSlabThreshold) {
             total_misses.underflows * kDynamicSlabGrowThreshold);
   cache.ResizeSlabIfNeeded();
   EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift + 1);
-  cache.Deactivate();
 }
 
 // Test that when dynamic slab parameters change, things still work.
@@ -1162,8 +1145,6 @@ TEST_F(DynamicWideSlabTest, DynamicSlabParamsChange) {
       for (auto& t : threads) {
         t.join();
       }
-
-      cache.Deactivate();
     }
   }
 }
@@ -1215,8 +1196,6 @@ TEST(CpuCacheTest, MaxCapacityResizeFailedBytesMlocked) {
 
   ret = munlockall();
   ASSERT_EQ(ret, 0);
-
-  cache.Deactivate();
 }
 
 // Test that old slabs are madvised-away during slab resize even when memory is
@@ -1268,8 +1247,6 @@ TEST(CpuCacheTest, SlabResizeFailedBytesMlocked) {
 
   ret = munlockall();
   ASSERT_EQ(ret, 0);
-
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, SlabUsage) {
@@ -1357,9 +1334,6 @@ TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
   // Make sure that the total capacity is preserved.
   EXPECT_EQ(cache.Capacity(cold_cpu_id) + cache.Capacity(hot_cpu_id),
             2 * max_cpu_cache_size);
-
-  // Drain caches.
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, ResizeCpuSizeClassesHoldsLockForAvailable) {
@@ -1391,7 +1365,6 @@ TEST(CpuCacheTest, ResizeCpuSizeClassesHoldsLockForAvailable) {
 
   stop.store(true, std::memory_order_relaxed);
   resizer.join();
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, DrainCpuCache) {
@@ -1510,8 +1483,6 @@ TEST(CpuCacheTest, DrainCpuCache) {
     EXPECT_EQ(cache.UsedBytes(cpu), 0);
     EXPECT_EQ(cache.GetNumDrains(cpu), 1);
   }
-
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, DrainCpuCacheAndUnpopulate) {
@@ -1542,7 +1513,6 @@ TEST(CpuCacheTest, DrainCpuCacheAndUnpopulate) {
     const size_t slabs_size =
         subtle::percpu::GetSlabsAllocSize(shift, num_cpus);
     if (slabs_size < 3 * kHugePageSize) {
-      cache.Deactivate();
       GTEST_SKIP() << "Not enough CPUs to run test";
     }
 
@@ -1586,7 +1556,6 @@ TEST(CpuCacheTest, DrainCpuCacheAndUnpopulate) {
     // would actually get unpopulated if untouched.
     int arbitrary_cpu = (num_cpus / 2) & ~1;  // Must already be touched.
     if (arbitrary_cpu == 0 || arbitrary_cpu + 1 >= num_cpus) {
-      cache.Deactivate();
       GTEST_SKIP() << "Not enough CPUs to run test";
     }
     HotCacheOperations(cache, arbitrary_cpu, /*drain=*/false);
@@ -1614,8 +1583,6 @@ TEST(CpuCacheTest, DrainCpuCacheAndUnpopulate) {
     cache.forwarder().release_drained_slab_metadata_ = !enabled;
     cache.TryDrainingCaches();
     EXPECT_EQ(cache.GetNumDrains(), num_cpus);
-
-    cache.Deactivate();
   }
 }
 
@@ -1636,7 +1603,6 @@ TEST(CpuCacheTest, DrainCpuCacheAndUnpopulateRepeated) {
   const auto shift =
       subtle::percpu::ToShiftType(CpuCachePeer::GetSlabShift(cache));
   if (subtle::percpu::GetSlabsAllocSize(shift, num_cpus) < 3 * kHugePageSize) {
-    cache.Deactivate();
     GTEST_SKIP() << "Not enough CPUs to run test";
   }
 
@@ -1664,8 +1630,6 @@ TEST(CpuCacheTest, DrainCpuCacheAndUnpopulateRepeated) {
     }
   }
   EXPECT_GE(drained_names, kIterations);
-
-  cache.Deactivate();
 }
 
 // Checks the available <= capacity invariant of the unpopulate pass while
@@ -1689,7 +1653,6 @@ TEST(CpuCacheTest, StressUnpopulateWithSetCacheLimit) {
   const auto shift =
       subtle::percpu::ToShiftType(CpuCachePeer::GetSlabShift(cache));
   if (subtle::percpu::GetSlabsAllocSize(shift, num_cpus) < 3 * kHugePageSize) {
-    cache.Deactivate();
     GTEST_SKIP() << "Not enough CPUs to run test";
   }
 
@@ -1720,8 +1683,6 @@ TEST(CpuCacheTest, StressUnpopulateWithSetCacheLimit) {
     EXPECT_EQ(cache.Capacity(cpu), limit);
     EXPECT_EQ(cache.Allocated(cpu) + cache.Unallocated(cpu), limit);
   }
-
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, DrainCpuCacheAndUnpopulateConcurrent) {
@@ -1745,7 +1706,6 @@ TEST(CpuCacheTest, DrainCpuCacheAndUnpopulateConcurrent) {
   const size_t cpus_per_hugepage =
       kHugePageSize >> CpuCachePeer::GetSlabShift(cache);
   if (num_cpus < 3 * cpus_per_hugepage) {
-    cache.Deactivate();
     GTEST_SKIP() << "Not enough CPUs to run test";
   }
 
@@ -1794,8 +1754,6 @@ TEST(CpuCacheTest, DrainCpuCacheAndUnpopulateConcurrent) {
   stop.store(true, std::memory_order_relaxed);
   thread1.join();
   thread2.join();
-
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, SizeClassCapacityTest) {
@@ -1871,14 +1829,11 @@ TEST(CpuCacheTest, SizeClassCapacityTest) {
   EXPECT_EQ(capacity_stats.min_capacity, 0);
   EXPECT_DOUBLE_EQ(capacity_stats.avg_capacity, 0);
   EXPECT_EQ(capacity_stats.max_capacity, 0);
-
-  cache.Deactivate();
 }
 
 class CpuCacheEnvironment {
  public:
   CpuCacheEnvironment() : num_cpus_(NumCPUs()) { cache_.Init(); }
-  ~CpuCacheEnvironment() { cache_.Deactivate(); }
 
   void Activate() {
     cache_.Activate();
@@ -2176,7 +2131,6 @@ TEST(CpuCacheTest, SetCacheLimitBeforeActivate) {
     EXPECT_EQ(cache.Capacity(cpu), kCustomLimit);
     EXPECT_EQ(cache.Unallocated(cpu), kCustomLimit);
   }
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, SetCacheLimitDuringActivate) {
@@ -2209,7 +2163,6 @@ TEST(CpuCacheTest, SetCacheLimitDuringActivate) {
     EXPECT_EQ(cache.Capacity(cpu), limit);
     EXPECT_EQ(cache.Unallocated(cpu), limit);
   }
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, SetCacheLimitToZeroAndBack) {
@@ -2267,8 +2220,6 @@ TEST(CpuCacheTest, SetCacheLimitToZeroAndBack) {
     EXPECT_GT(cache.Allocated(0), 0);
     EXPECT_GT(cache.UsedBytes(0), 0);
   }
-
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, SetCacheLimitAfterShuffle) {
@@ -2309,8 +2260,6 @@ TEST(CpuCacheTest, SetCacheLimitAfterShuffle) {
       EXPECT_EQ(cache.Allocated(cpu) + cache.Unallocated(cpu), new_limit);
     }
   }
-
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, SetCacheLimitWithInFlightGrow) {
@@ -2354,8 +2303,6 @@ TEST(CpuCacheTest, SetCacheLimitWithInFlightGrow) {
   EXPECT_EQ(cache.Capacity(0), kNewLimit);
   EXPECT_EQ(CpuCachePeer::Available(cache, 0), kNewLimit);
   EXPECT_EQ(cache.Unallocated(0), kNewLimit);
-
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, TakeAvailableLeavesDebtInPlace) {
@@ -2394,8 +2341,6 @@ TEST(CpuCacheTest, TakeAvailableLeavesDebtInPlace) {
   EXPECT_EQ(CpuCachePeer::TakeAvailable(cache, 0), kNewLimit);
   EXPECT_EQ(CpuCachePeer::Available(cache, 0), 0);
   CpuCachePeer::AddToAvailable(cache, 0, kNewLimit);
-
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, SetCacheLimitRetriesAvailableUnderResizeLock) {
@@ -2434,8 +2379,6 @@ TEST(CpuCacheTest, SetCacheLimitRetriesAvailableUnderResizeLock) {
   EXPECT_EQ(cache.Allocated(0), allocated);
   EXPECT_EQ(cache.Unallocated(0), kNewLimit - allocated);
   EXPECT_EQ(cache.GetNumDrains(0), 0);
-
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, StressSetCacheLimit) {
@@ -2497,8 +2440,6 @@ TEST(CpuCacheTest, StressSetCacheLimit) {
     EXPECT_EQ(cache.Allocated(cpu), 0);
     EXPECT_EQ(CpuCachePeer::Available(cache, cpu), 0);
   }
-
-  cache.Deactivate();
 }
 
 TEST(TouchedCpus, SingleThreaded) {
@@ -2514,7 +2455,6 @@ TEST(TouchedCpus, SingleThreaded) {
   {
     const std::vector<int> allowed = tcmalloc_internal::AllowedCpus();
     if (allowed.empty()) {
-      cache.Deactivate();
       return;
     }
     const int kCpuId = allowed[0];
@@ -2571,8 +2511,6 @@ TEST(TouchedCpus, SingleThreaded) {
       EXPECT_THAT(unique_vcpus, testing::SizeIs(after_allocate_deallocate));
     }
   }
-
-  cache.Deactivate();
 }
 
 TEST(TouchedCpus, Multithreaded) {
@@ -2630,8 +2568,6 @@ TEST(TouchedCpus, Multithreaded) {
   ASSERT_FALSE(all.empty());
   EXPECT_THAT(all, testing::SizeIs(testing::Eq(touched)));
   EXPECT_EQ(*all.rbegin() + 1, max_id);
-
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, TargetOverflowRefillCount) {
@@ -2676,7 +2612,6 @@ TEST(CpuCacheTest, NamedVma) {
   const auto shift =
       subtle::percpu::ToShiftType(CpuCachePeer::GetSlabShift(cache));
   if (subtle::percpu::GetSlabsAllocSize(shift, NumCPUs()) < 2 * kHugePageSize) {
-    cache.Deactivate();
     GTEST_SKIP() << "Not enough CPUs to run test";
   }
 
@@ -2695,7 +2630,6 @@ TEST(CpuCacheTest, NamedVma) {
     }
   }
   EXPECT_TRUE(found_active);
-  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, PartitionShift) {

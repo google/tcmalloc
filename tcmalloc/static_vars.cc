@@ -99,7 +99,7 @@ void Static::ActivateCpuCacheIfNecessary() {
 
   AllocationGuardSpinLockHolder l(init_lock_);
   if (!CpuCacheActive()) {
-    cpu_cache_.Activate();
+    cpu_cache().Activate();
     cpu_cache_active_.store(true, std::memory_order_release);
   }
 }
@@ -132,7 +132,7 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
   (void)subtle::percpu::IsFast();
   PerCpuState::state().Init();
   CacheTopology::Instance().Init();
-  cpu_cache_.Init();
+  cpu_cache().Init();
 
   Parameters::InitializeFromExperiments();
 
