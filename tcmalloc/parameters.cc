@@ -142,8 +142,7 @@ static ReleaseStalePages want_release_stale_pages() {
         TC_BUG("bad env var '%s'", e);
     }
   }
-  // TODO: b/527473378 - Enable by default.
-  return ReleaseStalePages::kDisabled;
+  return ReleaseStalePages::kEnabled;
 }
 
 void Parameters::InitializeFromExperiments() {
@@ -300,7 +299,7 @@ ABSL_CONST_INIT std::atomic<HugeRegionAdaptiveRelease>
     Parameters::huge_region_adaptive_release_(
         HugeRegionAdaptiveRelease::kEnabled);
 ABSL_CONST_INIT std::atomic<ReleaseStalePages> Parameters::release_stale_pages_(
-    ReleaseStalePages::kDisabled);
+    ReleaseStalePages::kEnabled);
 
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_drained_slab_metadata_(
     true);
