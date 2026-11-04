@@ -125,6 +125,27 @@ static std::atomic<bool>& hpaa_subrelease_ptr() {
   return v;
 }
 
+extern "C" ABSL_ATTRIBUTE_WEAK bool default_want_disable_release_stale_pages();
+
+static ReleaseStalePages want_release_stale_pages() {
+  if (default_want_disable_release_stale_pages != nullptr) {
+    return ReleaseStalePages::kDisabled;
+  }
+  const char* e = thread_safe_getenv("TCMALLOC_DISABLE_RELEASE_STALE_PAGES");
+  if (e) {
+    switch (e[0]) {
+      case '0':
+        return ReleaseStalePages::kEnabled;
+      case '1':
+        return ReleaseStalePages::kDisabled;
+      default:
+        TC_BUG("bad env var '%s'", e);
+    }
+  }
+  // TODO: b/527473378 - Enable by default.
+  return ReleaseStalePages::kDisabled;
+}
+
 void Parameters::InitializeFromExperiments() {
 
   if (IsExperimentActive(Experiment::TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES)) {
@@ -160,6 +181,9 @@ void Parameters::InitializeFromExperiments() {
     min_hot_access_hint_.store(static_cast<tcmalloc::hot_cold_t>(2),
                                std::memory_order_relaxed);
   }
+
+  release_stale_pages_.store(want_release_stale_pages(),
+                             std::memory_order_relaxed);
 }
 
 uint64_t Parameters::heap_size_hard_limit() {

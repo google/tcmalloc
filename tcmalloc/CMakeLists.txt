@@ -457,6 +457,20 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_want_disable_release_stale_pages
+  ALIAS
+    tcmalloc::want_disable_release_stale_pages
+  ALWAYSLINK
+  SRCS
+    "want_disable_release_stale_pages.cc"
+  COPTS
+    "-g0"
+  DEPS
+    "absl::core_headers"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_want_numa_aware
   ALIAS
     tcmalloc::want_numa_aware
