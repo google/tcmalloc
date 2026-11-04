@@ -75,13 +75,20 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   [[nodiscard]] bool MaybeGet(Length n, PageId* absl_nonnull p,
                               bool* absl_nonnull from_released);
 
+  struct PutResult {
+    // Hugepages made free-and-backed (and not unbacked) by this call.
+    HugeLength free_backed = NHugePages(0);
+    // Hugepages unbacked by this call.
+    HugeLength unbacked = NHugePages(0);
+  };
+
   // Return r for new allocations.
   // If release=true, release any hugepages made empty as a result.
   // `on_longest_free_changed` is invoked with pageheap_lock held around each
   // unback batch after marking and after unmarking the batch in `tracker_`.
   // REQUIRES: Range{p, n} was the result of a previous MaybeGet.
-  void Put(Range r, bool release,
-           absl::FunctionRef<void()> on_longest_free_changed);
+  PutResult Put(Range r, bool release,
+                absl::FunctionRef<void()> on_longest_free_changed);
 
   // Release <desired> number of pages from free-and-backed hugepages from the
   // region. If adaptive_release is true, we scan the hugepages in reverse order
@@ -166,8 +173,8 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // *from_released is set to true iff r is currently unbacked
   void Inc(Range r, bool* from_released);
   // If release is true, unback any hugepage that becomes empty.
-  void Dec(Range r, bool release,
-           absl::FunctionRef<void()> on_longest_free_changed);
+  PutResult Dec(Range r, bool release,
+                absl::FunctionRef<void()> on_longest_free_changed);
 
   HugeLength UnbackHugepages(const Bitmap<kNumHugePages>& maybe_unback,
                              absl::FunctionRef<void()> on_longest_free_changed);
@@ -365,12 +372,12 @@ inline bool HugeRegion::MaybeGet(Length n, PageId* absl_nonnull p,
 }
 
 // If release=true, release any hugepages made empty as a result.
-inline void HugeRegion::Put(Range r, bool release,
-                            absl::FunctionRef<void()> on_longest_free_changed) {
+inline HugeRegion::PutResult HugeRegion::Put(
+    Range r, bool release, absl::FunctionRef<void()> on_longest_free_changed) {
   Length index = r.p - location_.start().first_page();
   tracker_.Unmark(index.raw_num(), r.n.raw_num());
 
-  Dec(r, release, on_longest_free_changed);
+  return Dec(r, release, on_longest_free_changed);
 }
 
 // Release hugepages that are unused but backed.
@@ -541,9 +548,10 @@ inline void HugeRegion::Inc(Range r, bool* from_released) {
   *from_released = should_back;
 }
 
-inline void HugeRegion::Dec(Range r, bool release,
-                            absl::FunctionRef<void()> on_longest_free_changed) {
+inline HugeRegion::PutResult HugeRegion::Dec(
+    Range r, bool release, absl::FunctionRef<void()> on_longest_free_changed) {
   Bitmap<kNumHugePages> should_unback;
+  HugeLength newly_free_backed = NHugePages(0);
   while (r.n > Length(0)) {
     const HugePage hp = HugePageContaining(r.p);
     const size_t i = (hp - location_.start()) / NHugePages(1);
@@ -556,14 +564,19 @@ inline void HugeRegion::Dec(Range r, bool release,
     if (pages_used_[i] == Length(0)) {
       should_unback.SetBit(i);
       ++free_backed_count_;
+      ++newly_free_backed;
       unreleasable_hugepages_.ClearBit(i);
     }
     r.p += here;
     r.n -= here;
   }
-  if (release) {
-    UnbackHugepages(should_unback, on_longest_free_changed);
+  HugeLength unbacked = NHugePages(0);
+  if (release && newly_free_backed > NHugePages(0)) {
+    unbacked = UnbackHugepages(should_unback, on_longest_free_changed);
+    TC_ASSERT_LE(unbacked, newly_free_backed);
+    newly_free_backed -= unbacked;
   }
+  return {.free_backed = newly_free_backed, .unbacked = unbacked};
 }
 
 inline HugeLength HugeRegion::UnbackHugepages(
@@ -681,15 +694,13 @@ inline bool HugeRegionSet<Region>::MaybePut(Range r) {
   const bool release = !UseHugeRegionMoreOften();
   for (Region* region : list_) {
     if (region->contains(r.p)) {
-      const HugeLength free_backed_before = region->free_backed();
-      const HugeLength backed_before = RegionBacked(*region);
-      region->Put(r, release, [&]() GOOGLE_MALLOC_SECTION { Fix(region); });
-      const HugeLength free_backed_after = region->free_backed();
-      const HugeLength backed_after = RegionBacked(*region);
-      TC_ASSERT_GE(free_backed_after, free_backed_before);
-      TC_ASSERT_LE(backed_after, backed_before);
-      free_backed_count_ += (free_backed_after - free_backed_before);
-      const HugeLength unbacked = backed_before - backed_after;
+      // region->Put may drop pageheap_lock while unbacking the contiguous run
+      // of hugepages emptied by r. UnbackHugepages claims that entire run
+      // before unlocking, so apply Put's own deltas rather than before/after
+      // diffs across the lock drop.
+      const auto [free_backed, unbacked] =
+          region->Put(r, release, [&]() GOOGLE_MALLOC_SECTION { Fix(region); });
+      free_backed_count_ += free_backed;
       TC_ASSERT_GE(backed_huge_pages_, unbacked);
       backed_huge_pages_ -= unbacked;
       Fix(region);
