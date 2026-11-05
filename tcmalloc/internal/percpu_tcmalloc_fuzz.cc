@@ -572,17 +572,20 @@ struct ResizeSlabs {
         [&state](size_t cpu) { return state.cpu_initialized[cpu]; },
         [&state](int cpu, size_t size_class, void** batch, size_t size,
                  size_t cap) {
-          state.HandleDrain(cpu, size_class, batch, size, cap,
-                            state.expected_capacity[cpu][size_class]);
+          const size_t old_cap = state.expected_capacity[cpu][size_class];
+          const size_t kept =
+              std::min<size_t>(old_cap, state.max_capacity[size_class]);
+          state.HandleDrain(cpu, size_class, batch, size, cap, old_cap - kept);
         });
     TC_CHECK_EQ(state.slab.GetShift(), target_shift);
     const Shift old_shift = ToShiftType(current_shift);
     sized_aligned_delete(old_slabs, old_slabs_size, SlabAlignment(old_shift));
-    // ResizeSlabs drains every CPU's old slab completely and starts at
-    // capacity 0 in the new slabs.
+    // ResizeSlabs() transfers existing pointers and capacities up to the
+    // new max capacities into the new slabs, draining only any excess via
+    // HandleDrain.
     for (const auto& caps : state.expected_capacity) {
-      for (size_t sc = 1; sc < kNumClasses; ++sc) {
-        TC_CHECK_EQ(caps[sc], 0);
+      for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
+        TC_CHECK_LE(caps[size_class], state.max_capacity[size_class]);
       }
     }
     auto [got_cpu, cached] = state.slab.CacheCpuSlab();

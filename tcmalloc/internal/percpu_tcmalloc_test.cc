@@ -680,6 +680,54 @@ TEST_F(TcmallocSlabTest, ShrinkEmptyCache) {
   slab_.StartCpu(kCpu);
 }
 
+TEST_F(TcmallocSlabTest, ResizeSlabKeepsCapacity) {
+  if (!IsFast()) {
+    GTEST_SKIP() << "Need fast percpu. Skipping.";
+    return;
+  }
+
+  constexpr unsigned kCpu = 0;
+  ScopedFakeCpuId fake_cpu_id(kCpu);
+  constexpr unsigned kSizeClass = 1;
+
+  // Initialize a core.
+  slab_.InitCpu(kCpu, [](size_t size_class) { return kCapacity; });
+  auto [got_cpu, cached] = slab_.CacheCpuSlab();
+  ASSERT_TRUE(cached);
+  ASSERT_EQ(got_cpu, kCpu);
+
+  // Push some things onto a size class, growing it as we go.
+  EXPECT_FALSE(slab_.Push(kSizeClass, (void*)0x40));  // No capacity.
+  EXPECT_EQ(3, slab_.Grow(kCpu, kSizeClass, 3, [&]() {
+    return 200;  // Any max capacity, really.
+  }));
+  EXPECT_TRUE(slab_.Push(kSizeClass, (void*)0x40));
+  EXPECT_TRUE(slab_.Push(kSizeClass, (void*)0x80));
+
+  // Resize the blocks.
+  auto alloc = [&](size_t size, std::align_val_t alignment) {
+    return ByteCountingMalloc(size, alignment);
+  };
+  void* slabs = AllocSlabs(alloc, kShift + 1);
+  (void)slab_.ResizeSlabs(
+      subtle::percpu::ToShiftType(kShift + 1), slabs,
+      [](size_t) { return kCapacity * 2; }, [] { /* Nothing to commit. */ },
+      [](int cpu) { return cpu == kCpu; },
+      [&](int cpu, size_t size_class, void** batch, size_t size, size_t cap) {
+        EXPECT_EQ(size, 0);
+        EXPECT_EQ(cap, 0);
+      });
+
+  auto [got_cpu2, cached2] = slab_.CacheCpuSlab();
+  ASSERT_TRUE(cached2);
+  ASSERT_EQ(got_cpu2, kCpu);
+
+  // Both the two elements and the remaining capacity should still be there.
+  EXPECT_EQ(3, slab_.Capacity(kCpu, kSizeClass));
+  EXPECT_EQ((void*)0x80, slab_.Pop(kSizeClass));
+  EXPECT_EQ((void*)0x40, slab_.Pop(kSizeClass));
+}
+
 TEST_F(TcmallocSlabTest, SimulatedMadviseFailure) {
   if (!IsFast()) {
     GTEST_SKIP() << "Need fast percpu. Skipping.";
