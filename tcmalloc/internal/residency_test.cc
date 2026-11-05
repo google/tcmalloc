@@ -71,6 +71,11 @@ class ResidencySpouse {
     return r_.GetUnbackedAndSwappedBitmaps(addr);
   }
 
+  decltype(auto) GetNumaNode(const void* const addr) {
+    AllocationGuard g;
+    return r_.GetNumaNode(addr);
+  }
+
  private:
   ResidencyPageMap r_;
 };
@@ -632,6 +637,33 @@ TEST(PageMapIntegrationTest, GuardPages) {
   EXPECT_TRUE(res.swapped.IsZero());
 
   ASSERT_EQ(munmap(raw, 2 * kHugePageSize), 0) << errno;
+}
+
+TEST(ResidenceTest, GetNumaNode) {
+  const size_t kHardwarePageSize = GetPageSize();
+  void* p = mmap(nullptr, 2 * kHardwarePageSize, PROT_READ | PROT_WRITE,
+                 MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+  ASSERT_NE(p, MAP_FAILED) << errno;
+
+  std::optional<AllocationGuard> g;
+  g.emplace();
+  ResidencySpouse r;
+  g.reset();
+
+  // Untouched page is not resident, so GetNumaNode returns std::nullopt.
+  EXPECT_EQ(r.GetNumaNode(p), std::nullopt);
+  EXPECT_EQ(r.GetNumaNode(nullptr), std::nullopt);
+
+  // Touch first page; GetNumaNode returns a non-negative NUMA node ID, even for
+  // an unaligned pointer within the page.
+  memset(p, 1, kHardwarePageSize);
+  EXPECT_THAT(r.GetNumaNode(p), Optional(testing::Ge(0)));
+  EXPECT_THAT(r.GetNumaNode(static_cast<char*>(p) + 7),
+              Optional(testing::Ge(0)));
+  EXPECT_EQ(r.GetNumaNode(static_cast<char*>(p) + kHardwarePageSize),
+            std::nullopt);
+
+  ASSERT_EQ(munmap(p, 2 * kHardwarePageSize), 0) << errno;
 }
 
 }  // namespace

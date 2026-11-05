@@ -149,13 +149,28 @@ class StubResidency final : public Residency {
     return {.status = absl::StatusCode::kUnimplemented};
   }
 
+  std::optional<int> GetNumaNode(const void* addr) override {
+    uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
+    auto it = numa_nodes_.find(uaddr);
+    if (it != numa_nodes_.end()) {
+      return it->second;
+    }
+    return std::nullopt;
+  }
+
   void SetInfo(const void* addr, Info info) {
     uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
     infos_[uaddr] = info;
   }
 
+  void SetNumaNode(const void* addr, int numa_node) {
+    uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
+    numa_nodes_[uaddr] = numa_node;
+  }
+
  private:
   absl::flat_hash_map<uintptr_t, Info> infos_;
+  absl::flat_hash_map<uintptr_t, int> numa_nodes_;
 };
 
 // Returns the fully resolved path of this program.
@@ -683,6 +698,7 @@ TEST(ProfileConverterTest, HeapProfile) {
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("stale_scan_period", 10),
+              Pair("numa_node", testing::VariantWith<int64_t>(testing::Ge(0))),
               Pair("access_hint", 254), Pair("access_allocated", "cold"),
               Pair("token_id", 0), Pair("size_returning", 1),
               Pair("guarded_status", "RateLimited"),
@@ -690,6 +706,7 @@ TEST(ProfileConverterTest, HeapProfile) {
           UnorderedElementsAre(
               Pair("bytes", 8), Pair("request", 4),
               Pair("stale_scan_period", 10),
+              Pair("numa_node", testing::VariantWith<int64_t>(testing::Ge(0))),
               Pair("access_hint", 1), Pair("access_allocated", "hot"),
               Pair("token_id", 0), Pair("guarded_status", "NoAvailableSlots"),
               Pair("allocation type", "malloc")),
@@ -703,6 +720,7 @@ TEST(ProfileConverterTest, HeapProfile) {
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("stale_scan_period", 10),
+              Pair("numa_node", testing::VariantWith<int64_t>(testing::Ge(0))),
               Pair("access_hint", 253), Pair("access_allocated", "cold"),
               Pair("token_id", 1), Pair("size_returning", 1),
               Pair("guarded_status", "RateLimited"),
@@ -710,6 +728,7 @@ TEST(ProfileConverterTest, HeapProfile) {
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("stale_scan_period", 10),
+              Pair("numa_node", testing::VariantWith<int64_t>(testing::Ge(0))),
               Pair("access_hint", 253), Pair("access_allocated", "cold"),
               Pair("token_id", 1), Pair("size_returning", 1),
               Pair("guarded_status", "Filtered"),
@@ -717,6 +736,7 @@ TEST(ProfileConverterTest, HeapProfile) {
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("stale_scan_period", 10),
+              Pair("numa_node", testing::VariantWith<int64_t>(testing::Ge(0))),
               Pair("access_hint", 253), Pair("access_allocated", "cold"),
               Pair("token_id", 1), Pair("size_returning", 1),
               Pair("guarded_status", "Guarded"),
@@ -1321,6 +1341,8 @@ TEST(ProfileBuilderTest, SameTags) {
   auto allocation_tags = ExtractTags(allocation);
   EXPECT_THAT(heap_tags, testing::Contains("stale_scan_period"));
   heap_tags.erase("stale_scan_period");
+  EXPECT_THAT(heap_tags, testing::Contains("numa_node"));
+  heap_tags.erase("numa_node");
 
   EXPECT_THAT(heap_tags, testing::ContainerEq(allocation_tags));
   EXPECT_THAT(heap_tags, testing::ContainerEq(peakheap_tags));
@@ -1674,6 +1696,56 @@ TEST(ProfileBuilderTest, DisabledSamplingReturnsNotFound) {
   EXPECT_EQ(alloc_profile.Type(), ProfileType::kDoNotUse);
   EXPECT_EQ(MakeProfileProto(alloc_profile).status().code(),
             absl::StatusCode::kNotFound);
+}
+
+TEST(ProfileConverterTest, HeapProfileSplitsSamplesAcrossNumaNodes) {
+  std::vector<char> buf0(64, 'a');
+  std::vector<char> buf1(64, 'b');
+
+  Profile::Sample sample0 = {};
+  sample0.sum = 64;
+  sample0.count = 1;
+  sample0.requested_size = 64;
+  sample0.allocated_size = 64;
+  sample0.span_start_address = buf0.data();
+  sample0.depth = 2;
+  sample0.stack[0] = reinterpret_cast<void*>(&ProfileAccessor::MakeProfile);
+  sample0.stack[1] = reinterpret_cast<void*>(&RealPath);
+  sample0.guarded_status = Profile::Sample::GuardedStatus::NotAttempted;
+  sample0.type = AllocationType::Malloc;
+
+  Profile::Sample sample1 = sample0;
+  sample1.sum = 128;
+  sample1.count = 2;
+  sample1.span_start_address = buf1.data();
+
+  StubPageFlags pageflags;
+  StubResidency residency;
+  Residency::Info info;
+  info.bytes_resident = 64;
+  info.page_is_resident.SetBit(0);
+  residency.SetInfo(buf0.data(), info);
+  residency.SetNumaNode(buf0.data(), 0);
+  residency.SetInfo(buf1.data(), info);
+  residency.SetNumaNode(buf1.data(), 1);
+
+  auto fake_profile = std::make_unique<FakeProfile>();
+  fake_profile->SetType(ProfileType::kHeap);
+  fake_profile->SetDuration(absl::Milliseconds(100));
+  fake_profile->SetSamples({sample0, sample1});
+  Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
+
+  auto converted_or = MakeProfileProto(profile, &pageflags, &residency);
+  ASSERT_OK(converted_or.status());
+  const auto& converted = **converted_or;
+
+  ASSERT_EQ(converted.sample_size(), 2);
+  SampleLabels extracted_labels;
+  ASSERT_NO_FATAL_FAILURE(
+      CheckAndExtractSampleLabels(converted, extracted_labels));
+  EXPECT_THAT(extracted_labels,
+              UnorderedElementsAre(Contains(Pair("numa_node", 0)),
+                                   Contains(Pair("numa_node", 1))));
 }
 
 }  // namespace

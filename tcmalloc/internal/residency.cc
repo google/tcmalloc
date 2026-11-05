@@ -16,6 +16,7 @@
 
 #include <fcntl.h>
 #include <stddef.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -240,6 +241,20 @@ Residency::SinglePageBitmaps ResidencyPageMap::GetUnbackedAndSwappedBitmaps(
     }
   }
   return SinglePageBitmaps{page_unbacked, page_swapped, absl::StatusCode::kOk};
+}
+
+std::optional<int> ResidencyPageMap::GetNumaNode(const void* const addr) {
+  if (addr == nullptr) {
+    return std::nullopt;
+  }
+  void* page = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(addr) &
+                                       ~(kHardwarePageSize - 1));
+  int status = -1;
+  if (syscall(__NR_move_pages, 0, 1, &page, nullptr, &status, 0) == 0 &&
+      status >= 0) {
+    return status;
+  }
+  return std::nullopt;
 }
 
 }  // namespace tcmalloc_internal
