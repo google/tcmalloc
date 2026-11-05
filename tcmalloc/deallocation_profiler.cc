@@ -95,6 +95,7 @@ struct DeallocationSampleRecord {
   int l3_id = -1;
   int numa_id = -1;
   pid_t thread_id = 0;
+  bool is_dealloc = false;
 
   template <typename H>
   friend H AbslHashValue(H h, const DeallocationSampleRecord& c) {
@@ -679,6 +680,7 @@ void DeallocationProfiler::DeallocationStackTraceTable::AddTrace(
         // - Left-censored events are only passed to ReportFree as
         //   alloc_handle-s, i.e. we can't know the allocated_size.
         events_.back().stack_trace.allocated_size = 0;
+        events_.back().is_dealloc = true;
       }
     }
     return;
@@ -748,9 +750,7 @@ void DeallocationProfiler::DeallocationStackTraceTable::Iterate(
   if (mode_ == Mode::kEventTrace) {
     for (const auto& r : events_) {
       tcmalloc::Profile::Sample s = ToSample(r.stack_trace);
-      // Allocations have allocated_size > 0;
-      // Deallocations (matched and left-censored) have allocated_size == 0.
-      s.count = r.stack_trace.allocated_size > 0 ? 1 : -1;
+      s.count = r.is_dealloc ? -1 : 1;
       s.sum = r.stack_trace.allocated_size;
       s.allocation_time = r.stack_trace.allocation_time;
       s.alloc_handle = r.stack_trace.sampled_alloc_handle;

@@ -386,6 +386,37 @@ TEST_F(GuardedPageAllocatorProfileTest, DynamicParamChange) {
   }
 }
 
+TEST_F(GuardedPageAllocatorProfileTest, EventTraceZeroByteSizeReturningNew) {
+  auto token = MallocExtension::StartEventTracing();
+
+  __sized_ptr_t res;
+  {
+    ScopedAlwaysSample always_sample;
+    AllocateUntilGuarded();
+    tc_globals.guardedpage_allocator().Reset();
+    res = __size_returning_new(0);
+  }
+  ASSERT_TRUE(tc_globals.guardedpage_allocator().PointerIsMine(res.p));
+  EXPECT_EQ(res.n, 0);
+  ::operator delete(res.p);
+
+  auto profile = std::move(token).Stop();
+  int alloc_events = 0;
+  int dealloc_events = 0;
+  profile.Iterate([&](const Profile::Sample& s) {
+    if (s.guarded_status == Profile::Sample::GuardedStatus::Guarded &&
+        s.requested_size == 0 && s.requested_size_returning) {
+      if (s.count > 0) {
+        ++alloc_events;
+      } else if (s.count < 0) {
+        ++dealloc_events;
+      }
+    }
+  });
+  EXPECT_EQ(alloc_events, 1);
+  EXPECT_EQ(dealloc_events, 1);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
