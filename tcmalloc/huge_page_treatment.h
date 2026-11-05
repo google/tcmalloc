@@ -33,6 +33,7 @@
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/cleanup/cleanup.h"
 #include "absl/numeric/bits.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
@@ -706,12 +707,14 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   void RestoreOne(PageTracker& tracker,
                   PageTracker::HugePageResidencyState& state)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    absl::Cleanup unpin = [&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+      Unpin(tracker);
+    };
     // While we did not hold pageheap_lock, tracker may have been emptied
     // (and parked on fully_freed_trackers_) or claimed by a ReleasePages
     // that is unbacking it.  Either way it is off the filler lists; leave it
     // alone.
     if (tracker.fully_freed() || tracker.BeingReleased()) {
-      Unpin(tracker);
       return;
     }
     if (state.maybe_hugepage_backed &&
@@ -726,7 +729,6 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     }
     tracker.SetHugePageResidencyState(state);
     if (state.maybe_hugepage_backed) {
-      Unpin(tracker);
       return;
     }
 
@@ -748,7 +750,6 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       }
     }
     if (tracker.fully_freed()) {
-      Unpin(tracker);
       return;
     }
 
@@ -760,7 +761,6 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         treatment_stats_.treated_pages_unbacked_subreleased += released_length;
       }
     }
-    Unpin(tracker);
   }
 
   [[nodiscard]] bool TryUserspaceCollapse(PageTracker* tracker) {

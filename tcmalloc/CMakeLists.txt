@@ -318,6 +318,7 @@ tcmalloc_cc_library_variants(
   DEPS
     "absl::base"
     "absl::bits"
+    "absl::cleanup"
     "absl::core_headers"
     "absl::dynamic_annotations"
     "absl::fixed_array"
