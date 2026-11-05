@@ -204,9 +204,28 @@ HugeLength HugeCache::ShrinkCache(HugeLength target) {
     }
 
     size_ -= r.len();
+    unbacking_.Insert(r);
+    unbacking_size_ += r.len();
     // Note, actual unback implementation is temporarily dropping and
     // re-acquiring the page heap lock here.
-    if (ABSL_PREDICT_FALSE(!unback_(r).success)) {
+    const bool unbacked = unback_(r).success;
+    auto* unbacking_node = unbacking_.Predecessor(r.start());
+    TC_CHECK_NE(unbacking_node, nullptr);
+    const HugeRange node_range = unbacking_node->range();
+    TC_CHECK_LE(node_range.start(), r.start());
+    TC_CHECK_GE(node_range.end_addr(), r.end_addr());
+    unbacking_.Remove(unbacking_node);
+    if (node_range.start() < r.start()) {
+      unbacking_.Insert(
+          HugeRange(node_range.start(), r.start() - node_range.start()));
+    }
+    if (r.end_addr() < node_range.end_addr()) {
+      const HugePage tail_start = r.start() + r.len();
+      unbacking_.Insert(HugeRange(
+          tail_start, node_range.len() - (tail_start - node_range.start())));
+    }
+    unbacking_size_ -= r.len();
+    if (ABSL_PREDICT_FALSE(!unbacked)) {
       // We failed to release r.  Retain it in the cache instead of returning it
       // to the HugeAllocator.
       size_ += r.len();
