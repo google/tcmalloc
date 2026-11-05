@@ -33,8 +33,11 @@ namespace {
 // Ensure Static is zero-initialized. See the comment on top of tc_globals.
 // If zero-initialization fails, you will see:
 //   error: BSS section '.bss' cannot have non-zero bytes
-TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
-    ABSL_ATTRIBUTE_SECTION_VARIABLE(.bss) Static globals [[maybe_unused]];
+TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_ATTRIBUTE_SECTION_VARIABLE(.bss)
+#if defined(__cpp_constinit) && __cpp_constinit >= 201907L
+    constinit
+#endif
+    Static globals [[maybe_unused]];
 
 std::align_val_t Align(int align) {
   return static_cast<std::align_val_t>(align);
