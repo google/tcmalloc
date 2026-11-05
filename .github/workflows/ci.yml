@@ -61,7 +61,7 @@ jobs:
           - toolchain: libstdc++
             extra-config: --config=clang
     env:
-      USE_BAZEL_VERSION: 8.x
+      USE_BAZEL_VERSION: 9.x
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # 7.0.0

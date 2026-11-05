@@ -65,6 +65,10 @@ build:remote-base --remote_download_minimal
 # Retry up for up to 15 minutes under heavy load (exponential backoff).
 build:remote-base --remote_retries=20 --remote_retry_max_delay=60s
 
+# Apply Bazel 9.3+ settings (such as --remote_grpc_service_config and test
+# toolchain compatibility) when running on Bazel 9.3+.
+try-import-if-bazel-version >=9.3.0 %workspace%/ci/bazel9.bazelrc
+
 build:remote --config=remote-base
 build:remote --extra_execution_platforms=//ci:rbe
 build:remote --host_platform=//ci:rbe

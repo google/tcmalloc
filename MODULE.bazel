@@ -44,3 +44,11 @@ local_path_override(
     module_name = "docker_toolchain",
     path = "ci/docker_toolchain",
 )
+
+# Transitive dependencies of fuzztest (via flatbuffers and riegeli) declared
+# directly to force minimum versions compatible with Bazel 9.
+bazel_dep(name = "aspect_bazel_lib", version = "2.22.5", dev_dependency = True)
+bazel_dep(name = "aspect_rules_esbuild", version = "0.26.0", dev_dependency = True)
+bazel_dep(name = "brotli", version = "1.2.0.bcr.1", dev_dependency = True)
+bazel_dep(name = "highwayhash", version = "0.0.0-20240305-5ad3bf8.bcr.1", dev_dependency = True)
+bazel_dep(name = "snappy", version = "1.2.2.bcr.3", dev_dependency = True)
