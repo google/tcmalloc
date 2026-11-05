@@ -751,6 +751,13 @@ class CpuCache {
   void MadviseAwaySlabs(void* slab_addr, size_t slab_size,
                         bool skip_nohugepage);
 
+  // Replaces the active slabs: `prepare_slabs` allocates or reuses the new
+  // slabs (returning them and the number of reused bytes, as
+  // AllocOrReuseSlabs does), `resize` swaps them in while every
+  // resize_[cpu].lock is held, and the old slabs are then madvised away.
+  void ReplaceSlabs(absl::FunctionRef<std::pair<void*, size_t>()> prepare_slabs,
+                    absl::FunctionRef<ResizeSlabsInfo(void* new_slabs)> resize);
+
   void SetSlabAnonVmaName(void* ptr, size_t size, bool is_drained);
 
   [[nodiscard]] uint8_t PartitionShift() const;
@@ -1722,21 +1729,21 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
   // going over memory limit.
   forwarder_.ArenaUpdateAllocatedAndNonresident(new_slabs_size, 0);
 
-  int64_t reused_bytes;
-  ResizeSlabsInfo info;
-  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.lock();
-  uint8_t new_resize_slab_offset =
-      resize_slab_offset_.load(std::memory_order_relaxed) + 1;
-  if (new_resize_slab_offset >= kResizeSlabCopies) {
-    new_resize_slab_offset = 0;
-  }
-  resize_slab_offset_.store(new_resize_slab_offset, std::memory_order_relaxed);
-
-  {
-    // We can't allocate while holding the per-cpu spinlocks.
-    AllocationGuard enforce_no_alloc;
-    void* new_slabs;
-    std::tie(new_slabs, reused_bytes) = AllocOrReuseSlabs(
+  std::atomic<uint16_t> updated_max_capacities[kNumClasses];
+  // Prepares the new slabs.  The shift is unchanged, so advance
+  // resize_slab_offset_ to the other slab copy for this shift and
+  // allocate or reuse it.  Also collects the max capacities the new
+  // slabs are laid out with: the current ones, overlaid with the
+  // to_update candidates.
+  auto prepare_slabs = [&] {
+    uint8_t new_resize_slab_offset =
+        resize_slab_offset_.load(std::memory_order_relaxed) + 1;
+    if (new_resize_slab_offset >= kResizeSlabCopies) {
+      new_resize_slab_offset = 0;
+    }
+    resize_slab_offset_.store(new_resize_slab_offset,
+                              std::memory_order_relaxed);
+    auto new_slabs = AllocOrReuseSlabs(
         [&](size_t size, std::align_val_t align) {
           return forwarder_.AllocReportedImpending(size, align);
         },
@@ -1744,7 +1751,6 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
         ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift),
         new_resize_slab_offset);
 
-    std::atomic<uint16_t> updated_max_capacities[kNumClasses];
     for (size_t i = 0; i < kNumClasses; ++i) {
       updated_max_capacities[i].store(
           max_capacity_[i].load(std::memory_order_relaxed),
@@ -1755,8 +1761,14 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
       updated_max_capacities[new_max_capacities[i].size_class].store(
           new_max_capacities[i].max_capacity, std::memory_order_relaxed);
     }
-
-    info = freelist_.UpdateMaxCapacities(
+    return new_slabs;
+  };
+  // With every resize_[cpu].lock held: stops all CPUs, publishes the
+  // new capacities to max_capacity_, switches to the new slabs, then
+  // drains each populated CPU's old slab to the transfer caches and
+  // returns the old slabs for ReplaceSlabs to madvise away.
+  auto resize_slabs = [&](void* new_slabs) {
+    return freelist_.UpdateMaxCapacities(
         new_slabs, MaxCapacityFunctor{updated_max_capacities},
         [this](int size_class, uint16_t cap) {
           UpdateMaxCapacity(size_class, cap);
@@ -1767,6 +1779,25 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
           return HasPopulated(cpu);
         },
         DrainHandler<CpuCache>{*this, nullptr}, new_max_capacities, to_update);
+  };
+  ReplaceSlabs(prepare_slabs, resize_slabs);
+}
+
+template <class Forwarder>
+void CpuCache<Forwarder>::ReplaceSlabs(
+    absl::FunctionRef<std::pair<void*, size_t>()> prepare_slabs,
+    absl::FunctionRef<ResizeSlabsInfo(void* new_slabs)> resize)
+    ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  const int num_cpus = NumCPUs();
+  void* new_slabs;
+  int64_t reused_bytes;
+  ResizeSlabsInfo info;
+  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.lock();
+  {
+    // We can't allocate while holding the per-cpu spinlocks.
+    AllocationGuard enforce_no_alloc;
+    std::tie(new_slabs, reused_bytes) = prepare_slabs();
+    info = resize(new_slabs);
   }
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.unlock();
 
@@ -2660,23 +2691,26 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   std::atomic<uint16_t> new_max_capacity[kNumClasses] = {0};
   CalculateMaxCapacityForAllClasses(per_cpu_shift, new_max_capacity);
 
-  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.lock();
-  ResizeSlabsInfo info;
-  const uint8_t resize_offset =
-      resize_slab_offset_.load(std::memory_order_relaxed);
-  int64_t reused_bytes;
-  {
-    // We can't allocate while holding the per-cpu spinlocks.
-    AllocationGuard enforce_no_alloc;
-
-    void* new_slabs;
-    std::tie(new_slabs, reused_bytes) = AllocOrReuseSlabs(
+  // Prepares the new slabs for new_shift.  A different shift already
+  // selects a different slab within the copy currently in use, so
+  // resize_slab_offset_ stays as it is.
+  auto prepare_slabs = [&] {
+    const uint8_t resize_offset =
+        resize_slab_offset_.load(std::memory_order_relaxed);
+    return AllocOrReuseSlabs(
         [&](size_t size, std::align_val_t align) {
           return forwarder_.AllocReportedImpending(size, align);
         },
         new_shift, num_cpus,
         ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift), resize_offset);
-    info = freelist_.ResizeSlabs(
+  };
+  // With every resize_[cpu].lock held: stops all CPUs, switches to
+  // new_shift and the new slabs, installs the capacities computed for
+  // the new shift into max_capacity_, then drains each populated CPU's
+  // old slab to the transfer caches and returns the old slabs for
+  // ReplaceSlabs to madvise away.
+  auto resize_slabs = [&](void* new_slabs) {
+    return freelist_.ResizeSlabs(
         new_shift, new_slabs, MaxCapacityFunctor{new_max_capacity},
         [this, &new_max_capacity]() {
           for (size_t i = 0; i < kNumClasses; ++i) {
@@ -2687,14 +2721,8 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
         },
         [this](int cpu) { return HasPopulated(cpu); },
         DrainHandler<CpuCache>{*this, nullptr});
-  }
-  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.unlock();
-
-  MadviseAwaySlabs(info.old_slabs, info.old_slabs_size,
-                   /*skip_nohugepage=*/false);
-  const int64_t old_slabs_size = info.old_slabs_size;
-  forwarder_.ArenaUpdateAllocatedAndNonresident(-old_slabs_size,
-                                                old_slabs_size - reused_bytes);
+  };
+  ReplaceSlabs(prepare_slabs, resize_slabs);
 }
 
 template <class Forwarder>
