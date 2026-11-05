@@ -513,6 +513,7 @@ create_tcmalloc_testsuite(
     deps = [
         ":rseq_util",
         "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:environment",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/strings:string_view",
@@ -525,8 +526,11 @@ create_tcmalloc_testsuite(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     deps = [
+        ":rseq_util",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:config",
+        "//tcmalloc/internal:environment",
+        "//tcmalloc/internal:parameter_accessors",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_googletest//:gtest_main",
     ],
@@ -538,8 +542,11 @@ create_tcmalloc_testsuite(
     copts = TCMALLOC_DEFAULT_COPTS + ["-DFIRST_ALLOCATION_LARGE"],
     linkstatic = 1,
     deps = [
+        ":rseq_util",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:config",
+        "//tcmalloc/internal:environment",
+        "//tcmalloc/internal:parameter_accessors",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_googletest//:gtest_main",
     ],
@@ -553,6 +560,7 @@ create_tcmalloc_testsuite(
     deps = [
         ":rseq_util",
         "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:environment",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/strings:string_view",
