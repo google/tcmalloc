@@ -946,4 +946,37 @@ TEST(EventTracingTest, DefaultMemoryLimitTruncation) {
   EXPECT_THAT(profile, testing::Not(ContainsAlloc(kLateSize)));
 }
 
+TEST(DeallocationProfilerTest, SeedingFromOtherThreadPreservesThreadMatched) {
+  if (CheckerIsActive()) {
+    return;
+  }
+
+  tcmalloc::ScopedProfileSamplingInterval test_sample_interval(1);
+  constexpr size_t kAllocSize = 1024 * 1024 + 512 * 1024;
+
+  // Allocate on main thread BEFORE starting the deallocation profiler.
+  void* ptr = SingleAlloc(1, kAllocSize);
+  ASSERT_NE(ptr, nullptr);
+
+  // Start the deallocation profiler on a DIFFERENT thread, which seeds
+  // pre-existing live allocations from sampled_allocation_recorder().
+  tcmalloc::MallocExtension::AllocationProfilingToken token;
+  std::thread starter(
+      [&]() { token = tcmalloc::MallocExtension::StartLifetimeProfiling(); });
+  starter.join();
+
+  // Free on the main thread (same thread that allocated `ptr`).
+  SingleDealloc(1, ptr);
+
+  tcmalloc::Profile profile = std::move(token).Stop();
+  int matched_samples = 0;
+  profile.Iterate([&](const tcmalloc::Profile::Sample& s) {
+    if (s.requested_size == kAllocSize && !s.is_censored && s.count > 0 &&
+        s.allocator_deallocator_thread_matched.value_or(false)) {
+      ++matched_samples;
+    }
+  });
+  EXPECT_GE(matched_samples, 1);
+}
+
 }  // namespace

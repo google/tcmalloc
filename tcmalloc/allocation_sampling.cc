@@ -25,6 +25,7 @@
 #include <utility>
 
 #include "absl/base/attributes.h"
+#include "absl/base/internal/sysinfo.h"
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/debugging/stacktrace.h"
@@ -237,6 +238,10 @@ SampleifyAllocation(Static& state, DynamicPolicy policy, size_t requested_size,
                                                      : MallocHook::Access::Hot,
   };
   MallocHook::InvokeSampledNewHook(sampled_alloc);
+
+  stack_trace.cpu_id = subtle::percpu::GetRealCpu();
+  stack_trace.vcpu_id = subtle::percpu::VirtualCpu::get();
+  stack_trace.thread_id = absl::base_internal::GetTID();
 
   state.allocation_samples.ReportMalloc(stack_trace);
 

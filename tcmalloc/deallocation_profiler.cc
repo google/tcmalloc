@@ -522,11 +522,11 @@ class DeallocationProfiler {
 
     allocation.stack_trace = stack_trace;
     // TODO(mmaas): Do we need to worry about b/65384231 anymore?
-    allocation.cpu_id = tcmalloc_internal::subtle::percpu::GetRealCpu();
-    allocation.vcpu_id = tcmalloc_internal::subtle::percpu::VirtualCpu::get();
+    allocation.cpu_id = stack_trace.cpu_id;
+    allocation.vcpu_id = stack_trace.vcpu_id;
     allocation.l3_id = GetL3Id(allocation.cpu_id);
     allocation.numa_id = GetNumaId(allocation.cpu_id);
-    allocation.thread_id = absl::base_internal::GetTID();
+    allocation.thread_id = stack_trace.thread_id;
   }
 
   void ReportFree(tcmalloc_internal::AllocHandle handle,
@@ -569,7 +569,8 @@ class DeallocationProfiler {
   }
 };
 
-void DeallocationProfilerList::Add(DeallocationProfiler* profiler) {
+void DeallocationProfilerList::Add(
+    DeallocationProfiler* absl_nonnull profiler) {
   AllocationGuardSpinLockHolder h(profilers_lock_);
   profiler->next_ = first_.load(std::memory_order_relaxed);
   first_.store(profiler, std::memory_order_release);
@@ -583,7 +584,8 @@ void DeallocationProfilerList::Add(DeallocationProfiler* profiler) {
 }
 
 // This list is very short and we're nowhere near a hot path, just walk
-void DeallocationProfilerList::Remove(DeallocationProfiler* profiler) {
+void DeallocationProfilerList::Remove(
+    DeallocationProfiler* absl_nonnull profiler) {
   AllocationGuardSpinLockHolder h(profilers_lock_);
   DeallocationProfiler* cur = first_.load(std::memory_order_relaxed);
   if (cur == profiler) {

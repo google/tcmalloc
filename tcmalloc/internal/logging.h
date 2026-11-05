@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include <sys/types.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -80,11 +81,14 @@ struct StackTrace {
   absl::Time allocation_time;
 
   TokenId token_id;
+  int16_t cpu_id;
 
   Profile::Sample::GuardedStatus guarded_status;
 
   // How the memory was allocated (new/malloc/etc.)
   AllocationType allocation_type;
+  int16_t vcpu_id;
+  pid_t thread_id;
 
   // If not nullptr, this is the start address of the span corresponding to this
   // sampled allocation. This may be nullptr for cases where it is not useful
