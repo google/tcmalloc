@@ -35,6 +35,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/page_allocation_status.h"
 #include "tcmalloc/internal/page_allocator_hooks.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/residency.h"
@@ -123,6 +124,7 @@ class PageAllocatorImpl {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   [[nodiscard]] bool GetPageAllocationStatus(HugePage hp, PageBitmap& pages,
+                                             PageSuballocator& suballocator,
                                              MemoryTag tag) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     switch (tag) {
@@ -138,7 +140,7 @@ class PageAllocatorImpl {
         ABSL_FALLTHROUGH_INTENDED;
       case MemoryTag::kNormal:
       case MemoryTag::kSampledOrCold:
-        return impl(tag)->GetPageAllocationStatus(hp, pages);
+        return impl(tag)->GetPageAllocationStatus(hp, pages, suballocator);
       case MemoryTag::kGuarded:
       case MemoryTag::kMetadata:
         return false;

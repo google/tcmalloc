@@ -64,6 +64,7 @@
 #include "tcmalloc/internal/fake_residency.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
+#include "tcmalloc/internal/page_allocation_status.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/system_allocator.h"
@@ -2555,19 +2556,23 @@ TEST(HugePageAwareAllocatorTest, ColdHeapSkipSubreleaseIntervals) {
 
 TEST_P(HugePageAwareAllocatorTest, GetPageAllocationStatus) {
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+  const SpanAllocInfo kDenseInfo = {64, AccessDensityPrediction::kDense};
   PageBitmap pages;
+  PageSuballocator suballocator = PageSuballocator::kUnknown;
 
-  // 1. Small allocation in PageTracker (filler).
+  // 1. Small sparse allocation in PageTracker (filler).
   AllocationState small1 = New(Length(1), kSpanInfo);
   ASSERT_TRUE(small1);
   HugePage small_hp = HugePageContaining(small1.r.p);
 
   {
     PageHeapSpinLockHolder l;
-    EXPECT_TRUE(allocator_->GetPageAllocationStatus(small_hp, pages));
+    EXPECT_TRUE(
+        allocator_->GetPageAllocationStatus(small_hp, pages, suballocator));
   }
   const size_t page_idx1 = (small1.r.p - small_hp.first_page()).raw_num();
 
+  EXPECT_EQ(suballocator, PageSuballocator::kFillerSparse);
   EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 1);
   EXPECT_TRUE(pages.GetBit(page_idx1));
 
@@ -2577,10 +2582,12 @@ TEST_P(HugePageAwareAllocatorTest, GetPageAllocationStatus) {
   ASSERT_EQ(HugePageContaining(small2.r.p), small_hp);
   {
     PageHeapSpinLockHolder l;
-    EXPECT_TRUE(allocator_->GetPageAllocationStatus(small_hp, pages));
+    EXPECT_TRUE(
+        allocator_->GetPageAllocationStatus(small_hp, pages, suballocator));
   }
   const size_t page_idx2 = (small2.r.p - small_hp.first_page()).raw_num();
 
+  EXPECT_EQ(suballocator, PageSuballocator::kFillerSparse);
   EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 3);
   EXPECT_TRUE(pages.GetBit(page_idx1));
   EXPECT_TRUE(pages.GetBit(page_idx2));
@@ -2589,8 +2596,10 @@ TEST_P(HugePageAwareAllocatorTest, GetPageAllocationStatus) {
   Delete(small1, 1);
   {
     PageHeapSpinLockHolder l;
-    EXPECT_TRUE(allocator_->GetPageAllocationStatus(small_hp, pages));
+    EXPECT_TRUE(
+        allocator_->GetPageAllocationStatus(small_hp, pages, suballocator));
   }
+  EXPECT_EQ(suballocator, PageSuballocator::kFillerSparse);
   EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 2);
   EXPECT_TRUE(pages.GetBit(page_idx2));
   EXPECT_TRUE(pages.GetBit(page_idx2 + 1));
@@ -2599,12 +2608,27 @@ TEST_P(HugePageAwareAllocatorTest, GetPageAllocationStatus) {
 
   {
     PageHeapSpinLockHolder l;
-    EXPECT_TRUE(allocator_->GetPageAllocationStatus(small_hp, pages));
+    EXPECT_TRUE(
+        allocator_->GetPageAllocationStatus(small_hp, pages, suballocator));
   }
-  // After deleting all small spans, the huge page has 0 allocated pages.
+  // After deleting all small spans, the huge page returns to HugeCache.
+  EXPECT_EQ(suballocator, PageSuballocator::kHugeCacheOrAlloc);
   EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 0);
 
-  // 2. Raw huge page allocation straight from HugeCache.
+  // 2. Small dense allocation in PageTracker (filler).
+  AllocationState dense = New(Length(1), kDenseInfo);
+  ASSERT_TRUE(dense);
+  HugePage dense_hp = HugePageContaining(dense.r.p);
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(
+        allocator_->GetPageAllocationStatus(dense_hp, pages, suballocator));
+  }
+  EXPECT_EQ(suballocator, PageSuballocator::kFillerDense);
+  EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 1);
+  Delete(dense, kDenseInfo.objects_per_span);
+
+  // 3. Raw huge page allocation straight from HugeCache.
   AllocationState large = New(kPagesPerHugePage * 2, kSpanInfo);
   ASSERT_TRUE(large);
   HugePage hp0 = HugePageContaining(large.r.p);
@@ -2612,11 +2636,13 @@ TEST_P(HugePageAwareAllocatorTest, GetPageAllocationStatus) {
 
   {
     PageHeapSpinLockHolder l;
-    EXPECT_TRUE(allocator_->GetPageAllocationStatus(hp0, pages));
+    EXPECT_TRUE(allocator_->GetPageAllocationStatus(hp0, pages, suballocator));
+    EXPECT_EQ(suballocator, PageSuballocator::kRawHugepages);
     EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()),
               kPagesPerHugePage.raw_num());
 
-    EXPECT_TRUE(allocator_->GetPageAllocationStatus(hp1, pages));
+    EXPECT_TRUE(allocator_->GetPageAllocationStatus(hp1, pages, suballocator));
+    EXPECT_EQ(suballocator, PageSuballocator::kRawHugepages);
     EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()),
               kPagesPerHugePage.raw_num());
   }
@@ -2624,11 +2650,74 @@ TEST_P(HugePageAwareAllocatorTest, GetPageAllocationStatus) {
   Delete(large, 1);
   {
     PageHeapSpinLockHolder l;
-    EXPECT_TRUE(allocator_->GetPageAllocationStatus(hp0, pages));
+    EXPECT_TRUE(allocator_->GetPageAllocationStatus(hp0, pages, suballocator));
+    EXPECT_EQ(suballocator, PageSuballocator::kHugeCacheOrAlloc);
     EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 0);
 
-    EXPECT_TRUE(allocator_->GetPageAllocationStatus(hp1, pages));
+    EXPECT_TRUE(allocator_->GetPageAllocationStatus(hp1, pages, suballocator));
+    EXPECT_EQ(suballocator, PageSuballocator::kHugeCacheOrAlloc);
     EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 0);
+  }
+
+  // 4. Donated tail hugepage and HugeRegion allocation once slack >= 64 MiB.
+  std::vector<AllocationState> donated_spans;
+  const Length kSloppyLen = kPagesPerHugePage + Length(1);
+  AllocationState first_donated = New(kSloppyLen, kSpanInfo);
+  ASSERT_TRUE(first_donated);
+  ASSERT_TRUE(first_donated.donated);
+  donated_spans.push_back(first_donated);
+
+  HugePage donated_head = HugePageContaining(first_donated.r.p);
+  HugePage donated_tail = donated_head + NHugePages(1);
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_TRUE(
+        allocator_->GetPageAllocationStatus(donated_head, pages, suballocator));
+    EXPECT_EQ(suballocator, PageSuballocator::kRawHugepages);
+    EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()),
+              kPagesPerHugePage.raw_num());
+
+    EXPECT_TRUE(
+        allocator_->GetPageAllocationStatus(donated_tail, pages, suballocator));
+    EXPECT_EQ(suballocator, PageSuballocator::kFillerDonated);
+    EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 1);
+  }
+
+  while (true) {
+    Length slack;
+    {
+      PageHeapSpinLockHolder l;
+      slack = allocator_->info().slack();
+    }
+    if (slack >= HLFromBytes(64 * 1024 * 1024).in_pages()) {
+      break;
+    }
+    donated_spans.push_back(New(kSloppyLen, kSpanInfo));
+  }
+
+  AllocationState region_alloc = New(kSloppyLen, kSpanInfo);
+  ASSERT_TRUE(region_alloc);
+  ASSERT_FALSE(region_alloc.donated);
+  HugePage region_hp0 = HugePageContaining(region_alloc.r.p);
+  HugePage region_hp1 = region_hp0 + NHugePages(1);
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(allocator_->region().ActiveRegions(), 1);
+    EXPECT_TRUE(
+        allocator_->GetPageAllocationStatus(region_hp0, pages, suballocator));
+    EXPECT_EQ(suballocator, PageSuballocator::kHugeRegion);
+    EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()),
+              kPagesPerHugePage.raw_num());
+
+    EXPECT_TRUE(
+        allocator_->GetPageAllocationStatus(region_hp1, pages, suballocator));
+    EXPECT_EQ(suballocator, PageSuballocator::kHugeRegion);
+    EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 1);
+  }
+
+  Delete(region_alloc, 1);
+  for (const AllocationState& s : donated_spans) {
+    Delete(s, 1);
   }
 }
 
