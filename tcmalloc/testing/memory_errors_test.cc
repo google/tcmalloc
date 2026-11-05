@@ -36,6 +36,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/error_reporting.h"
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/config.h"
@@ -1059,6 +1060,67 @@ TEST_F(TcMallocTest, CorruptedPointerEdgeCases) {
         "(new-delete-type-mismatch)|"
         "(Attempted to free corrupted pointer)");
   }
+}
+
+TEST_F(TcMallocTest, CorruptedPointerAlignedDelete) {
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER)
+  GTEST_SKIP() << "Skipping under address sanitizer";
+#endif
+  ScopedProfileSamplingInterval sampling(0);
+
+  constexpr std::align_val_t kAlign{64};
+  for (const std::optional<hot_cold_t> hot_cold :
+       {std::optional<hot_cold_t>{std::nullopt},
+        std::optional<hot_cold_t>{hot_cold_t{0}}}) {
+    for (const bool sized : {false, true}) {
+      SCOPED_TRACE(
+          absl::StrCat("cold=", hot_cold.has_value(), ",sized=", sized));
+      EXPECT_DEATH(
+          {
+            char* ptr = static_cast<char*>(
+                hot_cold.has_value() ? ::operator new(8, kAlign, *hot_cold)
+                                     : ::operator new(8, kAlign));
+            if (sized) {
+              ::operator delete(ptr + 1, 8, kAlign);
+            } else {
+              ::operator delete(ptr + 1, kAlign);
+            }
+          },
+          absl::StrCat(
+              "Attempted to free corrupted pointer"
+              ));
+    }
+  }
+}
+
+TEST_F(TcMallocTest, CorruptedFreeLargeAlignment) {
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER)
+  GTEST_SKIP() << "Skipping under address sanitizer";
+#endif
+  const void* kFourGiBAlignedPtr =
+      reinterpret_cast<const void*>(uintptr_t{1} << 32);
+  constexpr auto kEightGiBAlign =
+      static_cast<std::align_val_t>(uintptr_t{1} << 33);
+
+  EXPECT_DEATH(
+      tcmalloc_internal::ReportCorruptedFree(tc_globals, kEightGiBAlign,
+                                             kFourGiBAlignedPtr),
+      absl::StrCat(
+          "Attempted to free corrupted pointer"
+          ));
+
+  EXPECT_DEATH(
+      {
+        void* alloc_frame = reinterpret_cast<void*>(uintptr_t{0x1234});
+        tcmalloc_internal::ReportCorruptedFree(tc_globals, kEightGiBAlign,
+                                               kFourGiBAlignedPtr,
+                                               absl::MakeSpan(&alloc_frame, 1));
+      },
+      absl::StrCat(
+          "Attempted to free corrupted pointer"
+          ));
 }
 
 TEST_F(TcMallocTest, AllocationDeallocationConfusion) {
