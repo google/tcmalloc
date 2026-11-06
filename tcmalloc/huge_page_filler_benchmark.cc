@@ -164,12 +164,13 @@ class FillerHeap {
     }
   }
 
-  void Treat() ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  void Treat(ReobserveHugepageBacked reobserve) ABSL_NO_THREAD_SAFETY_ANALYSIS {
     pageheap_lock.lock();
     filler_.TreatHugepageTrackers(
         EnableCollapse::kDisabled, EnableUnfilteredCollapse::kDisabled,
         ReleaseStalePages::kDisabled, PreserveDonatedOnCollapse::kDisabled,
-        CollapseReleasedHugePages::kDisabled, &pageflags_, &residency_);
+        CollapseReleasedHugePages::kDisabled, reobserve, &pageflags_,
+        &residency_);
     pageheap_lock.unlock();
   }
 
@@ -192,7 +193,7 @@ void BM_TreatAllFresh(benchmark::State& state) {
   FillerHeap heap(state.range(0));
   heap.RecordBacked([](size_t) { return absl::Seconds(1); });
   for (auto _ : state) {
-    heap.Treat();
+    heap.Treat(ReobserveHugepageBacked::kEnabled);
   }
   state.SetItemsProcessed(state.iterations() * heap.size());
 }
@@ -209,11 +210,81 @@ void BM_TreatAllCandidates(benchmark::State& state) {
     state.PauseTiming();
     heap.ClearRecords();
     state.ResumeTiming();
-    heap.Treat();
+    heap.Treat(ReobserveHugepageBacked::kEnabled);
   }
   state.SetItemsProcessed(state.iterations() * heap.size());
 }
 BENCHMARK(BM_TreatAllCandidates)->Range(1 << 10, 1 << 16);
+
+// The filler walks the most recently contributed trackers first.
+
+// Every tracker is stale with re-observation disabled: the pass walks the
+// lists and selects nothing, the baseline for the stale benchmarks below.
+void BM_TreatAllStaleSkipped(benchmark::State& state) {
+  FillerHeap heap(state.range(0));
+  heap.RecordBacked(
+      [](size_t i) { return kRecordInterval + absl::Seconds(i + 1); });
+  for (auto _ : state) {
+    heap.Treat(ReobserveHugepageBacked::kDisabled);
+  }
+  state.SetItemsProcessed(state.iterations() * heap.size());
+}
+BENCHMARK(BM_TreatAllStaleSkipped)->Range(1 << 10, 1 << 16);
+
+// Every tracker is stale and the records get younger along the walk: the
+// first compaction of the re-observation buffer sets its cutoff at the
+// kTrackersToReobserve-th oldest record and every later tracker is younger
+// than that, so costs one comparison.
+void BM_TreatAllStaleBestOrder(benchmark::State& state) {
+  FillerHeap heap(state.range(0));
+  for (auto _ : state) {
+    state.PauseTiming();
+    heap.RecordBacked(
+        [](size_t i) { return kRecordInterval + absl::Seconds(i + 1); });
+    state.ResumeTiming();
+    heap.Treat(ReobserveHugepageBacked::kEnabled);
+  }
+  state.SetItemsProcessed(state.iterations() * heap.size());
+}
+BENCHMARK(BM_TreatAllStaleBestOrder)->Range(1 << 10, 1 << 16);
+
+// Every tracker is stale and the records get older along the walk: every
+// tracker is older than the buffer's cutoff and is buffered, so the buffer is
+// compacted every kTrackersToReobserve trackers, the worst case for the
+// selection.
+void BM_TreatAllStaleWorstOrder(benchmark::State& state) {
+  FillerHeap heap(state.range(0));
+  for (auto _ : state) {
+    state.PauseTiming();
+    heap.RecordBacked([&](size_t i) {
+      return kRecordInterval + absl::Seconds(heap.size() - i);
+    });
+    state.ResumeTiming();
+    heap.Treat(ReobserveHugepageBacked::kEnabled);
+  }
+  state.SetItemsProcessed(state.iterations() * heap.size());
+}
+BENCHMARK(BM_TreatAllStaleWorstOrder)->Range(1 << 10, 1 << 16);
+
+// Every tracker is stale with records in no particular order along the walk,
+// as after churn has moved trackers between lists: each compaction raises the
+// cutoff to the kTrackersToReobserve-th oldest record seen so far, so about
+// kTrackersToReobserve * ln(N / kTrackersToReobserve) trackers get buffered.
+void BM_TreatAllStaleRandomOrder(benchmark::State& state) {
+  FillerHeap heap(state.range(0));
+  std::vector<size_t> age(heap.size());
+  std::iota(age.begin(), age.end(), 1);
+  std::shuffle(age.begin(), age.end(), std::mt19937_64(42));
+  for (auto _ : state) {
+    state.PauseTiming();
+    heap.RecordBacked(
+        [&](size_t i) { return kRecordInterval + absl::Seconds(age[i]); });
+    state.ResumeTiming();
+    heap.Treat(ReobserveHugepageBacked::kEnabled);
+  }
+  state.SetItemsProcessed(state.iterations() * heap.size());
+}
+BENCHMARK(BM_TreatAllStaleRandomOrder)->Range(1 << 10, 1 << 16);
 
 }  // namespace
 }  // namespace tcmalloc_internal
