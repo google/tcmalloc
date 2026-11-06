@@ -415,7 +415,9 @@ void MaybeUnsampleAllocation(Static& state, DynamicPolicy policy,
                               ? MallocHook::Access::Cold
                               : MallocHook::Access::Hot,
   };
-  state.sampled_allocation_recorder().Unregister(sampled_allocation);
+  state.sampled_allocation_recorder().Unregister(
+      sampled_allocation, [&](SampledAllocation& sample) {
+      });
 
   // Adjust our estimate of internal fragmentation.
   TC_ASSERT_LE(requested_size, allocated_size);

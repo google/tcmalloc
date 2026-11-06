@@ -94,8 +94,8 @@ TEST_F(SampleRecorderTest, PrepareForSampling) {
   Info* info1 = Register(1);
   // PrepareForSampling() is invoked in the constructor.
   EXPECT_TRUE(info1->initialized);
-  info1->initialized = false;
-  sample_recorder_.Unregister(info1);
+  sample_recorder_.Unregister(info1,
+                              [](Info& info) { info.initialized = false; });
 
   Info* info2 = Register(2);
   // We are reusing the sample, PrepareForSampling() is invoked in PopDead();
@@ -111,8 +111,8 @@ TEST_F(SampleRecorderTest, Registration) {
   info1->size.store(3);
   EXPECT_THAT(GetSizes(), UnorderedElementsAre(3, 2));
 
-  sample_recorder_.Unregister(info1);
-  sample_recorder_.Unregister(info2);
+  sample_recorder_.Unregister(info1, [](Info&) {});
+  sample_recorder_.Unregister(info2, [](Info&) {});
 }
 
 TEST_F(SampleRecorderTest, Unregistration) {
@@ -122,18 +122,18 @@ TEST_F(SampleRecorderTest, Unregistration) {
   }
   EXPECT_THAT(GetSizes(), UnorderedElementsAre(0, 1, 2));
 
-  sample_recorder_.Unregister(infos[1]);
+  sample_recorder_.Unregister(infos[1], [](Info&) {});
   EXPECT_THAT(GetSizes(), UnorderedElementsAre(0, 2));
 
   infos.push_back(Register(3));
   infos.push_back(Register(4));
   EXPECT_THAT(GetSizes(), UnorderedElementsAre(0, 2, 3, 4));
-  sample_recorder_.Unregister(infos[3]);
+  sample_recorder_.Unregister(infos[3], [](Info&) {});
   EXPECT_THAT(GetSizes(), UnorderedElementsAre(0, 2, 4));
 
-  sample_recorder_.Unregister(infos[0]);
-  sample_recorder_.Unregister(infos[2]);
-  sample_recorder_.Unregister(infos[4]);
+  sample_recorder_.Unregister(infos[0], [](Info&) {});
+  sample_recorder_.Unregister(infos[2], [](Info&) {});
+  sample_recorder_.Unregister(infos[4], [](Info&) {});
   EXPECT_THAT(GetSizes(), IsEmpty());
 
   for (size_t i = 0; i < 10; ++i) {
@@ -176,7 +176,8 @@ TEST_F(SampleRecorderTest, MultiThreaded) {
           Info* info = infoz[p];
           infoz[p] = infoz.back();
           infoz.pop_back();
-          sample_recorder_.Unregister(info);
+          sample_recorder_.Unregister(
+              info, [](Info& info) { info.initialized = false; });
           break;
         }
         case 2: {
@@ -239,9 +240,10 @@ TEST(SampleRecorderWithParamTest, RegisterWithParam) {
   EXPECT_THAT(info->info_size, 1);
   EXPECT_TRUE(info->initialized);
   // Set these values to something else.
-  info->info_size = 0;
-  info->initialized = false;
-  sample_recorder.Unregister(info);
+  sample_recorder.Unregister(info, [](InfoWithParam& info) {
+    info.info_size = 0;
+    info.initialized = false;
+  });
   // |info| is not deleted, just marked as dead. Here, Register() would invoke
   // PopDead(), revive the same object, with its fields populated by PopDead().
   EXPECT_EQ(sample_recorder.Register(2), info);
