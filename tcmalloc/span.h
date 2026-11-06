@@ -97,8 +97,7 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
         allocated_(0),
         cache_size_(0),
         nonempty_index_(0),
-        level2_bitmap_(0),
-        first_page_(first_page.index()),
+        first_page_(first_page),
         raw_bitmap_{} {
     TC_ASSERT_GT(first_page, PageId{0});
     TC_CHECK_LT(first_page.index(), static_cast<uint64_t>(1) << kMaxPageIdBits);
@@ -235,24 +234,25 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
     uint16_t freelist_;
   };
   uint16_t allocated_;  // Number of non-free objects
-  uint8_t cache_size_;
+  union {
+    // Used only in BitmapMode::kDisabled (linked-list freelist).
+    uint8_t cache_size_;
+    // L2 summary bitmap, used only in BitmapMode::kInline256.
+    uint8_t level2_bitmap_;
+  };
+  static_assert(kRawBitmapSize <= CHAR_BIT * sizeof(level2_bitmap_));
   uint8_t nonempty_index_;  // The nonempty_ list index for this span.
 
   // The number of bits of the cache space that may be used for bitmap.
   static constexpr size_t kBitmapSize = 8 * sizeof(ObjIdx) * kCacheSize;
 
-  union {
-    struct {
-      uint64_t level2_bitmap_ : kRawBitmapSize;
-      uint64_t first_page_ : kMaxPageIdBits;  // Starting page number.
-      static_assert(kRawBitmapSize + kMaxPageIdBits <= 64);
-    };
-    // Used to pass level2_bitmap_ to DynamicBitmapPushImpl/DynamicBitmapPopWord
-    // as a BitmapElem* in kInline256 mode. Only the low kRawBitmapSize bits are
-    // ever set or cleared (since popped objects are capped at available),
-    // leaving first_page_ in the upper bits intact.
-    BitmapElem level2_bitmap_word_;
-  };
+  // Starting page number. Immutable after construction.
+  //
+  // first_page_ is read without CentralFreeList::lock_ (e.g. by
+  // CentralFreeList::InsertRange via ObjectsToIdx), so it must not share a
+  // memory location (e.g. a bitfield word) with any field that is mutated
+  // under the lock (b/582305627).
+  PageId first_page_;
 
   struct ListSpanState {
     // Embed cache of free objects.
@@ -294,16 +294,18 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
   [[nodiscard]] BitmapElem* DynamicBitmap(BitmapMode mode);
   void DynamicBitmapPush(absl::Span<ObjIdx> batch,
                          BitmapMode mode) __restrict__;
-  template <BitmapMode kMode>
+  template <BitmapMode kMode, typename L2Elem = BitmapElem>
   GOOGLE_MALLOC_SECTION static void DynamicBitmapPushImpl(
-      absl::Span<const ObjIdx> batch, BitmapElem* bm, BitmapElem* bm2);
+      absl::Span<const ObjIdx> batch, BitmapElem* bm, L2Elem* bm2);
   [[nodiscard]] size_t DynamicBitmapPop(absl::Span<void* absl_nonnull> batch,
                                         size_t size, size_t objects_per_span,
                                         BitmapMode mode) __restrict__;
-  template <BitmapMode kMode>
-  GOOGLE_MALLOC_SECTION void DynamicBitmapPopWord(
-      char* span_start, void**& batch_pos, void** batch_end, size_t size,
-      size_t objects_per_span, BitmapElem* bm, BitmapElem* bm2);
+  template <BitmapMode kMode, typename L2Elem = BitmapElem>
+  GOOGLE_MALLOC_SECTION void DynamicBitmapPopWord(char* span_start,
+                                                  void**& batch_pos,
+                                                  void** batch_end, size_t size,
+                                                  size_t objects_per_span,
+                                                  BitmapElem* bm, L2Elem* bm2);
   template <BitmapMode kMode>
   [[nodiscard]] GOOGLE_MALLOC_SECTION BitmapElem DynamicBitmapPopBitmap(
       char* word_start, void**& batch_pos, void** batch_end, size_t size,
@@ -490,7 +492,7 @@ inline void Span::BitmapPushBatch(absl::Span<ObjIdx> batch,
   TC_ASSERT_EQ(before + batch.size(), bitmap_.CountBits());
 }
 
-inline PageId Span::first_page() const { return PageId(first_page_); }
+inline PageId Span::first_page() const { return first_page_; }
 
 inline void* Span::start_address() const {
   TC_ASSERT_GT(first_page(), PageId{0});
@@ -681,12 +683,12 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE inline void Span::DynamicBitmapPush(
   TC_ASSERT(!batch.empty());
   switch (mode) {
     case BitmapMode::kInline64:
-      DynamicBitmapPushImpl<BitmapMode::kInline64>(batch, DynamicBitmap(mode),
-                                                   nullptr);
+      DynamicBitmapPushImpl<BitmapMode::kInline64, BitmapElem>(
+          batch, DynamicBitmap(mode), nullptr);
       break;
     case BitmapMode::kInline256:
       DynamicBitmapPushImpl<BitmapMode::kOutlineL2_1>(
-          batch, DynamicBitmap(mode), &level2_bitmap_word_);
+          batch, DynamicBitmap(mode), &level2_bitmap_);
       break;
     case BitmapMode::kOutlineL2_1:
       DynamicBitmapPushImpl<BitmapMode::kOutlineL2_1>(
@@ -705,9 +707,9 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE inline void Span::DynamicBitmapPush(
   }
 }
 
-template <Span::BitmapMode kMode>
+template <Span::BitmapMode kMode, typename L2Elem>
 ABSL_ATTRIBUTE_ALWAYS_INLINE inline void Span::DynamicBitmapPushImpl(
-    absl::Span<const ObjIdx> batch, BitmapElem* bm, BitmapElem* bm2) {
+    absl::Span<const ObjIdx> batch, BitmapElem* bm, L2Elem* bm2) {
   // Prevent codegen for modes that are only reachable with 256K pages
   // (with <= 32K pages and >= 8B objects, a 1-page span has <= 4096 objects,
   // which fits in <= 64 L1 words and uses at most kOutlineL2_1).
@@ -767,7 +769,8 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE inline void Span::DynamicBitmapPushImpl(
   TC_ASSERT_EQ(bm[-static_cast<ptrdiff_t>(cur_word)] & cur_mask, 0);
   bm[-static_cast<ptrdiff_t>(cur_word)] |= cur_mask;
   if constexpr (kMode == BitmapMode::kOutlineL2_1) {
-    bm2[0] |= level2_mask;
+    TC_ASSERT_EQ(static_cast<L2Elem>(level2_mask), level2_mask);
+    bm2[0] |= static_cast<L2Elem>(level2_mask);
   }
 }
 
@@ -794,7 +797,7 @@ inline size_t Span::DynamicBitmapPop(absl::Span<void* absl_nonnull> batch,
     case BitmapMode::kInline256:
       DynamicBitmapPopWord<BitmapMode::kOutlineL2_1>(
           span_start, batch_pos, batch_end, size, objects_per_span,
-          &raw_bitmap_[kRawBitmapSize - 1], &level2_bitmap_word_);
+          &raw_bitmap_[kRawBitmapSize - 1], &level2_bitmap_);
       break;
     case BitmapMode::kOutlineL2_1:
       DynamicBitmapPopWord<BitmapMode::kOutlineL2_1>(
@@ -819,10 +822,10 @@ inline size_t Span::DynamicBitmapPop(absl::Span<void* absl_nonnull> batch,
   return want;
 }
 
-template <Span::BitmapMode kMode>
+template <Span::BitmapMode kMode, typename L2Elem>
 ABSL_ATTRIBUTE_ALWAYS_INLINE inline void Span::DynamicBitmapPopWord(
     char* span_start, void**& batch_pos, void** batch_end, size_t size,
-    size_t objects_per_span, BitmapElem* bm, BitmapElem* bm2) {
+    size_t objects_per_span, BitmapElem* bm, L2Elem* bm2) {
   // Prevent codegen for modes that are only reachable with 256K pages.
   if constexpr (kPageSize != (256 << 10) &&
                 (kMode == BitmapMode::kOutlineL2_4 ||
@@ -880,7 +883,7 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE inline void Span::DynamicBitmapPopWord(
     } while ((kMode == BitmapMode::kOutlineL2_1 || l2_word != 0) &&
              batch_pos < batch_end);
 
-    bm2[l2_idx] = l2_word;
+    bm2[l2_idx] = static_cast<L2Elem>(l2_word);
     if (kMode == BitmapMode::kOutlineL2_1 || batch_pos == batch_end) {
       break;
     }
