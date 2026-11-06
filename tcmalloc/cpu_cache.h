@@ -680,7 +680,12 @@ class CpuCache {
 
   // Tries to grow freelist <size_class> on the current <cpu> by up to
   // <desired_increase> objects if there is available capacity.
-  void Grow(int cpu, size_t size_class, size_t desired_increase);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  void
+#else
+  [[nodiscard]] size_t
+#endif
+  Grow(int cpu, size_t size_class, size_t desired_increase);
 
   // Depending on the number of misses that cpu caches encountered in the
   // previous resize interval, returns if slabs should be grown, shrunk or
@@ -1384,8 +1389,12 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
       // what we want to request from transfer cache.
       increase = batch_length - capacity;
     }
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     Grow(cpu, size_class, increase);
     capacity = freelist_.Capacity(cpu, size_class);
+#else
+    capacity += Grow(cpu, size_class, increase);
+#endif
   }
   // We hit the maximum capacity limit when the size class capacity is equal to
   // its maximum allowed capacity. Record a miss due to that so that we can
@@ -1425,8 +1434,12 @@ ABSL_ATTRIBUTE_NOINLINE void CpuCache<Forwarder>::Populate(int cpu) {
 }
 
 template <class Forwarder>
-inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
-                                      size_t desired_increase) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+inline void
+#else
+inline size_t
+#endif
+CpuCache<Forwarder>::Grow(int cpu, size_t size_class, size_t desired_increase) {
   const size_t size = forwarder_.class_to_size(size_class);
   const size_t desired_bytes = desired_increase * size;
   size_t acquired_bytes =
@@ -1436,7 +1449,11 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
         PerClassMissType::kCapacityTotal);
   }
   if (ABSL_PREDICT_FALSE(acquired_bytes == 0)) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     return;
+#else
+    return 0;
+#endif
   }
   size_t actual_increase = acquired_bytes / size;
   TC_ASSERT_GT(actual_increase, 0);
@@ -1449,6 +1466,9 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
     // return whatever we didn't use to the slack.
     resize_[cpu].available.fetch_add(unused, std::memory_order_relaxed);
   }
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  return increase;
+#endif
 }
 
 template <class Forwarder>
