@@ -943,6 +943,54 @@ TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
   test_function(1, AccessDensityPrediction::kDense);
   test_function(e.objects_per_span(), AccessDensityPrediction::kDense);
 }
+
+// Concurrently removes and inserts objects from several threads so that spans
+// are shared between threads. InsertRange maps objects to indices outside of
+// the CentralFreeList lock, which reads Span metadata (first_page_) while other
+// threads mutate the span's freelist under the lock. Under TSan this checks
+// that the unlocked reads never share a memory location with locked writes
+// (b/582305627).
+TEST_P(CentralFreeListTest, ConcurrentRemoveAndInsert) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  constexpr int kThreads = 4;
+  constexpr int kIterations = 200;
+
+  std::atomic<int> failed_removes{0};
+  std::vector<std::thread> threads;
+  threads.reserve(kThreads);
+  for (int t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&e, &failed_removes]() {
+      void* batch[kMaxObjectsToMove];
+      for (int i = 0; i < kIterations; ++i) {
+        const int got = e.central_freelist().RemoveRange(
+            absl::MakeSpan(batch, e.batch_size()));
+        if (got <= 0) {
+          failed_removes.fetch_add(1, std::memory_order_relaxed);
+          continue;
+        }
+        e.central_freelist().InsertRange(
+            absl::MakeSpan(batch, static_cast<size_t>(got)));
+      }
+    });
+  }
+  for (std::thread& t : threads) {
+    t.join();
+  }
+
+  EXPECT_EQ(failed_removes.load(std::memory_order_relaxed), 0);
+  // Single-object spans skip most of the central freelist's logic.
+  if (e.objects_per_span() != 1) {
+    const SpanStats stats = e.central_freelist().GetSpanStats();
+    EXPECT_EQ(stats.num_spans_requested, stats.num_spans_returned);
+    EXPECT_EQ(stats.obj_capacity, 0);
+  }
+}
 INSTANTIATE_TEST_SUITE_P(
     CentralFreeList, CentralFreeListTest,
     testing::Combine(
