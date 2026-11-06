@@ -132,8 +132,9 @@ class FillerHeap {
   ~FillerHeap() {
     for (auto& pt : trackers_) {
       PageHeapSpinLockHolder l;
-      PageTracker* released = filler_.Put(
-          pt.get(), Range(pt->location().first_page(), Length(1)), kInfo);
+      PageTracker* released =
+          filler_.Put(pt.get(), Range(pt->location().first_page(), Length(1)),
+                      kInfo, FillerAppendOnFree::kDisabled);
       TC_CHECK_EQ(released, pt.get());
     }
     TC_CHECK_EQ(filler_.size(), NHugePages(0));

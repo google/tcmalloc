@@ -91,6 +91,29 @@ inline void AbslStringify(Sink& sink, PreferBackedPages v) {
   }
 }
 
+// Controls where HugePageFiller::Put re-lists a hugepage after pages are freed
+// into it.  When disabled, the hugepage is prepended to its tracker list and
+// becomes the next allocation target among hugepages in that list.  When
+// enabled, it is appended instead: a hugepage that is draining is likely to
+// keep draining, so we would rather fill one that has not recently had pages
+// freed and let this one empty out so it can be returned whole.
+enum class FillerAppendOnFree : bool {
+  kDisabled = false,
+  kEnabled = true,
+};
+
+template <typename Sink>
+inline void AbslStringify(Sink& sink, FillerAppendOnFree v) {
+  switch (v) {
+    case FillerAppendOnFree::kDisabled:
+      sink.Append("false");
+      return;
+    case FillerAppendOnFree::kEnabled:
+      sink.Append("true");
+      return;
+  }
+}
+
 enum class HugeRegionUsageOption : bool {
   // This is a default behavior. We use slack to determine when to use
   // HugeRegion. When slack is greater than 64MB (to ignore small binaries), and

@@ -74,6 +74,7 @@ class StaticForwarder : private Parameters {
   using Parameters::background_release_rate;
   using Parameters::collapse_released_hugepages;
   using Parameters::enable_unfiltered_collapse;
+  using Parameters::filler_append_on_free;
   using Parameters::filler_skip_subrelease_cold_long_interval;
   using Parameters::filler_skip_subrelease_cold_short_interval;
   using Parameters::filler_skip_subrelease_long_interval;

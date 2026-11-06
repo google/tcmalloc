@@ -55,6 +55,7 @@
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_filler.h"
+#include "tcmalloc/huge_page_options.h"
 #include "tcmalloc/huge_page_tracker.h"
 #include "tcmalloc/huge_page_treatment.h"
 #include "tcmalloc/huge_pages.h"
@@ -2862,6 +2863,41 @@ TEST_P(HugePageAwareAllocatorTest, PreserveDonatedOnCollapse) {
 
     Delete(donated, 1);
   }
+}
+
+TEST_P(HugePageAwareAllocatorTest, FillerAppendOnFreeToggle) {
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+  constexpr Length kHalf = kPagesPerHugePage / 2;
+  AllocationState a1 = New(kHalf, kSpanInfo);
+  AllocationState a2 = New(kHalf, kSpanInfo);
+  AllocationState b1 = New(kHalf, kSpanInfo);
+  AllocationState b2 = New(kHalf, kSpanInfo);
+  const HugePage a = HugePageContaining(a1.r.p);
+  const HugePage b = HugePageContaining(b1.r.p);
+  ASSERT_NE(a, b);
+  ASSERT_EQ(HugePageContaining(a2.r.p), a);
+  ASSERT_EQ(HugePageContaining(b2.r.p), b);
+
+  for (FillerAppendOnFree mode :
+       {FillerAppendOnFree::kDisabled, FillerAppendOnFree::kEnabled,
+        FillerAppendOnFree::kDisabled, FillerAppendOnFree::kEnabled}) {
+    allocator_->forwarder().filler_append_on_free.set(mode);
+    Delete(a2, 1);
+    Delete(b2, 1);
+    // B was freed last, so prepend puts B first and append puts A first.
+    AllocationState first = New(kHalf, kSpanInfo);
+    AllocationState second = New(kHalf, kSpanInfo);
+    const bool append = mode == FillerAppendOnFree::kEnabled;
+    EXPECT_EQ(HugePageContaining(first.r.p), append ? a : b);
+    EXPECT_EQ(HugePageContaining(second.r.p), append ? b : a);
+    a2 = append ? first : second;
+    b2 = append ? second : first;
+  }
+
+  Delete(a1, 1);
+  Delete(a2, 1);
+  Delete(b1, 1);
+  Delete(b2, 1);
 }
 
 TEST_P(HugePageAwareAllocatorTest, PreferBackedFillerPages) {

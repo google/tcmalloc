@@ -53,6 +53,7 @@
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_cache.h"
+#include "tcmalloc/huge_page_options.h"
 #include "tcmalloc/huge_page_subrelease.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/clock.h"
@@ -687,6 +688,7 @@ class FillerTest : public testing::Test {
       PreserveDonatedOnCollapse::kDisabled;
   CollapseReleasedHugePages collapse_released_ =
       CollapseReleasedHugePages::kDisabled;
+  FillerAppendOnFree append_on_free_ = FillerAppendOnFree::kDisabled;
 
   void TreatHugepageTrackers(
       EnableCollapse enable_collapse,
@@ -727,7 +729,8 @@ class FillerTest : public testing::Test {
     PageTracker* pt;
     {
       PageHeapSpinLockHolder l;
-      pt = filler_.Put(p.pt, Range(p.p, p.n), p.span_alloc_info);
+      pt = filler_.Put(p.pt, Range(p.p, p.n), p.span_alloc_info,
+                       append_on_free_);
     }
     total_allocated_ -= p.n;
     if (pt != nullptr) {
@@ -830,6 +833,40 @@ class FillerTestWithSubreleaseUnbacked : public FillerTest {
       : FillerTest(SubreleaseUnbackedMode::kEnabled) {}
 };
 
+TEST_F(FillerTest, PutListPlacement) {
+  randomize_density_ = false;
+  const Length kKeep = kPagesPerHugePage - Length(1);
+
+  for (FillerAppendOnFree mode :
+       {FillerAppendOnFree::kDisabled, FillerAppendOnFree::kEnabled}) {
+    append_on_free_ = mode;
+    for (AccessDensityPrediction density :
+         {AccessDensityPrediction::kSparse, AccessDensityPrediction::kDense}) {
+      const SpanAllocInfo info = {.objects_per_span = 1, .density = density};
+      // Fill A and B completely so both leave the filler lists, then free 1
+      // page from A followed by B so both land in the same list with B freed
+      // most recently.
+      std::vector<PAlloc> a = AllocateVectorWithSpanAllocInfo(kKeep, info);
+      PAlloc a2 = AllocateWithSpanAllocInfo(Length(1), info);
+      std::vector<PAlloc> b = AllocateVectorWithSpanAllocInfo(kKeep, info);
+      PAlloc b2 = AllocateWithSpanAllocInfo(Length(1), info);
+      ASSERT_NE(a.front().pt, b.front().pt);
+      ASSERT_EQ(a.front().pt, a2.pt);
+      ASSERT_EQ(b.front().pt, b2.pt);
+
+      EXPECT_FALSE(Delete(a2));
+      EXPECT_FALSE(Delete(b2));
+
+      PAlloc probe = AllocateWithSpanAllocInfo(Length(1), info);
+      EXPECT_EQ(probe.pt, mode == FillerAppendOnFree::kEnabled ? a.front().pt
+                                                               : b.front().pt);
+      EXPECT_FALSE(Delete(probe));
+      EXPECT_TRUE(DeleteVector(a));
+      EXPECT_TRUE(DeleteVector(b));
+    }
+  }
+}
+
 // TODO(b/73749855): Reduce the count of clock_.now() and clock_.freq() calls.
 TEST_F(FillerTest, ClockCalls) {
   SpanAllocInfo info = {.objects_per_span = 1,
@@ -889,7 +926,8 @@ TEST_F(FillerTest, ClockCalls) {
   PageTracker* put_res1;
   {
     PageHeapSpinLockHolder l;
-    put_res1 = filler_.Put(alloc_pt, Range(page2, Length(1)), info);
+    put_res1 =
+        filler_.Put(alloc_pt, Range(page2, Length(1)), info, append_on_free_);
   }
   EXPECT_EQ(put_res1, nullptr);
   EXPECT_EQ(FakeClock::now_calls(), 1);
@@ -901,7 +939,7 @@ TEST_F(FillerTest, ClockCalls) {
   PageTracker* put_res2;
   {
     PageHeapSpinLockHolder l;
-    put_res2 = filler_.Put(pt, Range(page1, Length(1)), info);
+    put_res2 = filler_.Put(pt, Range(page1, Length(1)), info, append_on_free_);
   }
   EXPECT_EQ(put_res2, pt);
   EXPECT_EQ(FakeClock::now_calls(), 1);
@@ -915,7 +953,8 @@ TEST_F(FillerTest, ClockCalls) {
     if (pt->GetTagState().sampled_for_tagging) {
       break;
     }
-    EXPECT_EQ(filler_.Put(pt, Range(page1, Length(1)), info), pt);
+    EXPECT_EQ(filler_.Put(pt, Range(page1, Length(1)), info, append_on_free_),
+              pt);
   }
 
   FakeClock::ResetCalls();
@@ -935,8 +974,9 @@ TEST_F(FillerTest, ClockCalls) {
 
   {
     PageHeapSpinLockHolder l;
-    put_res1 = filler_.Put(alloc_pt, Range(page2, Length(1)), info);
-    put_res2 = filler_.Put(pt, Range(page1, Length(1)), info);
+    put_res1 =
+        filler_.Put(alloc_pt, Range(page2, Length(1)), info, append_on_free_);
+    put_res2 = filler_.Put(pt, Range(page1, Length(1)), info, append_on_free_);
   }
 
   EXPECT_EQ(put_res1, nullptr);
@@ -963,7 +1003,7 @@ TEST_F(FillerTest, RecordLifetimeEdgeCases) {
     PageTracker* res;
     {
       PageHeapSpinLockHolder l;
-      res = filler_.Put(&pt, Range(page, Length(1)), info);
+      res = filler_.Put(&pt, Range(page, Length(1)), info, append_on_free_);
     }
     EXPECT_EQ(res, &pt);
   };
@@ -1009,8 +1049,8 @@ HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      1
   PageTracker* res_overflow;
   {
     PageHeapSpinLockHolder l;
-    res_overflow = low_freq_filler.Put(&pt_overflow,
-                                       Range(page_overflow, Length(1)), info);
+    res_overflow = low_freq_filler.Put(
+        &pt_overflow, Range(page_overflow, Length(1)), info, append_on_free_);
   }
   EXPECT_EQ(res_overflow, &pt_overflow);
 }
@@ -1730,7 +1770,8 @@ TEST_F(FillerTest, AllocateDuringRetirementUnback) {
         Length(1), b.span_alloc_info, PreferBackedPages::kDisabled);
     EXPECT_EQ(pt, b.pt);
     EXPECT_FALSE(from_released);
-    EXPECT_EQ(filler_.Put(pt, Range(page, Length(1)), b.span_alloc_info),
+    EXPECT_EQ(filler_.Put(pt, Range(page, Length(1)), b.span_alloc_info,
+                          append_on_free_),
               nullptr);
   };
   EXPECT_TRUE(Delete(a));
@@ -1812,7 +1853,9 @@ TEST_F(FillerTest, PutDuringReleaseDefersFreeingTracker) {
     PageHeapSpinLockHolder l;
     // The tracker is being released, so Put must not hand it back to us even
     // though it is now empty.
-    EXPECT_EQ(filler_.Put(a.pt, Range(a.p, a.n), a.span_alloc_info), nullptr);
+    EXPECT_EQ(
+        filler_.Put(a.pt, Range(a.p, a.n), a.span_alloc_info, append_on_free_),
+        nullptr);
     EXPECT_TRUE(a.pt->empty());
     EXPECT_TRUE(a.pt->BeingReleased());
     EXPECT_EQ(filler_.size(), NHugePages(1));
@@ -1852,9 +1895,9 @@ TEST_F(FillerTest, CandidateFreedDuringRelease) {
     EXPECT_FALSE(other.pt->BeingReleased());
     EXPECT_TRUE(other.pt->PinnedForRelease());
     parked = other.pt;
-    EXPECT_EQ(
-        filler_.Put(other.pt, Range(other.p, other.n), other.span_alloc_info),
-        nullptr);
+    EXPECT_EQ(filler_.Put(other.pt, Range(other.p, other.n),
+                          other.span_alloc_info, append_on_free_),
+              nullptr);
     EXPECT_TRUE(other.pt->empty());
     // Parked, but not yet available: the release still pins it.
     EXPECT_EQ(filler_.FetchFullyFreedTracker(), nullptr);
@@ -1930,7 +1973,9 @@ TEST_F(FillerTest, PutDuringReleaseKeepsAccounting) {
     EXPECT_EQ(r.n, kPagesPerHugePage - Length(2));
     PageHeapSpinLockHolder l;
     EXPECT_TRUE(b.pt->BeingReleased());
-    EXPECT_EQ(filler_.Put(b.pt, Range(b.p, b.n), b.span_alloc_info), nullptr);
+    EXPECT_EQ(
+        filler_.Put(b.pt, Range(b.p, b.n), b.span_alloc_info, append_on_free_),
+        nullptr);
     EXPECT_FALSE(b.pt->fully_freed());
     EXPECT_TRUE(b.pt->BeingReleased());
     EXPECT_EQ(filler_.used_pages(), Length(1));
@@ -1979,8 +2024,12 @@ TEST_F(FillerTest, AllCandidatesFreedDuringRelease) {
     }
     EXPECT_EQ(r.n, kPagesPerHugePage - Length(1));
     PageHeapSpinLockHolder l;
-    EXPECT_EQ(filler_.Put(a.pt, Range(a.p, a.n), a.span_alloc_info), nullptr);
-    EXPECT_EQ(filler_.Put(b.pt, Range(b.p, b.n), b.span_alloc_info), nullptr);
+    EXPECT_EQ(
+        filler_.Put(a.pt, Range(a.p, a.n), a.span_alloc_info, append_on_free_),
+        nullptr);
+    EXPECT_EQ(
+        filler_.Put(b.pt, Range(b.p, b.n), b.span_alloc_info, append_on_free_),
+        nullptr);
     EXPECT_TRUE(a.pt->fully_freed());
     EXPECT_TRUE(b.pt->fully_freed());
     EXPECT_EQ(filler_.FetchFullyFreedTracker(), nullptr);
