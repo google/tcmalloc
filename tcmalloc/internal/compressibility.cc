@@ -20,8 +20,8 @@
 #include <vector>
 
 #include "absl/algorithm/container.h"
+#include "absl/random/random.h"
 #include "absl/status/status.h"
-#include "absl/status/status_macros.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -43,11 +43,18 @@ constexpr uintptr_t AlignUp(uintptr_t addr, size_t alignment) {
 }
 
 // Copies up to `dst.size()` resident bytes from `data` into `dst`, skipping any
-// unbacked or swapped pages and concatenating the resident pages.
+// unbacked or swapped pages and concatenating the resident pages.  When the
+// allocation has more resident pages than fit in `dst`, selects a random
+// starting resident page and copies a contiguous run of resident pages from
+// there so local redundancy is preserved without prefix bias.
 // Returns the number of bytes copied.
 absl::StatusOr<size_t> CopyResidentPages(absl::Span<const char> data,
                                          const Residency::Info& residency_info,
+                                         absl::BitGen& rng,
                                          absl::Span<char> dst) {
+  if (dst.empty() || data.empty()) {
+    return 0;
+  }
   const size_t hardware_page_size = GetPageSize();
 
   const uintptr_t uaddr = reinterpret_cast<uintptr_t>(data.data());
@@ -59,9 +66,25 @@ absl::StatusOr<size_t> CopyResidentPages(absl::Span<const char> data,
   const size_t pages_to_scan =
       std::min(num_pages, residency_info.page_is_resident.size());
 
+  const size_t resident_pages =
+      residency_info.page_is_resident.CountBits(0, pages_to_scan);
+  const size_t max_pages_to_copy = std::max<size_t>(
+      1, (dst.size() + hardware_page_size - 1) / hardware_page_size);
+  const bool partial_end_page = (uaddr + data.size()) % hardware_page_size != 0;
+  const size_t min_pages_for_full_copy =
+      max_pages_to_copy + (partial_end_page ? 1 : 0);
+
   std::vector<absl::string_view> remote_chunks;
   size_t total_resident_bytes = 0;
   size_t page_index = 0;
+  if (data.size() > dst.size() && residency_info.bytes_resident > dst.size() &&
+      resident_pages > min_pages_for_full_copy) {
+    const size_t skip = absl::Uniform<size_t>(
+        rng, 0, resident_pages - min_pages_for_full_copy + 1);
+    for (size_t i = 0; i < skip; ++i) {
+      page_index = residency_info.page_is_resident.FindSet(page_index) + 1;
+    }
+  }
 
   do {
     // Find the next range of resident pages.
@@ -130,13 +153,15 @@ CompressionAnalyzer::~CompressionAnalyzer() {
 
 absl::StatusOr<CompressionAnalyzer::Results> CompressionAnalyzer::Analyze(
     absl::Span<const char> data, const Residency::Info& residency_info) {
-  // Sample resident pages up to local buffer capacity (2MB).
-  ABSL_ASSIGN_OR_RETURN(
-      const size_t copied_bytes,
-      CopyResidentPages(data, residency_info, absl::MakeSpan(local_copy_)));
+  // Sample resident pages up to local buffer capacity.
+  absl::StatusOr<size_t> copied_bytes = CopyResidentPages(
+      data, residency_info, rng_, absl::MakeSpan(local_copy_));
+  if (!copied_bytes.ok()) {
+    return copied_bytes.status();
+  }
 
   const absl::Span<const char> resident_sample =
-      absl::MakeConstSpan(local_copy_).first(copied_bytes);
+      absl::MakeConstSpan(local_copy_).first(*copied_bytes);
 
   Results results;
   results.zero_bytes =
