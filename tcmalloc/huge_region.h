@@ -213,8 +213,12 @@ class HugeRegionSet {
         backed_huge_pages_(NHugePages(0)),
         free_backed_count_(NHugePages(0)),
         lowater_free_backed_(NHugePages(0)),
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+        clock_(clock),
+#endif
         usage_tracker_(clock, kTimeseriesWindow),
-        free_backed_tracker_(clock, kTimeseriesWindow) {}
+        free_backed_tracker_(clock, kTimeseriesWindow) {
+  }
 
   // If available, return a range of n free pages, setting *from_released =
   // true iff the returned range is currently unbacked.
@@ -274,8 +278,14 @@ class HugeRegionSet {
   }
 
   void ReportStats() {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     usage_tracker_.Report(in_use_huge_pages());
     free_backed_tracker_.Report(free_backed_count_);
+#else
+    const int64_t now = clock_.now();
+    usage_tracker_.Report(in_use_huge_pages(), now);
+    free_backed_tracker_.Report(free_backed_count_, now);
+#endif
   }
 
   void Fix(Region* absl_nonnull r) {
@@ -338,6 +348,9 @@ class HugeRegionSet {
   HugeLength backed_huge_pages_;
   HugeLength free_backed_count_;
   HugeLength lowater_free_backed_;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  Clock clock_;
+#endif
   MinMaxTracker<HugeLength, kTimeseriesEpochs> usage_tracker_;
   MinMaxTracker<HugeLength, kTimeseriesEpochs> free_backed_tracker_;
 };

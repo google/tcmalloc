@@ -1305,10 +1305,15 @@ class HugeRegionSetTest
 
   static constexpr double kFakeClockFreq = 1000.0;  // 1 tick == 1 ms.
   static int64_t fake_clock_ticks_;
-  static int64_t FakeClockNow() { return fake_clock_ticks_; }
+  static int64_t fake_clock_calls_;
+  static int64_t FakeClockNow() {
+    ++fake_clock_calls_;
+    return fake_clock_ticks_;
+  }
   static double FakeClockFreq() { return kFakeClockFreq; }
   static Clock ResetAndMakeFakeClock() {
     fake_clock_ticks_ = 0;
+    fake_clock_calls_ = 0;
     return Clock{.now = FakeClockNow, .freq = FakeClockFreq};
   }
 
@@ -1412,6 +1417,7 @@ class HugeRegionSetTest
 };
 
 int64_t HugeRegionSetTest::fake_clock_ticks_ = 0;
+int64_t HugeRegionSetTest::fake_clock_calls_ = 0;
 
 TEST_P(HugeRegionSetTest, Release) {
   absl::BitGen rng;
@@ -2166,6 +2172,31 @@ TEST_P(HugeRegionSetTest, ListStaysSortedAcrossReleasePagesUnback) {
   bool from_released;
   ASSERT_TRUE(set_.MaybeGet(4 * hp, &post_get_page, &from_released));
   EXPECT_TRUE(r0->contains(post_get_page));
+}
+
+TEST_P(HugeRegionSetTest, ClockCalls) {
+  std::unique_ptr<Region> r0 = GetRegion();
+  set_.Contribute(r0.get());
+
+  const Length hp = kPagesPerHugePage;
+  PageId p;
+  bool from_released;
+
+  const int64_t before_get = fake_clock_calls_;
+  ASSERT_TRUE(set_.MaybeGet(hp, &p, &from_released));
+  const int64_t get_calls = fake_clock_calls_ - before_get;
+
+  const int64_t before_put = fake_clock_calls_;
+  PutUnderLock({Range(p, hp)});
+  const int64_t put_calls = fake_clock_calls_ - before_put;
+
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  EXPECT_EQ(get_calls, 2);
+  EXPECT_EQ(put_calls, 2);
+#else
+  EXPECT_EQ(get_calls, 1);
+  EXPECT_EQ(put_calls, 1);
+#endif
 }
 
 TEST(HugeRegionNamedVmaTest, NamedVmaNormal) {
