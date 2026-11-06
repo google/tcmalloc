@@ -372,6 +372,33 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_FIX_MAX_CAPACITY_BUG_ABLATION"
   )
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_min_free_bytes_to_break_hugepage_dense_128k
+    ${EXTRA_ARGS}
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
+    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE_DENSE_128K"
+  )
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_min_free_bytes_to_break_hugepage_dense_128k_sparse_64k
+    ${EXTRA_ARGS}
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
+    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE_DENSE_128K_SPARSE_64K"
+  )
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_min_free_bytes_to_break_hugepage_dense_64k_sparse_64k
+    ${EXTRA_ARGS}
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
+    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE_DENSE_64K_SPARSE_64K"
+  )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_prefer_backed_filler_pages
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
@@ -618,6 +645,27 @@ function(tcmalloc_cc_binary_variants)
     DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
   )
   tcmalloc_cc_binary(NAME ${TCMALLOC_NAME}_tcmalloc_fix_max_capacity_bug_ablation
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
+  )
+  tcmalloc_cc_binary(NAME ${TCMALLOC_NAME}_tcmalloc_min_free_bytes_to_break_hugepage_dense_128k
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
+  )
+  tcmalloc_cc_binary(NAME ${TCMALLOC_NAME}_tcmalloc_min_free_bytes_to_break_hugepage_dense_128k_sparse_64k
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
+  )
+  tcmalloc_cc_binary(NAME ${TCMALLOC_NAME}_tcmalloc_min_free_bytes_to_break_hugepage_dense_64k_sparse_64k
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
