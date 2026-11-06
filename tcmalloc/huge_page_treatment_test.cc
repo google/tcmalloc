@@ -350,7 +350,8 @@ TEST_F(HugePageTreatmentRealMemoryTest,
     filler_.TreatHugepageTrackers(
         EnableCollapse::kEnabled, EnableUnfilteredCollapse::kDisabled,
         ReleaseStalePages::kDisabled, PreserveDonatedOnCollapse::kDisabled,
-        CollapseReleasedHugePages::kDisabled, &pageflags_, &residency_);
+        CollapseReleasedHugePages::kDisabled,
+        ReobserveHugepageBacked::kDisabled, &pageflags_, &residency_);
     EXPECT_EQ(filler_.GetHugePageTreatmentStats().collapse_succeeded,
               NHugePages(0));
     EXPECT_FALSE(pt->GetHugePageResidencyState().unbacked.IsZero());
@@ -374,7 +375,8 @@ TEST_F(HugePageTreatmentRealMemoryTest,
     filler_.TreatHugepageTrackers(
         EnableCollapse::kEnabled, EnableUnfilteredCollapse::kDisabled,
         ReleaseStalePages::kDisabled, PreserveDonatedOnCollapse::kDisabled,
-        CollapseReleasedHugePages::kEnabled, &pageflags_, &residency_);
+        CollapseReleasedHugePages::kEnabled, ReobserveHugepageBacked::kDisabled,
+        &pageflags_, &residency_);
   }
   if (collapse_.calls() == 0 &&
       pageflags_.IsHugepageBacked(backing_.ptr).value_or(false)) {
@@ -447,7 +449,8 @@ TEST_F(HugePageTreatmentRealMemoryTest,
     filler_.TreatHugepageTrackers(
         EnableCollapse::kEnabled, EnableUnfilteredCollapse::kDisabled,
         ReleaseStalePages::kDisabled, PreserveDonatedOnCollapse::kDisabled,
-        CollapseReleasedHugePages::kDisabled, &pageflags_, &residency_);
+        CollapseReleasedHugePages::kDisabled,
+        ReobserveHugepageBacked::kDisabled, &pageflags_, &residency_);
     EXPECT_EQ(filler_.GetHugePageTreatmentStats().collapse_attempted,
               NHugePages(0));
     EXPECT_FALSE(pt->GetHugePageResidencyState().unbacked.IsZero());
@@ -466,7 +469,8 @@ TEST_F(HugePageTreatmentRealMemoryTest,
     filler_.TreatHugepageTrackers(
         EnableCollapse::kEnabled, EnableUnfilteredCollapse::kEnabled,
         ReleaseStalePages::kDisabled, PreserveDonatedOnCollapse::kDisabled,
-        CollapseReleasedHugePages::kDisabled, &pageflags_, &residency_);
+        CollapseReleasedHugePages::kDisabled,
+        ReobserveHugepageBacked::kDisabled, &pageflags_, &residency_);
   }
   if (collapse_.calls() == 0 &&
       pageflags_.IsHugepageBacked(backing_.ptr).value_or(false)) {
