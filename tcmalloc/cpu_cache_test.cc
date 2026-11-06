@@ -2513,7 +2513,8 @@ TEST(TouchedCpus, SingleThreaded) {
   }
 }
 
-TEST(TouchedCpus, Multithreaded) {
+// Faked CPU ids: a real id can change between being read and the allocation.
+TEST(TouchedCpus, MultipleCpus) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -2522,52 +2523,20 @@ TEST(TouchedCpus, Multithreaded) {
   cache.Init();
   cache.Activate();
 
-  ThreadManager threads;
-  constexpr int kThreads = 10;
-  std::vector<absl::flat_hash_set<int>> seen;
-  seen.resize(kThreads);
-  for (auto& t : seen) {
-    t.reserve(NumCPUs());
-  }
-
-  threads.Start(10, [&](int thread_id) {
-    ASSERT_TRUE(subtle::percpu::IsFast());
-
+  const int kCpus = std::min(NumCPUs(), 10);
+  ScopedFakeCpuId fake_cpu_id(0);
+  for (int cpu = 0; cpu < kCpus; ++cpu) {
+    fake_cpu_id.SwitchTo(cpu);
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-    const int cpu_id_start =
-        subtle::percpu::TcmallocTest::VirtualCpuSynchronize();
-#else
-    const int cpu_id_start = subtle::percpu::GetRealCpu();
+    // A faked id switch does not invalidate the cached slab.
+    subtle::percpu::tcmalloc_slabs = 0;
 #endif
-
     void* ptr = cache.Allocate(1);
     cache.Deallocate(ptr, 1);
-
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-    const int cpu_id_end =
-        subtle::percpu::TcmallocTest::VirtualCpuSynchronize();
-#else
-    const int cpu_id_end = subtle::percpu::GetRealCpu();
-#endif
-    seen[thread_id].insert(cpu_id_start);
-    seen[thread_id].insert(cpu_id_end);
-  });
-
-  absl::SleepFor(absl::Milliseconds(100));
-
-  threads.Stop();
-
-  const int touched = cache.CountTouchedCpus();
-  const int max_id = cache.MaxTouchedCpu();
-
-  absl::btree_set<int> all;
-  for (const auto& t : seen) {
-    all.insert(t.begin(), t.end());
   }
 
-  ASSERT_FALSE(all.empty());
-  EXPECT_THAT(all, testing::SizeIs(testing::Eq(touched)));
-  EXPECT_EQ(*all.rbegin() + 1, max_id);
+  EXPECT_EQ(cache.CountTouchedCpus(), kCpus);
+  EXPECT_EQ(cache.MaxTouchedCpu(), kCpus);
 }
 
 TEST(CpuCacheTest, TargetOverflowRefillCount) {
