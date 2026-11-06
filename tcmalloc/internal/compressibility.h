@@ -16,9 +16,9 @@
 #define TCMALLOC_INTERNAL_COMPRESSIBILITY_H_
 
 #include <cstddef>
-#include <cstdint>
 
 #include "absl/container/fixed_array.h"
+#include "absl/random/random.h"
 #include "absl/status/statusor.h"
 #include "absl/types/span.h"
 #include "tcmalloc/internal/residency.h"
@@ -33,7 +33,7 @@ namespace tcmalloc_internal {
 // on the same instance.  Callers use one instance per (serial) profile walk.
 class CompressionAnalyzer {
  public:
-  static constexpr size_t kDefaultMaxLocalCopySize = 2 * 1024 * 1024;
+  static constexpr size_t kDefaultMaxLocalCopySize = 64 * 1024;
 
   explicit CompressionAnalyzer(
       size_t max_local_copy_size = kDefaultMaxLocalCopySize);
@@ -51,6 +51,7 @@ class CompressionAnalyzer {
 
  private:
   absl::FixedArray<char> local_copy_;
+  absl::BitGen rng_;
 };
 
 }  // namespace tcmalloc_internal
