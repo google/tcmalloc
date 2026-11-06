@@ -180,6 +180,11 @@ void Parameters::InitializeFromExperiments() {
                                       std::memory_order_relaxed);
   }
 
+  if (IsExperimentActive(Experiment::TCMALLOC_SONIC_FILLER_APPEND_ON_FREE)) {
+    filler_append_on_free_.store(FillerAppendOnFree::kEnabled,
+                                 std::memory_order_relaxed);
+  }
+
   if (IsExperimentActive(
           Experiment::TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION)) {
     release_drained_slab_metadata_.store(false, std::memory_order_relaxed);
