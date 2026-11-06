@@ -678,6 +678,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
           if (state.maybe_hugepage_backed) {
             state.unbacked.Clear();
             state.swapped.Clear();
+            state.stale.Clear();
           }
         } else {
           state.collapse_skipped = true;
@@ -717,7 +718,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     if (tracker.fully_freed() || tracker.BeingReleased()) {
       return;
     }
-    if (state.maybe_hugepage_backed &&
+    const bool was_hugepage_backed = state.maybe_hugepage_backed;
+    if (was_hugepage_backed &&
         tracker.GetHugePageResidencyState().released_since_selected) {
       // The hugepage was observed (or collapsed) as hugepage backed, but
       // another thread released pages from it while pageheap_lock was
@@ -728,7 +730,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       state.maybe_hugepage_backed = false;
     }
     tracker.SetHugePageResidencyState(state);
-    if (state.maybe_hugepage_backed) {
+    if (was_hugepage_backed) {
       return;
     }
 

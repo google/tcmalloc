@@ -2722,6 +2722,84 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
   EXPECT_TRUE(Delete(b));
 }
 
+TEST_F(FillerTestWithSubreleaseUnbacked,
+       PreCollapseBitmapsNotAppliedAfterReleaseBeforeRestore) {
+  randomize_density_ = false;
+  // Place a and b on distinct hugepages so treatment collapses two trackers in
+  // sequence.
+  PAlloc a = Allocate(Length(1));
+  PAlloc b = Allocate(Length(1), /*donated=*/true);
+  ASSERT_NE(a.pt, b.pt);
+
+  // Give both trackers non-empty pre-collapse unbacked and swapped bitmaps
+  // below kMaxUnbackedPagesForCollapse and kMaxSwappedPagesForCollapse so
+  // Observe records those bitmaps before attempting TryUserspaceCollapse.
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  Bitmap<kMaxResidencyBits> unbacked, swapped;
+  unbacked.SetRange(
+      0, 2 * (kHugePageSize / kPageSize) / kPagesPerHugePage.raw_num());
+  swapped.SetBit(0);
+  for (const PAlloc& p : {a, b}) {
+    pageflags.MarkHugePageBacked(p.p.start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    pageflags.SetStaleBitmap(p.p.start_addr(), {});
+    residency.SetUnbackedAndSwappedBitmaps(p.p.start_addr(), unbacked, swapped);
+  }
+
+  // While the second tracker is collapsing (after the first has already
+  // collapsed), release the first tracker to set released_since_selected, then
+  // reallocate and free its pages so they return to the backed-and-free state
+  // before RestoreOne runs.
+  int calls = 0;
+  PageTracker* first = nullptr;
+  std::vector<PAlloc> keep;
+  collapse_.unlocked_hook_ = [&](Range r) {
+    ++calls;
+    if (calls == 1) {
+      first = HugePageContaining(r.p) == a.pt->location() ? a.pt : b.pt;
+      return;
+    }
+    EXPECT_NE(HugePageContaining(r.p), first->location());
+    EXPECT_EQ(ReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(1));
+    EXPECT_TRUE(first->released());
+    PAlloc r1 = Allocate(kPagesPerHugePage - Length(1));
+    PAlloc r2 = Allocate(kPagesPerHugePage - Length(1));
+    EXPECT_FALSE(first->released());
+    if (r1.pt == first) {
+      EXPECT_FALSE(Delete(r1));
+      keep.push_back(r2);
+    } else {
+      EXPECT_FALSE(Delete(r2));
+      keep.push_back(r1);
+    }
+    EXPECT_FALSE(first->released());
+  };
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  collapse_.unlocked_hook_ = nullptr;
+  ASSERT_EQ(calls, 2);
+  ASSERT_NE(first, nullptr);
+
+  // Even though released_since_selected clears first's maybe_hugepage_backed
+  // flag in RestoreOne so a later pass re-examines it, the pre-collapse swapped
+  // and unbacked bitmaps were superseded by the collapse and must not
+  // subrelease or mark unbacked the newly backed free pages on first.
+  HugePageTreatmentStats stats = GetHugePageTreatmentStats();
+  EXPECT_EQ(stats.collapse_attempted, NHugePages(2));
+  EXPECT_EQ(stats.collapse_succeeded, NHugePages(2));
+  EXPECT_EQ(stats.treated_pages_subreleased, Length(0));
+  EXPECT_EQ(stats.treated_pages_unbacked_subreleased, Length(0));
+  EXPECT_FALSE(first->released());
+  EXPECT_EQ(first->released_pages(), Length(0));
+  CheckStats();
+
+  DeleteVector(keep);
+  EXPECT_TRUE(Delete(a));
+  EXPECT_TRUE(Delete(b));
+}
+
 // Makes sure that we do not collapse the pages that are already hugepage
 // backed.
 TEST_F(FillerTest, DontCollapseAlreadyHugepages) {
