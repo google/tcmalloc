@@ -23,6 +23,7 @@
 #include "absl/base/optimization.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/hash/hash.h"
+#include "absl/random/random.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
@@ -105,6 +106,68 @@ static const char* GetSoName(const dl_phdr_info* const info) {
 }
 #endif  // defined(__linux__)
 
+// Maximum total resident bytes copied and compressed by CompressionAnalyzer
+// across an entire heap profile conversion.
+constexpr size_t kMaxCompressibilityBytesPerProfile = 256 * 1024 * 1024;
+
+// Target maximum resident bytes copied and compressed for a single merged
+// callstack group (at most 32 spans of 64 KiB each for large allocations).
+constexpr size_t kMaxCompressibilityBytesPerGroup = 2 * 1024 * 1024;
+
+// Maximum number of sampled spans retained in a merged callstack group's
+// reservoir for small size classes.
+constexpr size_t kMaxCompressibilitySamplesPerGroup = 512;
+
+// Returns the reservoir capacity (in spans) for a merged callstack group with
+// allocation size `size`, capped by both `kMaxCompressibilityBytesPerGroup` and
+// `kMaxCompressibilitySamplesPerGroup`.
+size_t MaxCompressibilitySamplesForGroup(size_t size) {
+  const size_t sample_bytes = std::clamp(
+      size, size_t{1}, CompressionAnalyzer::kDefaultMaxLocalCopySize);
+  return std::clamp(kMaxCompressibilityBytesPerGroup / sample_bytes, size_t{1},
+                    kMaxCompressibilitySamplesPerGroup);
+}
+
+// Online reservoir sampler (Algorithm R) retaining a uniform random subset of
+// at most `max_samples` items from a stream.
+template <typename T>
+class Reservoir {
+ public:
+  void Add(const T& item, size_t max_samples, absl::BitGen& rng) {
+    ++seen_;
+    if (items_.size() < max_samples) {
+      items_.push_back(item);
+      return;
+    }
+    const size_t idx = absl::Uniform<size_t>(rng, 0, seen_);
+    if (idx < max_samples) {
+      items_[idx] = item;
+    }
+  }
+
+  size_t size() const { return items_.size(); }
+  const T& operator[](size_t index) const { return items_[index]; }
+
+ private:
+  size_t seen_ = 0;
+  std::vector<T> items_;
+};
+
+// A sampled resident span retained during the first pass of profile merging for
+// deferred compressibility analysis in the second pass.
+struct CompressibilityCandidate {
+  // Start address of the sampled span in the target process.
+  const void* span_start_address = nullptr;
+  // Meaningful byte size of a single sampled object in the span
+  // (`allocated_size` when size-returning, otherwise `requested_size`).
+  size_t size = 0;
+  // Sample weight (`Profile::Sample::count`), i.e. the estimated number of live
+  // objects represented by this sample.
+  int64_t count = 0;
+  // Residency bitmap and byte counts for `[span_start_address, +size)`.
+  Residency::Info residency_info;
+};
+
 struct SampleMergedData {
   int64_t count = 0;
   int64_t sum = 0;
@@ -116,6 +179,23 @@ struct SampleMergedData {
   std::optional<uint64_t> stale_scan_period;
   size_t compressed_size = 0;
   size_t zero_size = 0;
+
+  // Total unbacked bytes (`size - min(size, resident + swapped)`) across all
+  // samples in this group, pre-multiplied by each sample's `count`.
+  size_t unbacked_size = 0;
+  // Total backed bytes (`resident + swapped`) across the subset of candidate
+  // spans in this group that were analyzed by `CompressionAnalyzer`,
+  // pre-multiplied by each candidate's `count`. Used as the denominator when
+  // scaling `analyzed_compressed` and `analyzed_backed_zero` to the group's
+  // full backed bytes.
+  size_t analyzed_backed = 0;
+  // Estimated zero bytes within backed (resident + swapped) pages across the
+  // analyzed candidates in this group, pre-multiplied by each candidate's
+  // `count`.
+  size_t analyzed_backed_zero = 0;
+  // Reservoir of resident candidate spans sampled from this group for
+  // second-pass compressibility analysis.
+  Reservoir<CompressibilityCandidate> candidates;
 };
 
 // The equality and hash methods of Profile::Sample only use a subset of its
@@ -164,6 +244,7 @@ SampleMergeResult MergeProfileSamplesAndMaybeGetResidencyInfo(
   if (collecting_compressibility) {
     compression_analyzer.emplace();
   }
+  absl::BitGen rng;
 
   profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
     SampleMergedData& data = map[entry];
@@ -228,16 +309,83 @@ SampleMergeResult MergeProfileSamplesAndMaybeGetResidencyInfo(
 
     if (compression_analyzer.has_value() && residency_info.has_value() &&
         entry.span_start_address != nullptr && entry.requested_size > 0) {
-      absl::Span<const char> sample_mem(
-          reinterpret_cast<const char*>(entry.span_start_address), size);
-      absl::StatusOr<CompressionAnalyzer::Results> res =
-          compression_analyzer->Analyze(sample_mem, *residency_info);
-      if (res.ok()) {
+      const size_t backed = std::min(
+          size, residency_info->bytes_resident + residency_info->bytes_swapped);
+      data.unbacked_size += entry.count * (size - backed);
+      if (residency_info->bytes_resident > 0) {
+        data.candidates.Add(
+            CompressibilityCandidate{
+                .span_start_address = entry.span_start_address,
+                .size = size,
+                .count = entry.count,
+                .residency_info = *residency_info,
+            },
+            MaxCompressibilitySamplesForGroup(size), rng);
+      } else {
         result.measured_compressibility = true;
-        data.zero_size += entry.count * res->zero_bytes;
       }
     }
   });
+
+  if (compression_analyzer.has_value()) {
+    size_t bytes_analyzed = 0;
+    for (size_t round = 0; round < kMaxCompressibilitySamplesPerGroup;
+         ++round) {
+      bool any_in_round = false;
+      for (auto& [entry, data] : map) {
+        if (round >= data.candidates.size()) {
+          continue;
+        }
+        any_in_round = true;
+        if (bytes_analyzed >= kMaxCompressibilityBytesPerProfile) {
+          break;
+        }
+        const CompressibilityCandidate& cand = data.candidates[round];
+        absl::Span<const char> sample_mem(
+            reinterpret_cast<const char*>(cand.span_start_address), cand.size);
+        absl::StatusOr<CompressionAnalyzer::Results> res =
+            compression_analyzer->Analyze(sample_mem, cand.residency_info);
+        bytes_analyzed +=
+            std::min(cand.residency_info.bytes_resident,
+                     CompressionAnalyzer::kDefaultMaxLocalCopySize);
+        if (res.ok()) {
+          result.measured_compressibility = true;
+          const size_t cand_total_backed = cand.residency_info.bytes_resident +
+                                           cand.residency_info.bytes_swapped;
+          const size_t cand_backed = std::min(cand.size, cand_total_backed);
+          const size_t cand_unbacked = cand.size - cand_backed;
+          const size_t cand_backed_zero = res->zero_bytes > cand_unbacked
+                                              ? res->zero_bytes - cand_unbacked
+                                              : 0;
+          data.analyzed_backed += cand.count * cand_total_backed;
+          data.analyzed_backed_zero += cand.count * cand_backed_zero;
+        }
+      }
+      if (!any_in_round ||
+          bytes_analyzed >= kMaxCompressibilityBytesPerProfile) {
+        break;
+      }
+    }
+
+    if (result.measured_compressibility) {
+      for (auto& [entry, data] : map) {
+        const size_t backed =
+            data.resident_size.value_or(0) + data.swapped_size.value_or(0);
+        if (data.analyzed_backed == backed) {
+          data.zero_size = data.unbacked_size + data.analyzed_backed_zero;
+        } else if (data.analyzed_backed > 0) {
+          const double scale =
+              static_cast<double>(backed) / data.analyzed_backed;
+          data.zero_size =
+              data.unbacked_size +
+              std::min(backed, static_cast<size_t>(
+                                   data.analyzed_backed_zero * scale + 0.5));
+        } else {
+          data.zero_size = data.unbacked_size;
+        }
+      }
+    }
+  }
   return result;
 }
 
