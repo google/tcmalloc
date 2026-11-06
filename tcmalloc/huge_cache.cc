@@ -110,19 +110,36 @@ void HugeCache::MaybeGrowCacheLimit(HugeLength missed) {
 
 void HugeCache::IncUsage(HugeLength n) {
   usage_ += n;
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   usage_tracker_.Report(usage_);
   detailed_tracker_.Report(usage_);
   off_peak_tracker_.Report(NHugePages(0));
+#else
+  const int64_t now = clock_.now();
+  usage_tracker_.Report(usage_, now);
+  detailed_tracker_.Report(usage_, now);
+  off_peak_tracker_.Report(NHugePages(0), now);
+#endif
 }
 
 void HugeCache::DecUsage(HugeLength n) {
   usage_ -= n;
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   usage_tracker_.Report(usage_);
   detailed_tracker_.Report(usage_);
   const HugeLength max = usage_tracker_.MaxOverTime(cache_time_);
   TC_ASSERT_GE(max, usage_);
   const HugeLength off_peak = max - usage_;
   off_peak_tracker_.Report(off_peak);
+#else
+  const int64_t now = clock_.now();
+  usage_tracker_.Report(usage_, now);
+  detailed_tracker_.Report(usage_, now);
+  const HugeLength max = usage_tracker_.MaxOverTime(cache_time_);
+  TC_ASSERT_GE(max, usage_);
+  const HugeLength off_peak = max - usage_;
+  off_peak_tracker_.Report(off_peak, now);
+#endif
 }
 
 void HugeCache::UpdateSize(HugeLength size) { size_tracker_.Report(size); }
@@ -317,6 +334,7 @@ void HugeCache::Print(Printer& out) {
   out.printf("HugeCache: %zu MiB fast unbacked, %zu MiB periodic\n",
              total_fast_unbacked_.in_bytes() / 1024 / 1024,
              total_periodic_unbacked_.in_bytes() / 1024 / 1024);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   UpdateSize(size());
 
   usage_tracker_.Report(usage_);
@@ -328,6 +346,20 @@ void HugeCache::Print(Printer& out) {
 
   const HugeLength off_peak = usage_max - usage_;
   off_peak_tracker_.Report(off_peak);
+#else
+  const int64_t now = clock_.now();
+  size_tracker_.Report(size(), now);
+
+  usage_tracker_.Report(usage_, now);
+  const HugeLength usage_min = usage_tracker_.MinOverTime(cache_time_);
+  const HugeLength usage_max = usage_tracker_.MaxOverTime(cache_time_);
+  out.printf(
+      "HugeCache: recent usage range: %zu min - %zu curr -  %zu max MiB\n",
+      usage_min.in_mib(), usage_.in_mib(), usage_max.in_mib());
+
+  const HugeLength off_peak = usage_max - usage_;
+  off_peak_tracker_.Report(off_peak, now);
+#endif
   const HugeLength off_peak_min = off_peak_tracker_.MinOverTime(cache_time_);
   const HugeLength off_peak_max = off_peak_tracker_.MaxOverTime(cache_time_);
   out.printf(
@@ -369,6 +401,7 @@ void HugeCache::PrintInPbtxt(PbtxtRegion& hpaa) {
   hpaa.PrintI64("fast_unbacked_bytes", total_fast_unbacked_.in_bytes());
   // bytes unbacked by periodic releaser thread
   hpaa.PrintI64("periodic_unbacked_bytes", total_periodic_unbacked_.in_bytes());
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   UpdateSize(size());
 
   usage_tracker_.Report(usage_);
@@ -383,6 +416,23 @@ void HugeCache::PrintInPbtxt(PbtxtRegion& hpaa) {
 
   const HugeLength off_peak = usage_max - usage_;
   off_peak_tracker_.Report(off_peak);
+#else
+  const int64_t now = clock_.now();
+  size_tracker_.Report(size(), now);
+
+  usage_tracker_.Report(usage_, now);
+  const HugeLength usage_min = usage_tracker_.MinOverTime(cache_time_);
+  const HugeLength usage_max = usage_tracker_.MaxOverTime(cache_time_);
+  {
+    auto usage_stats = hpaa.CreateSubRegion("huge_cache_usage_stats");
+    usage_stats.PrintI64("min_bytes", usage_min.in_bytes());
+    usage_stats.PrintI64("current_bytes", usage_.in_bytes());
+    usage_stats.PrintI64("max_bytes", usage_max.in_bytes());
+  }
+
+  const HugeLength off_peak = usage_max - usage_;
+  off_peak_tracker_.Report(off_peak, now);
+#endif
   const HugeLength off_peak_min = off_peak_tracker_.MinOverTime(cache_time_);
   const HugeLength off_peak_max = off_peak_tracker_.MaxOverTime(cache_time_);
   {

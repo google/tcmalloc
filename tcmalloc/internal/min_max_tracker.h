@@ -40,6 +40,7 @@ class MinMaxTracker {
       : kEpochLength(w / kSlots), timeseries_(clock, kEpochLength) {}
 
   void Report(T val);
+  void Report(T val, int64_t now);
   void Print(Printer& out, absl::string_view prefix,
              absl::string_view label) const;
   void PrintInPbtxt(PbtxtRegion& hpaa, absl::string_view region_name) const;
@@ -79,6 +80,11 @@ class MinMaxTracker {
 template <typename T, size_t kSlots>
 void MinMaxTracker<T, kSlots>::Report(T val) {
   timeseries_.Report(val);
+}
+
+template <typename T, size_t kSlots>
+void MinMaxTracker<T, kSlots>::Report(T val, int64_t now) {
+  timeseries_.Report(val, now);
 }
 
 template <typename T, size_t kSlots>

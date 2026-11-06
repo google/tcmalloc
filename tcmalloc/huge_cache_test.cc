@@ -51,14 +51,21 @@ class HugeCacheTest : public testing::TestWithParam<absl::Duration> {
  private:
   // Allow tests to modify the clock used by the cache.
   static int64_t clock_;
+  static int64_t now_calls_;
 
-  static int64_t FakeClock() { return clock_; }
+  static int64_t FakeClock() {
+    ++now_calls_;
+    return clock_;
+  }
 
   static double GetFakeClockFrequency() {
     return absl::ToDoubleNanoseconds(absl::Seconds(2));
   }
 
-  static void ResetClock() { clock_ = 1234; }
+  static void ResetClock() {
+    clock_ = 1234;
+    now_calls_ = 0;
+  }
 
   // Helper struct whose sole purpose is to call ResetClock() upon construction.
   struct ClockResetter {
@@ -90,6 +97,8 @@ class HugeCacheTest : public testing::TestWithParam<absl::Duration> {
     clock_ += absl::ToDoubleSeconds(d) * GetFakeClockFrequency();
   }
 
+  static int64_t now_calls() { return now_calls_; }
+
   absl::Duration GetCacheTime() { return GetParam(); }
   void Release(HugeRange r) { cache_.Release(r); }
 
@@ -101,6 +110,7 @@ class HugeCacheTest : public testing::TestWithParam<absl::Duration> {
 };
 
 int64_t HugeCacheTest::clock_{1234};
+int64_t HugeCacheTest::now_calls_{0};
 
 TEST_P(HugeCacheTest, Basic) {
   bool from;
@@ -514,6 +524,39 @@ TEST_P(HugeCacheTest, Contains) {
 
   EXPECT_FALSE(cache_.Contains(r.start() - NHugePages(1)));
   EXPECT_FALSE(cache_.Contains(r.start() + NHugePages(4)));
+}
+
+TEST_P(HugeCacheTest, ClockCalls) {
+  bool from;
+  const int64_t before_miss = now_calls();
+  HugeRange r = cache_.Get(NHugePages(1), &from);
+  ASSERT_TRUE(from);
+  const int64_t miss_calls = now_calls() - before_miss;
+
+  const int64_t before_release = now_calls();
+  Release(r);
+  const int64_t release_calls = now_calls() - before_release;
+
+  const int64_t before_hit = now_calls();
+  r = cache_.Get(NHugePages(1), &from);
+  ASSERT_FALSE(from);
+  const int64_t hit_calls = now_calls() - before_hit;
+
+  const int64_t before_release_unbacked = now_calls();
+  cache_.ReleaseUnbacked(r);
+  const int64_t release_unbacked_calls = now_calls() - before_release_unbacked;
+
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  EXPECT_EQ(miss_calls, 3);
+  EXPECT_EQ(release_calls, 5);
+  EXPECT_EQ(hit_calls, 4);
+  EXPECT_EQ(release_unbacked_calls, 3);
+#else
+  EXPECT_EQ(miss_calls, 1);
+  EXPECT_EQ(release_calls, 3);
+  EXPECT_EQ(hit_calls, 2);
+  EXPECT_EQ(release_unbacked_calls, 1);
+#endif
 }
 
 INSTANTIATE_TEST_SUITE_P(All, HugeCacheTest,
