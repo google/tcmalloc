@@ -146,6 +146,16 @@ static ReleaseStalePages want_release_stale_pages() {
 }
 
 void Parameters::InitializeFromExperiments() {
+  // TCMALLOC_INTERNAL_SMALL_BUT_SLOW disables skip-subrelease by setting all
+  // intervals to zero to minimize memory footprint; avoid re-enabling it here.
+#if !defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+  if (IsExperimentActive(Experiment::TCMALLOC_SONIC_DEMAND_CYCLE_60S)) {
+    skip_subrelease_long_interval_ns_.store(
+        absl::ToInt64Nanoseconds(absl::Seconds(60)), std::memory_order_relaxed);
+    skip_subrelease_cold_long_interval_ns_.store(
+        absl::ToInt64Nanoseconds(absl::Seconds(60)), std::memory_order_relaxed);
+  }
+#endif
 
   if (IsExperimentActive(Experiment::TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES)) {
     track_broken_hugepages_.store(TrackBrokenHugepages::kEnabled,
