@@ -26,11 +26,10 @@
 #include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/base/attributes.h"
+#include "absl/base/no_destructor.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/proc_maps.h"
@@ -110,10 +109,10 @@ absl::string_view hintToString(AddressRegionFactory::UsageHint usage_hint) {
   }
 }
 
-TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT SimpleRegionFactory f;
+absl::NoDestructor<SimpleRegionFactory> f;
 
 TEST(Basic, InvokedTest) {
-  MallocExtension::SetRegionFactory(&f);
+  MallocExtension::SetRegionFactory(&*f);
 
   // An allocation size that is likely to trigger the system allocator.
   void* ptr = ::operator new(kMinMmapAlloc);
@@ -150,10 +149,10 @@ TEST(Basic, RetryFailTest) {
 
 // Verify the usage hint is kMetadata for metadata
 TEST(UsageHint, VerifyUsageHintkMetadataTest) {
-  f.usage_hint_ = std::nullopt;
+  f->usage_hint_ = std::nullopt;
   // SetRegionFactory discards the cached metadata region, so the next time the
   // Arena grows it must obtain a fresh region from f.
-  MallocExtension::SetRegionFactory(&f);
+  MallocExtension::SetRegionFactory(&*f);
 
   // Force the Arena to grow now by requesting more than it currently holds in
   // reserve.  Allocating user memory (and relying on the pagemap metadata that
@@ -165,9 +164,9 @@ TEST(UsageHint, VerifyUsageHintkMetadataTest) {
   void* ptr = tc_globals.arena().Alloc(ArenaAlloc::kTest, bytes);
   ASSERT_NE(ptr, nullptr);
 
-  ASSERT_TRUE(f.usage_hint_.has_value());
-  EXPECT_EQ(*f.usage_hint_, AddressRegionFactory::UsageHint::kMetadata)
-      << "Usage hint is " << hintToString(*f.usage_hint_);
+  ASSERT_TRUE(f->usage_hint_.has_value());
+  EXPECT_EQ(*f->usage_hint_, AddressRegionFactory::UsageHint::kMetadata)
+      << "Usage hint is " << hintToString(*f->usage_hint_);
   // Arena memory is never returned, so ptr is intentionally not freed.
 }
 
