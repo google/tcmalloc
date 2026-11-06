@@ -83,7 +83,7 @@ class MissCounts {
 // sizemap.num_objects_to_move(size_class) back and forth between
 // thread caches and the central cache for a given size class.
 template <typename CentralFreeList, typename ForwarderT>
-class TransferCache {
+class ABSL_CACHELINE_ALIGNED TransferCache {
  public:
   using Forwarder = ForwarderT;
   using FreeList = CentralFreeList;
@@ -446,7 +446,7 @@ class TransferCache {
   // CentralFreeList carries its own lock at offset 0, so start it on a fresh
   // cacheline to keep it from false sharing with lock_ or the miss counters.
   alignas(ABSL_CACHELINE_SIZE) FreeList freelist_do_not_access_directly_;
-} ABSL_CACHELINE_ALIGNED;
+};
 
 template <typename Manager>
 void ResizeCaches(Manager& manager, int start_size_class) {

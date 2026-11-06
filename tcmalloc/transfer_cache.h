@@ -392,7 +392,7 @@ using ShardedTransferCacheManager =
                                     ProdCpuLayout, BackingTransferCache>;
 
 template <typename Forwarder>
-class TransferCacheManagerBase {
+class ABSL_CACHELINE_ALIGNED TransferCacheManagerBase {
   using TransferCache =
       internal_transfer_cache::TransferCache<tcmalloc_internal::CentralFreeList,
                                              Forwarder>;
@@ -553,7 +553,7 @@ class TransferCacheManagerBase {
 
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
   Cache cache_[kNumClasses];
-} ABSL_CACHELINE_ALIGNED;
+};
 
 using TransferCacheManager =
     TransferCacheManagerBase<StaticForwarder<Static, tc_globals>>;
@@ -562,7 +562,7 @@ using TransferCacheManager =
 
 // For the small memory model, the transfer cache is not used.
 template <typename Forwarder>
-class TransferCacheManagerBase {
+class ABSL_CACHELINE_ALIGNED TransferCacheManagerBase {
   using FreeList = central_freelist_internal::CentralFreeList<Forwarder>;
 
  public:
@@ -612,7 +612,7 @@ class TransferCacheManagerBase {
     bool dummy;
   };
   Cache cache_[kNumClasses];
-} ABSL_CACHELINE_ALIGNED;
+};
 
 using TransferCacheManager =
     TransferCacheManagerBase<StaticForwarder<Static, tc_globals>>;

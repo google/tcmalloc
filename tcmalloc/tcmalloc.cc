@@ -1574,26 +1574,30 @@ using tcmalloc::tcmalloc_internal::MultiplyOverflow;
   __attribute__((alias(#tc_fn), visibility("default")))
 #endif  //  !TCMALLOC_INTERNAL_METHODS_ONLY
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalMalloc(
+#define TCMALLOC_INTERNAL_CACHELINE_ALIGNED \
+  ABSL_ATTRIBUTE_FUNC_ALIGN(ABSL_CACHELINE_SIZE)
+
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* TCMallocInternalMalloc(
     size_t size) noexcept {
   return fast_alloc(size, MallocPolicy());
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNew(size_t size) {
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* TCMallocInternalNew(
+    size_t size) {
   return fast_alloc(size, CppPolicy());
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewNothrow(
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* TCMallocInternalNewNothrow(
     size_t size, const std::nothrow_t&) noexcept {
   return fast_alloc(size, CppPolicy().Nothrow());
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED __sized_ptr_t
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED __sized_ptr_t
 TCMallocInternalSizeReturningNew(size_t size) {
   return fast_alloc(size, CppPolicy().SizeReturning());
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED __sized_ptr_t
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED __sized_ptr_t
 TCMallocInternalSizeReturningNewAligned(size_t size,
                                         std::align_val_t alignment) {
   return fast_alloc(size, CppPolicy().AlignAs(alignment).SizeReturning());
@@ -1608,22 +1612,26 @@ TCMallocInternalSizeReturningNewAligned(size_t size,
 //   implemented in terms of `{::operator new(...), n}`
 // - tcmalloc provides strong implementations of `__size_returning_new`
 
-extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
+    google_malloc)
 __sized_ptr_t __size_returning_new(size_t size)
     TCMALLOC_ALIAS(TCMallocInternalSizeReturningNew);
 
-extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
+    google_malloc)
 __sized_ptr_t __size_returning_new_aligned(size_t size,
                                            std::align_val_t alignment)
     TCMALLOC_ALIAS(TCMallocInternalSizeReturningNewAligned);
 
-extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
+    google_malloc)
 __sized_ptr_t __size_returning_new_hot_cold(size_t size,
                                             __hot_cold_t hot_cold) {
   return fast_alloc(size, CppPolicy().AccessAs(hot_cold).SizeReturning());
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
+    google_malloc)
 __sized_ptr_t __size_returning_new_aligned_hot_cold(size_t size,
                                                     std::align_val_t alignment,
                                                     __hot_cold_t hot_cold) {
@@ -1632,38 +1640,40 @@ __sized_ptr_t __size_returning_new_aligned_hot_cold(size_t size,
 }
 #endif  // !TCMALLOC_INTERNAL_METHODS_ONLY
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalMemalign(
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* TCMallocInternalMemalign(
     size_t align, size_t size) noexcept {
   return fast_alloc(size, MallocPolicy().AlignAs(align));
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewAligned(
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* TCMallocInternalNewAligned(
     size_t size, std::align_val_t alignment) {
   return fast_alloc(size, CppPolicy().AlignAs(alignment));
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewAlignedNothrow(
-    size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept {
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void*
+TCMallocInternalNewAlignedNothrow(size_t size, std::align_val_t alignment,
+                                  const std::nothrow_t&) noexcept {
   return fast_alloc(size, CppPolicy().Nothrow().AlignAs(alignment));
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewHotCold(
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* TCMallocInternalNewHotCold(
     size_t size, tcmalloc::hot_cold_t hot_cold) {
   return fast_alloc(size, CppPolicy().AccessAs(hot_cold));
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewAlignedHotCold(
-    size_t size, std::align_val_t alignment, tcmalloc::hot_cold_t hot_cold) {
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void*
+TCMallocInternalNewAlignedHotCold(size_t size, std::align_val_t alignment,
+                                  tcmalloc::hot_cold_t hot_cold) {
   return fast_alloc(size, CppPolicy().AlignAs(alignment).AccessAs(hot_cold));
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewHotColdNothrow(
-    size_t size, const std::nothrow_t&,
-    tcmalloc::hot_cold_t hot_cold) noexcept {
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void*
+TCMallocInternalNewHotColdNothrow(size_t size, const std::nothrow_t&,
+                                  tcmalloc::hot_cold_t hot_cold) noexcept {
   return fast_alloc(size, CppPolicy().Nothrow().AccessAs(hot_cold));
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void*
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void*
 TCMallocInternalNewAlignedHotColdNothrow(
     size_t size, std::align_val_t alignment, const std::nothrow_t&,
     tcmalloc::hot_cold_t hot_cold) noexcept {
@@ -1671,7 +1681,7 @@ TCMallocInternalNewAlignedHotColdNothrow(
       size, CppPolicy().AlignAs(alignment).Nothrow().AccessAs(hot_cold));
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalCalloc(
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* TCMallocInternalCalloc(
     size_t n, size_t elem_size) noexcept {
   size_t size;
   if (ABSL_PREDICT_FALSE(MultiplyOverflow(n, elem_size, &size))) {
@@ -1756,7 +1766,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
   }
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalRealloc(
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* TCMallocInternalRealloc(
     void* ptr, size_t size) noexcept {
   if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
     return fast_alloc(size, MallocPolicy());
@@ -1772,8 +1782,8 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalRealloc(
   return do_realloc(ptr, size, TokenId::kNoAllocToken);
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalReallocArray(
-    void* ptr, size_t n, size_t elem_size) noexcept {
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void*
+TCMallocInternalReallocArray(void* ptr, size_t n, size_t elem_size) noexcept {
   size_t size;
   if (ABSL_PREDICT_FALSE(MultiplyOverflow(n, elem_size, &size))) {
     return MallocPolicy::handle_oom(std::numeric_limits<size_t>::max());
@@ -1789,27 +1799,31 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalReallocArray(
 }
 
 #ifndef TCMALLOC_INTERNAL_METHODS_ONLY
-extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
+    google_malloc)
 __sized_ptr_t tcmalloc_size_returning_operator_new_nothrow(
     size_t size) noexcept {
   return fast_alloc(size, CppPolicy().Nothrow().SizeReturning());
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
+    google_malloc)
 __sized_ptr_t tcmalloc_size_returning_operator_new_aligned_nothrow(
     size_t size, std::align_val_t alignment) noexcept {
   return fast_alloc(size,
                     CppPolicy().AlignAs(alignment).Nothrow().SizeReturning());
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
+    google_malloc)
 __sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold_nothrow(
     size_t size, __hot_cold_t hot_cold) noexcept {
   return fast_alloc(size,
                     CppPolicy().AccessAs(hot_cold).Nothrow().SizeReturning());
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
+    google_malloc)
 __sized_ptr_t tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
     size_t size, std::align_val_t alignment, __hot_cold_t hot_cold) noexcept {
   return fast_alloc(size, CppPolicy()
@@ -1820,25 +1834,26 @@ __sized_ptr_t tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
 }
 #endif  // !TCMALLOC_INTERNAL_METHODS_ONLY
 
-extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalFree(
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void TCMallocInternalFree(
     void* ptr) noexcept {
   do_free(ptr, MallocPolicy());
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalFreeSized(
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void TCMallocInternalFreeSized(
     void* ptr, size_t size) noexcept {
   do_free_with_size(ptr, size, MallocPolicy());
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalFreeAlignedSized(
-    void* ptr, size_t align, size_t size) noexcept {
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void
+TCMallocInternalFreeAlignedSized(void* ptr, size_t align,
+                                 size_t size) noexcept {
   do_free_with_size(ptr, size, MallocPolicy().AlignAs(align));
 }
 
 extern "C" void TCMallocInternalCfree(void* ptr) noexcept
     TCMALLOC_ALIAS(TCMallocInternalFree);
 
-extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalSdallocx(
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void TCMallocInternalSdallocx(
     void* ptr, size_t size, int flags) noexcept {
   if (ABSL_PREDICT_FALSE(flags != 0)) {
     TC_ASSERT_EQ(flags & ~0x3f, 0);
@@ -1863,13 +1878,14 @@ extern "C" void TCMallocInternalDeleteAligned(
   return do_free(p, CppPolicy().AlignAs(alignment));
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalDeleteSized(
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void TCMallocInternalDeleteSized(
     void* p, size_t size) noexcept {
   do_free_with_size(p, size, CppPolicy());
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalDeleteSizedAligned(
-    void* p, size_t t, std::align_val_t alignment) noexcept {
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void
+TCMallocInternalDeleteSizedAligned(void* p, size_t t,
+                                   std::align_val_t alignment) noexcept {
   return do_free_with_size(p, t, CppPolicy().AlignAs(alignment));
 }
 
@@ -1891,43 +1907,46 @@ extern "C" void TCMallocInternalDeleteAlignedNothrow(
     void* p, std::align_val_t alignment, const std::nothrow_t&) noexcept
     TCMALLOC_ALIAS(TCMallocInternalDeleteAligned);
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewArray(size_t size) {
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* TCMallocInternalNewArray(
+    size_t size) {
   return fast_alloc(size, CppArrayPolicy());
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewArrayAligned(
-    size_t size, std::align_val_t alignment) {
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void*
+TCMallocInternalNewArrayAligned(size_t size, std::align_val_t alignment) {
   return fast_alloc(size, CppArrayPolicy().AlignAs(alignment));
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewArrayNothrow(
-    size_t size, const std::nothrow_t&) noexcept {
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void*
+TCMallocInternalNewArrayNothrow(size_t size, const std::nothrow_t&) noexcept {
   return fast_alloc(size, CppArrayPolicy().Nothrow());
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewArrayAlignedNothrow(
-    size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept {
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void*
+TCMallocInternalNewArrayAlignedNothrow(size_t size, std::align_val_t alignment,
+                                       const std::nothrow_t&) noexcept {
   return fast_alloc(size, CppArrayPolicy().Nothrow().AlignAs(alignment));
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewArrayHotCold(
-    size_t size, tcmalloc::hot_cold_t hot_cold) {
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void*
+TCMallocInternalNewArrayHotCold(size_t size, tcmalloc::hot_cold_t hot_cold) {
   return fast_alloc(size, CppArrayPolicy().AccessAs(hot_cold));
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewArrayAlignedHotCold(
-    size_t size, std::align_val_t alignment, tcmalloc::hot_cold_t hot_cold) {
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void*
+TCMallocInternalNewArrayAlignedHotCold(size_t size, std::align_val_t alignment,
+                                       tcmalloc::hot_cold_t hot_cold) {
   return fast_alloc(size,
                     CppArrayPolicy().AlignAs(alignment).AccessAs(hot_cold));
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewArrayHotColdNothrow(
-    size_t size, const std::nothrow_t&,
-    tcmalloc::hot_cold_t hot_cold) noexcept {
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void*
+TCMallocInternalNewArrayHotColdNothrow(size_t size, const std::nothrow_t&,
+                                       tcmalloc::hot_cold_t hot_cold) noexcept {
   return fast_alloc(size, CppArrayPolicy().Nothrow().AccessAs(hot_cold));
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void*
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void*
 TCMallocInternalNewArrayAlignedHotColdNothrow(
     size_t size, std::align_val_t alignment, const std::nothrow_t&,
     tcmalloc::hot_cold_t hot_cold) noexcept {
@@ -1950,8 +1969,8 @@ extern "C" void TCMallocInternalDeleteArrayAlignedNothrow(
     void* p, std::align_val_t alignment, const std::nothrow_t& nt) noexcept
     TCMALLOC_ALIAS(TCMallocInternalDeleteAligned);
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalAlignedAlloc(
-    size_t align, size_t size) noexcept {
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void*
+TCMallocInternalAlignedAlloc(size_t align, size_t size) noexcept {
   // See https://www.open-std.org/jtc1/sc22/wg14/www/docs/summary.htm#dr_460.
   // The standard was updated to say that if align is not supported by the
   // implementation, a null pointer should be returned. We require alignment to
@@ -1965,8 +1984,9 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalAlignedAlloc(
   return fast_alloc(size, MallocPolicy().AlignAs(align));
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED int TCMallocInternalPosixMemalign(
-    void** result_ptr, size_t align, size_t size) noexcept {
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED int
+TCMallocInternalPosixMemalign(void** result_ptr, size_t align,
+                              size_t size) noexcept {
   TC_ASSERT_NE(result_ptr, nullptr);
   if (ABSL_PREDICT_FALSE(((align % sizeof(void*)) != 0) ||
                          !absl::has_single_bit(align))) {
@@ -1980,13 +2000,13 @@ extern "C" ABSL_CACHELINE_ALIGNED int TCMallocInternalPosixMemalign(
   return 0;
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalValloc(
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* TCMallocInternalValloc(
     size_t size) noexcept {
   // Allocate page-aligned object of length >= size bytes
   return fast_alloc(size, MallocPolicy().AlignAs(GetPageSize()));
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalPvalloc(
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* TCMallocInternalPvalloc(
     size_t size) noexcept {
   // Round up size to a multiple of pagesize
   size_t page_size = GetPageSize();
@@ -2037,13 +2057,13 @@ extern "C" size_t TCMallocInternalMallocSize(void* ptr) noexcept {
   return GetSize(ptr);
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED alloc_result_t
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED alloc_result_t
 TCMallocInternalAllocAtLeast(size_t min_size) noexcept {
   auto sized_ptr = fast_alloc(min_size, MallocPolicy().SizeReturning());
   return alloc_result_t{sized_ptr.p, sized_ptr.n};
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED alloc_result_t
+extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED alloc_result_t
 TCMallocInternalAlignedAllocAtLeast(size_t alignment,
                                     size_t min_size) noexcept {
   // See https://www.open-std.org/jtc1/sc22/wg14/www/docs/summary.htm#dr_460.
@@ -2091,48 +2111,48 @@ static TCMallocGuard module_enter_exit_hook;
 }  // namespace tcmalloc
 
 #ifndef TCMALLOC_INTERNAL_METHODS_ONLY
-ABSL_CACHELINE_ALIGNED void* operator new(
+TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new(
     size_t size, __hot_cold_t hot_cold) noexcept(false) {
   return fast_alloc(size, CppPolicy().AccessAs(hot_cold));
 }
 
-ABSL_CACHELINE_ALIGNED void* operator new(size_t size, const std::nothrow_t&,
-                                          __hot_cold_t hot_cold) noexcept {
+TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new(
+    size_t size, const std::nothrow_t&, __hot_cold_t hot_cold) noexcept {
   return fast_alloc(size, CppPolicy().Nothrow().AccessAs(hot_cold));
 }
 
-ABSL_CACHELINE_ALIGNED void* operator new(
+TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new(
     size_t size, std::align_val_t align,
     __hot_cold_t hot_cold) noexcept(false) {
   return fast_alloc(size, CppPolicy().AlignAs(align).AccessAs(hot_cold));
 }
 
-ABSL_CACHELINE_ALIGNED void* operator new(size_t size, std::align_val_t align,
-                                          const std::nothrow_t&,
-                                          __hot_cold_t hot_cold) noexcept {
+TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new(
+    size_t size, std::align_val_t align, const std::nothrow_t&,
+    __hot_cold_t hot_cold) noexcept {
   return fast_alloc(size,
                     CppPolicy().Nothrow().AlignAs(align).AccessAs(hot_cold));
 }
 
-ABSL_CACHELINE_ALIGNED void* operator new[](
+TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new[](
     size_t size, __hot_cold_t hot_cold) noexcept(false) {
   return fast_alloc(size, CppArrayPolicy().AccessAs(hot_cold));
 }
 
-ABSL_CACHELINE_ALIGNED void* operator new[](size_t size, const std::nothrow_t&,
-                                            __hot_cold_t hot_cold) noexcept {
+TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new[](
+    size_t size, const std::nothrow_t&, __hot_cold_t hot_cold) noexcept {
   return fast_alloc(size, CppArrayPolicy().Nothrow().AccessAs(hot_cold));
 }
 
-ABSL_CACHELINE_ALIGNED void* operator new[](
+TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new[](
     size_t size, std::align_val_t align,
     __hot_cold_t hot_cold) noexcept(false) {
   return fast_alloc(size, CppArrayPolicy().AlignAs(align).AccessAs(hot_cold));
 }
 
-ABSL_CACHELINE_ALIGNED void* operator new[](size_t size, std::align_val_t align,
-                                            const std::nothrow_t&,
-                                            __hot_cold_t hot_cold) noexcept {
+TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new[](
+    size_t size, std::align_val_t align, const std::nothrow_t&,
+    __hot_cold_t hot_cold) noexcept {
   return fast_alloc(
       size, CppArrayPolicy().Nothrow().AlignAs(align).AccessAs(hot_cold));
 }
