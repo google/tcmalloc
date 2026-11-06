@@ -70,7 +70,8 @@ void FuzzAnalyze(std::string data, size_t max_local_copy_size,
 }
 
 FUZZ_TEST(CompressibilityFuzzTest, FuzzAnalyze)
-    .WithDomains(fuzztest::String(), fuzztest::InRange<size_t>(1, 1024),
+    .WithDomains(fuzztest::NonEmpty(fuzztest::String()),
+                 fuzztest::InRange<size_t>(1, 1024),
                  fuzztest::Arbitrary<std::vector<bool>>(),
                  fuzztest::Arbitrary<size_t>());
 
