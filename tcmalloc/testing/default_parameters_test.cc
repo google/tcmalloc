@@ -91,6 +91,20 @@ bool TestGuardedSamplingInterval() {
     return false;
   }
 
+  MallocExtension::SetProfileSamplingInterval(1);
+  MallocExtension::SetGuardedSamplingInterval(int64_t{1} << 40);
+  if (MallocExtension::GetGuardedSamplingInterval() <= 0) {
+    absl::FPrintF(stderr,
+                  "GuardedSamplingInterval after 1<<40: got %d, want > 0\n",
+                  MallocExtension::GetGuardedSamplingInterval());
+    return false;
+  }
+
+  MallocExtension::SetGuardedSamplingInterval(-(int64_t{1} << 32));
+
+  MallocExtension::SetProfileSamplingInterval(kDefaultProfileSamplingInterval);
+  MallocExtension::SetGuardedSamplingInterval(kDefaultGuardedSamplingInterval);
+
   return true;
 }
 
