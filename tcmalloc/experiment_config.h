@@ -60,7 +60,7 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TCMALLOC_CFL_PRIORITIZATION_ABLATION, "TCMALLOC_CFL_PRIORITIZATION_ABLATION"},
     {Experiment::TCMALLOC_PGHO_EXPERIMENT, "TCMALLOC_PGHO_EXPERIMENT"},
     {Experiment::TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION, "TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION"},
-    {Experiment::TCMALLOC_SONIC_COLLAPSE_RELEASED_HUGEPAGES, "TCMALLOC_SONIC_COLLAPSE_RELEASED_HUGEPAGES", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
+    {Experiment::TCMALLOC_SONIC_COLLAPSE_RELEASED_HUGEPAGES, "TCMALLOC_SONIC_COLLAPSE_RELEASED_HUGEPAGES", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01, /*rollout_salt=*/"", /*rollout_inverted=*/true},
     {Experiment::TCMALLOC_SONIC_DEMAND_CYCLE_60S, "TCMALLOC_SONIC_DEMAND_CYCLE_60S", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
     {Experiment::TCMALLOC_SONIC_FILLER_APPEND_ON_FREE, "TCMALLOC_SONIC_FILLER_APPEND_ON_FREE"},
     {Experiment::TCMALLOC_SONIC_FIX_MAX_CAPACITY_BUG_ABLATION, "TCMALLOC_SONIC_FIX_MAX_CAPACITY_BUG_ABLATION", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},

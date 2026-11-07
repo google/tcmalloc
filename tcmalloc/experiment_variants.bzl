@@ -38,7 +38,7 @@ experiment_variants = [
         "name": "tcmalloc_collapse_released_hugepages",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_COLLAPSE_RELEASED_HUGEPAGES"},
+        "env": {"BORG_DISABLE_EXPERIMENTS": "TCMALLOC_SONIC_COLLAPSE_RELEASED_HUGEPAGES"},
     },
     {
         "name": "tcmalloc_demand_cycle_60s",
