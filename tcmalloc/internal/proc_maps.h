@@ -19,12 +19,32 @@
 #include <sys/types.h>
 
 #include <cstddef>
+#include <optional>
 
+#include "absl/functional/function_ref.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+// Reads from `read` until EOF (<= 0 return) and invokes `callback(line)` for
+// each line (without the trailing newline).
+void ReadLines(absl::FunctionRef<ssize_t(char* buf, size_t count)> read,
+               absl::FunctionRef<void(absl::string_view line)> callback);
+
+// Parses a single line from /proc/self/numa_maps and returns the NUMA node ID
+// with the largest number of resident pages, or std::nullopt if the line is
+// malformed or has no resident pages.  Stores the VMA start address in
+// `start_addr`.
+[[nodiscard]] std::optional<int> ParseNumaMapsLine(absl::string_view line,
+                                                   uintptr_t& start_addr);
+
+// Reads /proc/self/numa_maps and invokes `callback(start_addr, numa_node)` for
+// each VMA with resident pages.
+void ReadProcNumaMaps(
+    absl::FunctionRef<void(uintptr_t start_addr, int numa_node)> callback);
 
 // A ProcMapsIterator abstracts access to /proc/maps for a given process.
 class ProcMapsIterator {
