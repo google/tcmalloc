@@ -638,6 +638,12 @@ void DumpStats(Printer& out, int level) {
     out.printf("PARAMETER tcmalloc_release_max_filler_pages %d\n",
                Parameters::release_max_filler_pages() ? 1 : 0);
     out.printf(
+        "PARAMETER tcmalloc_min_free_bytes_to_break_dense_hugepage %llu\n",
+        Parameters::min_free_bytes_to_break_dense_hugepage());
+    out.printf(
+        "PARAMETER tcmalloc_min_free_bytes_to_break_sparse_hugepage %llu\n",
+        Parameters::min_free_bytes_to_break_sparse_hugepage());
+    out.printf(
         "PARAMETER tcmalloc_track_broken_hugepages %d\n",
         Parameters::track_broken_hugepages() == TrackBrokenHugepages::kEnabled
             ? 1
@@ -937,6 +943,10 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                        MadviseRegionsNoHugepage::kEnabled);
   region.PrintBool("tcmalloc_release_max_filler_pages",
                    Parameters::release_max_filler_pages());
+  region.PrintI64("tcmalloc_min_free_bytes_to_break_dense_hugepage",
+                  Parameters::min_free_bytes_to_break_dense_hugepage());
+  region.PrintI64("tcmalloc_min_free_bytes_to_break_sparse_hugepage",
+                  Parameters::min_free_bytes_to_break_sparse_hugepage());
   region.PrintBool(
       "tcmalloc_track_broken_hugepages",
       Parameters::track_broken_hugepages() == TrackBrokenHugepages::kEnabled);
