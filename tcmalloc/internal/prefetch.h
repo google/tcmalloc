@@ -51,6 +51,25 @@ namespace tcmalloc_internal {
 //   tcmalloc_internal::PrefetchT0(addr);
 //
 #if defined(__GNUC__)
+#if defined(__aarch64__)
+inline void ArmPrefetch(const void* addr) {
+#if defined(__clang__)
+  __builtin_arm_prefetch(addr, /*rw=*/0, /*locality=*/0, /*stream=*/1,
+                         /*is_data=*/1);
+#else
+  asm volatile("prfm pldl1strm, [%0]" : : "r"(addr));
+#endif
+}
+inline void PrefetchT0(const void* addr) { ArmPrefetch(addr); }
+inline void PrefetchT1(const void* addr) { ArmPrefetch(addr); }
+inline void PrefetchT2(const void* addr) { ArmPrefetch(addr); }
+inline void PrefetchNta(const void* addr) { ArmPrefetch(addr); }
+inline void PrefetchW(const void* addr) { ArmPrefetch(addr); }
+inline void PrefetchWT0(const void* addr) { ArmPrefetch(addr); }
+inline void PrefetchWT1(const void* addr) { ArmPrefetch(addr); }
+inline void PrefetchWT2(const void* addr) { ArmPrefetch(addr); }
+inline void PrefetchWNta(const void* addr) { ArmPrefetch(addr); }
+#else
 // See __builtin_prefetch:
 // https://gcc.gnu.org/onlinedocs/gcc/Other-Builtins.html.
 inline void PrefetchT0(const void* addr) { __builtin_prefetch(addr, 0, 3); }
@@ -97,6 +116,7 @@ inline void PrefetchWNta(const void* addr) {
   __builtin_prefetch(addr, 1, 0);
 #endif
 }
+#endif  // defined(__aarch64__)
 #else
 inline void PrefetchT0(const void*) {}
 inline void PrefetchT1(const void*) {}
