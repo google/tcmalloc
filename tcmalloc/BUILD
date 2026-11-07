@@ -1941,17 +1941,54 @@ create_tcmalloc_testsuite(
 )
 
 cc_library(
-    name = "malloc_hook",
+    name = "malloc_hook_internal",
     srcs = ["malloc_hook.cc"],
+    textual_hdrs = [
+        "malloc_hook.h",
+        "malloc_hook_invoke.h",
+    ],
+    deps = [
+        "//tcmalloc/internal:config",
+        "//tcmalloc/internal:hook_list",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_library(
+    name = "malloc_hook_sanitizer",
+    srcs = ["malloc_hook_sanitizer.cc"],
+    linkstatic = 1,
+    textual_hdrs = [
+        "malloc_hook.h",
+        "malloc_hook_invoke.h",
+    ],
+    deps = [
+        ":malloc_hook_internal",
+        "//tcmalloc/internal:config",
+        "//tcmalloc/internal:hook_list",
+        "@com_google_absl//absl/base:config",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "malloc_hook",
     hdrs = ["malloc_hook.h"],
     textual_hdrs = ["malloc_hook_invoke.h"],
     visibility = [
         "//visibility:public",
     ],
     deps = [
+        ":malloc_hook_internal",
+        ":malloc_hook_sanitizer",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:hook_list",
-        "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
