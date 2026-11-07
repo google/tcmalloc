@@ -193,39 +193,6 @@ absl::StatusCode PageFlags::MaybeReadOne(uintptr_t vaddr, uint64_t& flags,
   return absl::StatusCode::kOk;
 }
 
-absl::StatusCode PageFlags::ReadMany(int64_t num_pages, PageStats& output) {
-  while (num_pages > 0) {
-    const size_t batch_size = std::min<int64_t>(kEntriesInBuf, num_pages);
-    const size_t to_read = kPagemapEntrySize * batch_size;
-
-    // We read continuously. For the first read, this starts at wherever the
-    // first ReadOne ended. See above note for the reinterpret_cast.
-    auto status =
-        signal_safe_read(fd_, reinterpret_cast<char*>(buf_), to_read, nullptr);
-    if (status != to_read) {
-      return absl::StatusCode::kUnavailable;
-    }
-    for (int i = 0; i < batch_size; ++i) {
-      uint64_t flags = buf_[i];
-      if (PageHead(flags)) {
-        last_head_read_ = flags;
-      }
-
-      if (PageTail(flags)) {
-        if (ABSL_PREDICT_FALSE(last_head_read_ == -1)) {
-          TC_LOG("Did not see head page before tail page (i=%v, buf=%v)", i,
-                 buf_[i]);
-          return absl::StatusCode::kFailedPrecondition;
-        }
-        flags = last_head_read_;
-      }
-      MaybeAddToStats(output, flags, kHardwarePageSize);
-    }
-    num_pages -= batch_size;
-  }
-  return absl::StatusCode::kOk;
-}
-
 std::optional<bool> PageFlags::IsHugepageBacked(const void* const addr) {
   if (fd_ < 0) {
     return std::nullopt;
@@ -259,110 +226,65 @@ std::optional<PageStats> PageFlags::Get(const void* const addr,
   last_head_read_ = -1;
 
   PageStats ret;
-
   if (size == 0) return ret;
-  uint64_t result_flags = 0;
-  bool is_huge = false;
 
-  uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
+  const uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
+  const uintptr_t uend = uaddr + size;
   // Round address down to get the start of the first page that has any bytes
   // corresponding to the span [addr, addr+size).
-  uintptr_t basePage = uaddr & ~(kHardwarePageSize - 1);
+  uintptr_t vaddr = uaddr & ~(kHardwarePageSize - 1);
   // Round end address up to get the start of the first page that does not
   // have any bytes corresponding to the span [addr, addr+size).
-  // The span is a subset of [basePage, endPage).
-  uintptr_t endPage =
-      (uaddr + size + kHardwarePageSize - 1) & ~(kHardwarePageSize - 1);
+  // The span is a subset of [vaddr, endPage).
+  const uintptr_t endPage =
+      (uend + kHardwarePageSize - 1) & ~(kHardwarePageSize - 1);
 
-  int64_t remainingPages = (endPage - basePage) / kHardwarePageSize;
-
-  if (remainingPages == 1) {
-    if (auto res = MaybeReadOne(basePage, result_flags, is_huge);
-        res != absl::StatusCode::kOk) {
+  const uintptr_t basePage = vaddr;
+  int64_t remainingPages = (endPage - vaddr) / kHardwarePageSize;
+  while (remainingPages > 0) {
+    if (Seek(vaddr) != absl::StatusCode::kOk) {
       return std::nullopt;
     }
-    MaybeAddToStats(ret, result_flags, size);
-
-    if (ret.bytes_stale > 0) {
-      ret.stale_scan_seconds = MaybeReadStaleScanSeconds();
+    const size_t batch_size = std::min<int64_t>(kEntriesInBuf, remainingPages);
+    const size_t to_read = kPagemapEntrySize * batch_size;
+    if (signal_safe_read(fd_, reinterpret_cast<char*>(buf_), to_read,
+                         nullptr) != to_read) {
+      return std::nullopt;
     }
-    return ret;
-  }
-
-  // Since the input address might not be page-aligned (it can possibly point
-  // to an arbitrary object), we read staleness about the first page separately
-  // with ReadOne, then read the complete pages with ReadMany, and then read the
-  // last page with ReadOne again if needed.
-
-  // Handle the first page.
-  if (auto res = MaybeReadOne(basePage, result_flags, is_huge);
-      res != absl::StatusCode::kOk) {
-    return std::nullopt;
-  }
-  size_t firstPageSize = kHardwarePageSize - (uaddr - basePage);
-  if (is_huge) {
-    // The object starts in the middle of a native page, but the entire page
-    // might be stale. So the situation looks like, simplifying to four native
-    // pages per hugepage to make the diagram fit, an entire hugepage that looks
-    // like (where X is the span of interest):
-    //      .                basePage
-    // [....|..XX|XXXX|XXXX]
-    //  ^^^^^^^              some other stale object(s)
-    //         ^^            firstPageSize
-    //       ^^^^^^^^^^^^^^  `pages_represented` pages, each of
-    //       kHardwarePageSize
-    // The remainingPages <= 0 case covers the situation where the span ends
-    // before the hugepage.
-    const uint64_t base_page_offset = basePage & (kHugePageSize - 1);
-    const uint64_t base_page_index = base_page_offset / kHardwarePageSize;
-    const int64_t pages_represented = kPagesInHugePage - base_page_index;
-
-    remainingPages -= pages_represented;
-    if (remainingPages <= 0) {
-      // This hugepage represents every single page that this object is on;
-      // we're done.
-      MaybeAddToStats(ret, result_flags, size);
-
-      if (ret.bytes_stale > 0) {
-        ret.stale_scan_seconds = MaybeReadStaleScanSeconds();
+    for (size_t i = 0; i < batch_size; ++i, vaddr += kHardwarePageSize) {
+      if (IsAlignedTo(vaddr, kHugePageSize)) {
+        last_head_read_ = -1;
       }
-      return ret;
+      uint64_t flags = buf_[i];
+      if (ABSL_PREDICT_FALSE((PageHead(flags) || PageTail(flags)) &&
+                             !PageThp(flags))) {
+        TC_LOG("PageFlags asked for information on non-THP hugepage??");
+        return std::nullopt;
+      }
+      if (PageHead(flags)) {
+        last_head_read_ = flags;
+      } else if (PageTail(flags)) {
+        if (vaddr == basePage) {
+          bool is_huge = false;
+          if (MaybeReadOne(vaddr, last_head_read_, is_huge) !=
+              absl::StatusCode::kOk) {
+            return std::nullopt;
+          }
+        } else if (ABSL_PREDICT_FALSE(last_head_read_ == -1)) {
+          TC_LOG("Did not see head page before tail page (i=%v, buf=%v)", i,
+                 buf_[i]);
+          return std::nullopt;
+        }
+        flags = last_head_read_;
+      } else {
+        last_head_read_ = -1;
+      }
+      const size_t page_bytes =
+          std::min(uend, vaddr + kHardwarePageSize) - std::max(uaddr, vaddr);
+      MaybeAddToStats(ret, flags, page_bytes);
     }
-
-    // pages_represented - 1 is the number of full pages represented (see
-    // diagram)
-    MaybeAddToStats(
-        ret, result_flags,
-        firstPageSize + (pages_represented - 1) * kHardwarePageSize);
-
-    // We've read one uint64_t about a single page, but it represents 512 small
-    // pages. So the next page that is of interest is one hugepage away -- seek
-    // to make sure the next read doesn't double-count the native pages in
-    // between the two head pages.
-    if (auto res = Seek((basePage & kHugePageMask) + kHugePageSize);
-        res != absl::StatusCode::kOk) {
-      return std::nullopt;
-    }
-  } else {
-    remainingPages--;
-    MaybeAddToStats(ret, result_flags, firstPageSize);
+    remainingPages -= batch_size;
   }
-
-  // Handle all pages but the last page.
-  if (auto res = ReadMany(remainingPages - 1, ret);
-      res != absl::StatusCode::kOk) {
-    return std::nullopt;
-  }
-
-  // Check final page. It doesn't really matter if is_huge; we just want the
-  // statistics about the page that has the last byte of the object.
-  size_t lastPageSize = kHardwarePageSize - (endPage - uaddr - size);
-  if (auto res =
-          MaybeReadOne(endPage - kHardwarePageSize, result_flags, is_huge);
-      res != absl::StatusCode::kOk) {
-    return std::nullopt;
-  }
-  MaybeAddToStats(ret, result_flags, lastPageSize);
 
   if (ret.bytes_stale > 0) {
     ret.stale_scan_seconds = MaybeReadStaleScanSeconds();
