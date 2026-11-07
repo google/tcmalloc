@@ -266,6 +266,55 @@ TEST(StaticForwarderTest, Parameters) {
             Parameters::track_broken_hugepages());
   EXPECT_EQ(ProdForwarder::fix_max_capacity_bug(),
             Parameters::fix_max_capacity_bug());
+  EXPECT_EQ(
+      ProdForwarder::min_free_pages_to_break_dense_hugepage(),
+      std::clamp(BytesToLengthCeil(
+                     Parameters::min_free_bytes_to_break_dense_hugepage()),
+                 Length(1), kPagesPerHugePage));
+  EXPECT_EQ(
+      ProdForwarder::min_free_pages_to_break_sparse_hugepage(),
+      std::clamp(BytesToLengthCeil(
+                     Parameters::min_free_bytes_to_break_sparse_hugepage()),
+                 Length(1), kPagesPerHugePage));
+
+  const size_t initial_dense =
+      Parameters::min_free_bytes_to_break_dense_hugepage();
+  const size_t initial_sparse =
+      Parameters::min_free_bytes_to_break_sparse_hugepage();
+
+  TCMalloc_Internal_SetMinFreeBytesToBreakDenseHugepage(0);
+  TCMalloc_Internal_SetMinFreeBytesToBreakSparseHugepage(0);
+  EXPECT_EQ(TCMalloc_Internal_GetMinFreeBytesToBreakDenseHugepage(), 0);
+  EXPECT_EQ(TCMalloc_Internal_GetMinFreeBytesToBreakSparseHugepage(), 0);
+  EXPECT_EQ(ProdForwarder::min_free_pages_to_break_dense_hugepage(), Length(1));
+  EXPECT_EQ(ProdForwarder::min_free_pages_to_break_sparse_hugepage(),
+            Length(1));
+
+  Parameters::set_min_free_bytes_to_break_dense_hugepage(1);
+  Parameters::set_min_free_bytes_to_break_sparse_hugepage(kPageSize);
+  EXPECT_EQ(ProdForwarder::min_free_pages_to_break_dense_hugepage(), Length(1));
+  EXPECT_EQ(ProdForwarder::min_free_pages_to_break_sparse_hugepage(),
+            Length(1));
+
+  Parameters::set_min_free_bytes_to_break_dense_hugepage(7 * kPageSize + 1);
+  Parameters::set_min_free_bytes_to_break_sparse_hugepage(8 * kPageSize);
+  EXPECT_EQ(ProdForwarder::min_free_pages_to_break_dense_hugepage(), Length(8));
+  EXPECT_EQ(ProdForwarder::min_free_pages_to_break_sparse_hugepage(),
+            Length(8));
+  EXPECT_EQ(TCMalloc_Internal_GetMinFreeBytesToBreakDenseHugepage(),
+            7 * kPageSize + 1);
+  EXPECT_EQ(TCMalloc_Internal_GetMinFreeBytesToBreakSparseHugepage(),
+            8 * kPageSize);
+
+  Parameters::set_min_free_bytes_to_break_dense_hugepage(kHugePageSize);
+  Parameters::set_min_free_bytes_to_break_sparse_hugepage(2 * kHugePageSize);
+  EXPECT_EQ(ProdForwarder::min_free_pages_to_break_dense_hugepage(),
+            kPagesPerHugePage);
+  EXPECT_EQ(ProdForwarder::min_free_pages_to_break_sparse_hugepage(),
+            kPagesPerHugePage);
+
+  Parameters::set_min_free_bytes_to_break_dense_hugepage(initial_dense);
+  Parameters::set_min_free_bytes_to_break_sparse_hugepage(initial_sparse);
 }
 
 class StaticForwarderSpanTest : public testing::TestWithParam<size_t> {

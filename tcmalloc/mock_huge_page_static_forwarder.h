@@ -15,6 +15,7 @@
 #ifndef TCMALLOC_MOCK_HUGE_PAGE_STATIC_FORWARDER_H_
 #define TCMALLOC_MOCK_HUGE_PAGE_STATIC_FORWARDER_H_
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -77,7 +78,7 @@ class FakeHugePageStaticForwarder : private Parameters {
   }
 
   // Runtime parameters.  This can change between calls.
-  // NOLINTBEGIN(readability-identifier-naming)
+  // NOLINTBEGIN(readability-identifier-naming,google3-readability-class-member-naming)
   FakeParameter<absl::Duration> filler_skip_subrelease_short_interval{
       Parameters::filler_skip_subrelease_short_interval()};
   FakeParameter<absl::Duration> filler_skip_subrelease_long_interval{
@@ -99,6 +100,12 @@ class FakeHugePageStaticForwarder : private Parameters {
       Parameters::background_release_rate()};
   FakeParameter<bool> release_max_filler_pages{
       Parameters::release_max_filler_pages()};
+  FakeParameter<Length> min_free_pages_to_break_dense_hugepage{std::clamp(
+      BytesToLengthCeil(Parameters::min_free_bytes_to_break_dense_hugepage()),
+      Length(1), kPagesPerHugePage)};
+  FakeParameter<Length> min_free_pages_to_break_sparse_hugepage{std::clamp(
+      BytesToLengthCeil(Parameters::min_free_bytes_to_break_sparse_hugepage()),
+      Length(1), kPagesPerHugePage)};
   FakeParameter<PreferBackedPages> prefer_backed_filler_pages{
       Parameters::prefer_backed_filler_pages()};
   FakeParameter<FillerAppendOnFree> filler_append_on_free{
@@ -117,7 +124,7 @@ class FakeHugePageStaticForwarder : private Parameters {
       Parameters::preserve_donated_on_collapse()};
   FakeParameter<CollapseReleasedHugePages> collapse_released_hugepages{
       Parameters::collapse_released_hugepages()};
-  // NOLINTEND(readability-identifier-naming)
+  // NOLINTEND(readability-identifier-naming,google3-readability-class-member-naming)
 
   [[nodiscard]] bool release_succeeds() const { return release_succeeds_; }
   void set_release_succeeds(bool value) { release_succeeds_ = value; }

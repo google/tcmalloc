@@ -148,6 +148,14 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHugeRegionAdaptiveReleaseEnabled(
 [[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
 TCMalloc_Internal_GetReleaseMaxFillerPages();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleaseMaxFillerPages(bool v);
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK size_t
+TCMalloc_Internal_GetMinFreeBytesToBreakDenseHugepage();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMinFreeBytesToBreakDenseHugepage(
+    size_t v);
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK size_t
+TCMalloc_Internal_GetMinFreeBytesToBreakSparseHugepage();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMinFreeBytesToBreakSparseHugepage(
+    size_t v);
 [[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
 TCMalloc_Internal_GetTrackBrokenHugepages();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetTrackBrokenHugepages(bool v);

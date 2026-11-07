@@ -18,6 +18,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <algorithm>
 #include <new>
 #include <optional>
 
@@ -94,6 +95,19 @@ class StaticForwarder : private Parameters {
   using Parameters::release_stale_pages;
   using Parameters::subrelease_unbacked_hugepages;
   using Parameters::track_broken_hugepages;
+
+  [[nodiscard]] static Length min_free_pages_to_break_dense_hugepage() {
+    return std::clamp(
+        BytesToLengthCeil(Parameters::min_free_bytes_to_break_dense_hugepage()),
+        Length(1), kPagesPerHugePage);
+  }
+
+  [[nodiscard]] static Length min_free_pages_to_break_sparse_hugepage() {
+    return std::clamp(
+        BytesToLengthCeil(
+            Parameters::min_free_bytes_to_break_sparse_hugepage()),
+        Length(1), kPagesPerHugePage);
+  }
 
   [[nodiscard]] static size_t class_to_size(int size_class) {
     return state.sizemap().class_to_size(size_class);

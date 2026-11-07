@@ -222,6 +222,11 @@ struct SkipSubreleaseIntervals {
   }
 };
 
+struct MinFreePagesToBreak {
+  Length dense;
+  Length sparse;
+};
+
 struct SubreleaseStats {
   Length total_pages_subreleased;                // cumulative since startup
   Length total_partial_alloc_pages_subreleased;  // cumulative since startup

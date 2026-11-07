@@ -406,6 +406,9 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // Whether this HPAA should use subrelease. This delegates to the appropriate
   // parameter depending whether this is for the cold heap or another heap.
   [[nodiscard]] bool hpaa_subrelease() const;
+
+  [[nodiscard]] MinFreePagesToBreak min_free_pages_to_break(
+      bool hit_limit) const;
 };
 
 template <class Forwarder>
@@ -983,7 +986,7 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
           SkipSubreleaseIntervals{.short_interval = short_interval,
                                   .long_interval = long_interval},
           forwarder_.release_partial_alloc_pages(),
-          /*hit_limit*/ false);
+          /*hit_limit=*/false, min_free_pages_to_break(/*hit_limit=*/false));
       DrainFreedTrackers();
     }
   }
@@ -1198,7 +1201,8 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
 
   released += filler_.ReleasePages(n - released, SkipSubreleaseIntervals{},
                                    ReleasePartialAllocPages::kDisabled,
-                                   /*hit_limit=*/true);
+                                   /*hit_limit=*/true,
+                                   min_free_pages_to_break(/*hit_limit=*/true));
   DrainFreedTrackers();
 
   info_.RecordRelease(n, released, reason);
@@ -1230,6 +1234,19 @@ inline bool HugePageAwareAllocator<Forwarder>::hpaa_subrelease() const {
   } else {
     return forwarder_.hpaa_subrelease();
   }
+}
+
+template <class Forwarder>
+inline MinFreePagesToBreak
+HugePageAwareAllocator<Forwarder>::min_free_pages_to_break(
+    bool hit_limit) const {
+  if (hit_limit || IsSampledOrColdMemory(tag_)) {
+    return MinFreePagesToBreak{.dense = Length(1), .sparse = Length(1)};
+  }
+  return MinFreePagesToBreak{
+      .dense = forwarder_.min_free_pages_to_break_dense_hugepage(),
+      .sparse = forwarder_.min_free_pages_to_break_sparse_hugepage(),
+  };
 }
 
 template <class Forwarder>
