@@ -1316,7 +1316,10 @@ tcmalloc_cc_library(
   SRCS
     "proc_maps.cc"
   DEPS
+    "absl::core_headers"
+    "absl::function_ref"
     "absl::str_format"
+    "absl::strings"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_util"

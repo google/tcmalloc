@@ -21,8 +21,14 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <optional>
 
+#include "absl/base/optimization.h"
+#include "absl/functional/function_ref.h"
+#include "absl/strings/ascii.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"
@@ -30,6 +36,114 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+std::optional<int> ParseNumaMapsLine(absl::string_view line,
+                                     uintptr_t* start_addr) {
+  line = absl::StripAsciiWhitespace(line);
+  if (line.empty()) {
+    return std::nullopt;
+  }
+  size_t space = line.find(' ');
+  if (space == absl::string_view::npos) {
+    return std::nullopt;
+  }
+  uintptr_t parsed_start = 0;
+  if (!absl::SimpleHexAtoi(line.substr(0, space), &parsed_start)) {
+    return std::nullopt;
+  }
+  if (start_addr != nullptr) {
+    *start_addr = parsed_start;
+  }
+
+  std::optional<int> best_node;
+  uint64_t best_pages = 0;
+  absl::string_view rest = line.substr(space + 1);
+  while (!rest.empty()) {
+    rest = absl::StripLeadingAsciiWhitespace(rest);
+    if (rest.empty()) {
+      break;
+    }
+    size_t next_space = rest.find(' ');
+    absl::string_view token = next_space == absl::string_view::npos
+                                  ? rest
+                                  : rest.substr(0, next_space);
+    if (token.size() > 3 && token[0] == 'N') {
+      size_t eq = token.find('=');
+      if (eq != absl::string_view::npos && eq > 1) {
+        int node = -1;
+        uint64_t pages = 0;
+        if (absl::SimpleAtoi(token.substr(1, eq - 1), &node) && node >= 0 &&
+            absl::SimpleAtoi(token.substr(eq + 1), &pages) && pages > 0) {
+          if (pages > best_pages ||
+              (pages == best_pages && best_node.has_value() &&
+               node < *best_node)) {
+            best_pages = pages;
+            best_node = node;
+          }
+        }
+      }
+    }
+    if (next_space == absl::string_view::npos) {
+      break;
+    }
+    rest.remove_prefix(next_space + 1);
+  }
+  return best_node;
+}
+
+void ReadProcNumaMaps(
+    absl::FunctionRef<void(uintptr_t start_addr, int numa_node)> callback) {
+#if defined(__linux__)
+  int fd = signal_safe_open("/proc/self/numa_maps", O_RDONLY | O_CLOEXEC);
+  if (fd < 0) {
+    return;
+  }
+
+  char buf[ProcMapsIterator::Buffer::kBufSize];
+  size_t buf_len = 0;
+  while (true) {
+    ssize_t rc = signal_safe_read(fd, buf + buf_len,
+                                  ProcMapsIterator::Buffer::kBufSize - buf_len,
+                                  /*bytes_read=*/nullptr);
+    if (rc <= 0) {
+      break;
+    }
+    buf_len += static_cast<size_t>(rc);
+
+    absl::string_view contents(buf, buf_len);
+    while (!contents.empty()) {
+      size_t nl = contents.find('\n');
+      if (nl == absl::string_view::npos) {
+        break;
+      }
+      absl::string_view line = contents.substr(0, nl);
+      contents.remove_prefix(nl + 1);
+
+      uintptr_t start_addr = 0;
+      if (std::optional<int> node = ParseNumaMapsLine(line, &start_addr);
+          node.has_value()) {
+        callback(start_addr, *node);
+      }
+    }
+
+    buf_len = contents.size();
+    if (ABSL_PREDICT_FALSE(buf_len == ProcMapsIterator::Buffer::kBufSize)) {
+      buf_len = 0;
+    } else {
+      memmove(buf, contents.data(), buf_len);
+    }
+  }
+  if (buf_len > 0) {
+    uintptr_t start_addr = 0;
+    if (std::optional<int> node =
+            ParseNumaMapsLine(absl::string_view(buf, buf_len), &start_addr);
+        node.has_value()) {
+      callback(start_addr, *node);
+    }
+  }
+  signal_safe_close(fd);
+#endif
+}
 
 ProcMapsIterator::ProcMapsIterator(Buffer* buffer) {
   ibuf_ = buffer->buf;
