@@ -114,6 +114,7 @@ struct SampleMergedData {
   std::optional<size_t> locked_size;
   std::optional<size_t> incompressible_size;
   std::optional<uint64_t> stale_scan_period;
+  std::optional<int> numa_node;
   size_t compressed_size = 0;
   size_t zero_size = 0;
 };
@@ -144,8 +145,9 @@ struct SampleHashWithSubFields {
 };
 
 using SampleMergedMap =
-    absl::flat_hash_map<tcmalloc::Profile::Sample, SampleMergedData,
-                        SampleHashWithSubFields, SampleEqWithSubFields>;
+    absl::flat_hash_map<tcmalloc::Profile::Sample,
+                        std::vector<SampleMergedData>, SampleHashWithSubFields,
+                        SampleEqWithSubFields>;
 
 struct SampleMergeResult {
   SampleMergedMap samples;
@@ -166,10 +168,8 @@ SampleMergeResult MergeProfileSamplesAndMaybeGetResidencyInfo(
   }
 
   profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
-    SampleMergedData& data = map[entry];
-    data.count += entry.count;
-    data.sum += entry.sum;
     std::optional<Residency::Info> residency_info;
+    std::optional<int> numa_node;
     // When the caller did not use a size-returning allocation, only
     // requested_size bytes are meaningful.  Use the same size for both
     // residency and compressibility so that EstimateCompressedSize does not
@@ -178,6 +178,33 @@ SampleMergeResult MergeProfileSamplesAndMaybeGetResidencyInfo(
                                                        : entry.requested_size;
     if (residency) {
       residency_info = residency->Get(entry.span_start_address, size);
+      if (residency_info.has_value() && residency_info->bytes_resident > 0) {
+        numa_node = residency->GetNumaNode(entry.span_start_address);
+      }
+    }
+
+    std::vector<SampleMergedData>& bucket = map[entry];
+    SampleMergedData* data_ptr = nullptr;
+    for (SampleMergedData& candidate : bucket) {
+      if (candidate.numa_node == numa_node ||
+          !candidate.numa_node.has_value() || !numa_node.has_value()) {
+        if (!candidate.numa_node.has_value()) {
+          candidate.numa_node = numa_node;
+        }
+        data_ptr = &candidate;
+        break;
+      }
+    }
+    if (data_ptr == nullptr) {
+      bucket.emplace_back();
+      data_ptr = &bucket.back();
+      data_ptr->numa_node = numa_node;
+    }
+    SampleMergedData& data = *data_ptr;
+
+    data.count += entry.count;
+    data.sum += entry.sum;
+    if (residency) {
       // As long as `residency_info` provides data in some samples, the merged
       // data will have their sums.
       // NOTE: The data here is comparable to `tcmalloc::Profile::Sample::sum`,
@@ -915,6 +942,7 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   const int count_id = builder.InternString("count");
   const int objects_id = builder.InternString("objects");
   const int stale_scan_period_id = builder.InternString("stale_scan_period");
+  const int numa_node_id = builder.InternString("numa_node");
   const int seconds_id = builder.InternString("seconds");
   const int space_id = builder.InternString("space");
   const int resident_space_id = builder.InternString("resident_space");
@@ -1008,43 +1036,48 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
 
   converted.set_default_sample_type(default_sample_type_id);
 
-  for (const auto& [entry, data] : samples) {
-    perftools::profiles::Profile& profile = builder.profile();
-    perftools::profiles::Sample& sample = *profile.add_sample();
+  for (const auto& [entry, data_vec] : samples) {
+    for (const SampleMergedData& data : data_vec) {
+      perftools::profiles::Profile& profile = builder.profile();
+      perftools::profiles::Sample& sample = *profile.add_sample();
 
-    TC_CHECK_LE(entry.depth, std::size(entry.stack));
-    builder.InternCallstack(absl::MakeSpan(entry.stack, entry.depth), sample);
+      TC_CHECK_LE(entry.depth, std::size(entry.stack));
+      builder.InternCallstack(absl::MakeSpan(entry.stack, entry.depth), sample);
 
-    sample.add_value(data.count);
-    sample.add_value(data.sum);
-    if (exporting_residency) {
-      sample.add_value(data.resident_size.value_or(0));
-      sample.add_value(data.swapped_size.value_or(0));
-      sample.add_value(data.stale_size.value_or(0));
-      sample.add_value(data.locked_size.value_or(0));
-      sample.add_value(data.incompressible_size.value_or(0));
+      sample.add_value(data.count);
+      sample.add_value(data.sum);
+      if (exporting_residency) {
+        sample.add_value(data.resident_size.value_or(0));
+        sample.add_value(data.swapped_size.value_or(0));
+        sample.add_value(data.stale_size.value_or(0));
+        sample.add_value(data.locked_size.value_or(0));
+        sample.add_value(data.incompressible_size.value_or(0));
+      }
+      if (exporting_compressibility) {
+        sample.add_value(data.zero_size);
+      }
+
+      // add fields that are common to all memory profiles
+      auto add_label = [&](int key, int unit, size_t value) {
+        perftools::profiles::Label& label = *sample.add_label();
+        label.set_key(key);
+        label.set_num(value);
+        label.set_num_unit(unit);
+      };
+
+      auto add_positive_label = [&](int key, int unit, size_t value) {
+        if (value <= 0) return;
+        add_label(key, unit, value);
+      };
+
+      AddCommonSampleTags(entry, sample, builder);
+
+      add_positive_label(stale_scan_period_id, seconds_id,
+                         data.stale_scan_period.value_or(0));
+      if (data.numa_node.has_value()) {
+        add_label(numa_node_id, 0, static_cast<size_t>(*data.numa_node));
+      }
     }
-    if (exporting_compressibility) {
-      sample.add_value(data.zero_size);
-    }
-
-    // add fields that are common to all memory profiles
-    auto add_label = [&](int key, int unit, size_t value) {
-      perftools::profiles::Label& label = *sample.add_label();
-      label.set_key(key);
-      label.set_num(value);
-      label.set_num_unit(unit);
-    };
-
-    auto add_positive_label = [&](int key, int unit, size_t value) {
-      if (value <= 0) return;
-      add_label(key, unit, value);
-    };
-
-    AddCommonSampleTags(entry, sample, builder);
-
-    add_positive_label(stale_scan_period_id, seconds_id,
-                       data.stale_scan_period.value_or(0));
   }
 
   return std::move(builder).Finalize();
