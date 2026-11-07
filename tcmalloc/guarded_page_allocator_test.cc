@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <cstddef>
 #include <cstring>
@@ -546,6 +547,56 @@ TEST_P(SampledAllocationWithFilterTest, SizedNewMismatchedSizeDelete) {
   }
 
   GTEST_SKIP() << "can't get a sampled allocation, giving up";
+}
+
+TEST(GuardedPageAllocatorRaceTest, ReallocatedSlotDoesNotReportUseAfterFree) {
+  GuardedPageAllocator gpa;
+  {
+    PageHeapSpinLockHolder l;
+    gpa.Init(/*max_allocated_pages=*/1, /*total_pages=*/1);
+    gpa.AllowAllocations();
+  }
+
+  void* first =
+      gpa.Allocate(PageSize(), std::align_val_t{0}, GetStackTrace()).alloc;
+  ASSERT_NE(first, nullptr);
+  gpa.Deallocate(first);
+
+  std::atomic<bool> reader_ready{false};
+  std::atomic<uint64_t> dealloc_seq{0};
+  std::atomic<bool> stop{false};
+  std::atomic<int> stale_uaf_reports{0};
+  std::thread reader([&]() {
+    reader_ready.store(true, std::memory_order_release);
+    while (!stop.load(std::memory_order_relaxed)) {
+      const uint64_t seq1 = dealloc_seq.load(std::memory_order_acquire);
+      if ((seq1 & 1) == 0 && gpa.GetNumAvailablePages() == 0) {
+        GuardedAllocationsStackTrace *alloc_trace, *dealloc_trace;
+        const GuardedAllocationsErrorType err =
+            gpa.GetStackTraces(first, &alloc_trace, &dealloc_trace);
+        const uint64_t seq2 = dealloc_seq.load(std::memory_order_acquire);
+        if (seq1 == seq2 && err == GuardedAllocationsErrorType::kUseAfterFree) {
+          stale_uaf_reports.fetch_add(1, std::memory_order_relaxed);
+        }
+      }
+    }
+  });
+  while (!reader_ready.load(std::memory_order_acquire)) {
+  }
+
+  for (int i = 0; i < 2000 && stale_uaf_reports.load() == 0; ++i) {
+    void* p =
+        gpa.Allocate(PageSize(), std::align_val_t{0}, GetStackTrace()).alloc;
+    ASSERT_NE(p, nullptr);
+    dealloc_seq.fetch_add(1, std::memory_order_release);
+    gpa.Deallocate(p);
+    dealloc_seq.fetch_add(1, std::memory_order_release);
+  }
+  stop.store(true, std::memory_order_relaxed);
+  reader.join();
+  gpa.Destroy();
+
+  EXPECT_EQ(stale_uaf_reports.load(), 0);
 }
 
 INSTANTIATE_TEST_SUITE_P(
