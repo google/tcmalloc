@@ -866,7 +866,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchNextObject(
   // details.
   //
   // TODO(b/214608320): Evaluate prefetch for write.
-  __builtin_prefetch(prefetch_target, 0, 3);
+  PrefetchT0(prefetch_target);
 }
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
