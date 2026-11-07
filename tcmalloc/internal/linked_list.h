@@ -21,6 +21,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <atomic>
+
 #include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
 #include "tcmalloc/internal/config.h"
@@ -60,8 +62,8 @@ inline void ABSL_ATTRIBUTE_ALWAYS_INLINE SLL_Push(void** list, void* element) {
 // LinkedList forms an in-place linked list with its void* elements.
 class LinkedList {
  private:
-  void* list_ = nullptr;  // Linked list.
-  uint32_t length_ = 0;   // Current length.
+  void* list_ = nullptr;             // Linked list.
+  std::atomic<uint32_t> length_{0};  // Current length.
 
  public:
   constexpr LinkedList() = default;
@@ -73,14 +75,17 @@ class LinkedList {
   LinkedList& operator=(LinkedList&&) = delete;
 
   // Return current length of list
-  [[nodiscard]] size_t length() const { return length_; }
+  [[nodiscard]] size_t length() const {
+    return length_.load(std::memory_order_relaxed);
+  }
 
   // Is list empty?
   [[nodiscard]] bool empty() const { return list_ == nullptr; }
 
   void ABSL_ATTRIBUTE_ALWAYS_INLINE Push(void* ptr) {
     SLL_Push(&list_, ptr);
-    length_++;
+    length_.store(length_.load(std::memory_order_relaxed) + 1,
+                  std::memory_order_relaxed);
   }
 
   [[nodiscard]] bool ABSL_ATTRIBUTE_ALWAYS_INLINE TryPop(void** ret) {
@@ -91,7 +96,8 @@ class LinkedList {
 
     void* next = SLL_Next(obj);
     list_ = next;
-    length_--;
+    length_.store(length_.load(std::memory_order_relaxed) - 1,
+                  std::memory_order_relaxed);
 
 #if defined(__GNUC__)
     if (ABSL_PREDICT_TRUE(next)) {
@@ -111,7 +117,8 @@ class LinkedList {
     }
     SLL_SetNext(batch[N - 1], list_);
     list_ = batch[0];
-    length_ += N;
+    length_.store(length_.load(std::memory_order_relaxed) + N,
+                  std::memory_order_relaxed);
   }
 
   void PopBatch(int N, void** batch) {
@@ -121,8 +128,9 @@ class LinkedList {
       p = SLL_Next(p);
     }
     list_ = p;
-    TC_ASSERT_GE(length_, N);
-    length_ -= N;
+    const uint32_t len = length_.load(std::memory_order_relaxed);
+    TC_ASSERT_GE(len, N);
+    length_.store(len - N, std::memory_order_relaxed);
   }
 };
 

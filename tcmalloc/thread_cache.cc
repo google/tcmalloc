@@ -54,14 +54,14 @@ ABSL_CONST_INIT absl::base_internal::SpinLock ThreadCache::threadcache_lock_(
 
 ThreadCache::ThreadCache(pthread_t tid) {
   threadcache_lock_.AssertHeld();
-  size_ = 0;
+  size_.store(0, std::memory_order_relaxed);
 
-  max_size_ = 0;
+  max_size_.store(0, std::memory_order_relaxed);
   IncreaseCacheLimitLocked();
-  if (max_size_ == 0) {
+  if (max_size_.load(std::memory_order_relaxed) == 0) {
     // There isn't enough memory to go around.  Just give the minimum to
     // this thread.
-    max_size_ = kMinThreadCacheSize;
+    max_size_.store(kMinThreadCacheSize, std::memory_order_relaxed);
 
     // Take unclaimed_cache_space_ negative.
     unclaimed_cache_space_ -= kMinThreadCacheSize;
@@ -104,7 +104,8 @@ void* ThreadCache::FetchFromTransferCache(size_t size_class, size_t byte_size) {
   }
 
   if (--fetch_count > 0) {
-    size_ += byte_size * fetch_count;
+    size_.store(size_.load(std::memory_order_relaxed) + byte_size * fetch_count,
+                std::memory_order_relaxed);
     list->PushBatch(fetch_count, batch + 1);
   }
 
@@ -175,7 +176,8 @@ void ThreadCache::ReleaseToTransferCache(FreeList* src, size_t size_class,
                 "not enough space in batch");
   tc_globals.transfer_cache().InsertRange(size_class,
                                           absl::Span<void*>(batch, N));
-  size_ -= delta_bytes;
+  size_.store(size_.load(std::memory_order_relaxed) - delta_bytes,
+              std::memory_order_relaxed);
 }
 
 // Release idle memory to the transfer cache
@@ -217,7 +219,8 @@ void ThreadCache::DeallocateSlow(void* ptr, FreeList* list, size_t size_class) {
   if (ABSL_PREDICT_FALSE(list->length() > list->max_length())) {
     ListTooLong(list, size_class);
   }
-  if (size_ >= max_size_) {
+  if (size_.load(std::memory_order_relaxed) >=
+      max_size_.load(std::memory_order_relaxed)) {
     Scavenge();
   }
 }
@@ -231,7 +234,8 @@ void ThreadCache::IncreaseCacheLimitLocked() {
   if (unclaimed_cache_space_ > 0) {
     // Possibly make unclaimed_cache_space_ negative.
     unclaimed_cache_space_ -= kStealAmount;
-    max_size_ += kStealAmount;
+    max_size_.store(max_size_.load(std::memory_order_relaxed) + kStealAmount,
+                    std::memory_order_relaxed);
     return;
   }
   // Don't hold pageheap_lock too long.  Try to steal from 10 other
@@ -244,12 +248,15 @@ void ThreadCache::IncreaseCacheLimitLocked() {
       TC_ASSERT_NE(thread_heaps_, nullptr);
       next_memory_steal_ = thread_heaps_;
     }
-    if (next_memory_steal_ == this ||
-        next_memory_steal_->max_size_ <= kMinThreadCacheSize) {
+    const size_t victim_max =
+        next_memory_steal_->max_size_.load(std::memory_order_relaxed);
+    if (next_memory_steal_ == this || victim_max <= kMinThreadCacheSize) {
       continue;
     }
-    next_memory_steal_->max_size_ -= kStealAmount;
-    max_size_ += kStealAmount;
+    next_memory_steal_->max_size_.store(victim_max - kStealAmount,
+                                        std::memory_order_relaxed);
+    max_size_.store(max_size_.load(std::memory_order_relaxed) + kStealAmount,
+                    std::memory_order_relaxed);
 
     next_memory_steal_ = next_memory_steal_->next_;
     return;
@@ -378,7 +385,7 @@ void ThreadCache::DeleteCache(ThreadCache* heap) {
 
     if (next_memory_steal_ == heap) next_memory_steal_ = heap->next_;
     if (next_memory_steal_ == nullptr) next_memory_steal_ = thread_heaps_;
-    unclaimed_cache_space_ += heap->max_size_;
+    unclaimed_cache_space_ += heap->max_size_.load(std::memory_order_relaxed);
   }
 
   tc_globals.threadcache_allocator().Delete(heap);
@@ -398,10 +405,12 @@ void ThreadCache::RecomputePerThreadCacheSize() {
   for (ThreadCache* h = thread_heaps_; h != nullptr; h = h->next_) {
     // Increasing the total cache size should not circumvent the
     // slow-start growth of max_size_.
+    size_t h_max = h->max_size_.load(std::memory_order_relaxed);
     if (ratio < 1.0) {
-      h->max_size_ *= ratio;
+      h_max = static_cast<size_t>(h_max * ratio);
+      h->max_size_.store(h_max, std::memory_order_relaxed);
     }
-    claimed += h->max_size_;
+    claimed += h_max;
   }
   unclaimed_cache_space_ =
       overall_thread_cache_size_.load(std::memory_order_relaxed) - claimed;
@@ -413,7 +422,7 @@ AllocatorStats ThreadCache::GetStats(uint64_t* total_bytes,
   AllocationGuardSpinLockHolder l(threadcache_lock_);
 
   for (ThreadCache* h = thread_heaps_; h != nullptr; h = h->next_) {
-    *total_bytes += h->size_;
+    *total_bytes += h->size_.load(std::memory_order_relaxed);
     if (class_count) {
       for (int size_class = 0; size_class < kNumClasses; ++size_class) {
         class_count[size_class] += h->list_[size_class].length();

@@ -29,6 +29,7 @@
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/thread_cache.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -97,6 +98,34 @@ TEST(CpuCacheActivateTest, GlobalInstance) {
 
   done.Notify();
   t.join();
+}
+
+TEST(CpuCacheActivateTest, ThreadCacheConcurrentStatsAndResize) {
+  absl::Notification ready;
+  std::atomic<bool> stop{false};
+
+  std::thread worker([&]() {
+    ThreadCache* tc = ThreadCache::GetCache();
+    void* p = tc->Allocate(1);
+    ready.Notify();
+    while (!stop.load(std::memory_order_relaxed)) {
+      tc->Deallocate(p, 1);
+      p = tc->Allocate(1);
+    }
+    tc->Deallocate(p, 1);
+  });
+
+  ready.WaitForNotification();
+  const size_t orig_size = ThreadCache::overall_thread_cache_size();
+  for (int i = 0; i < 500; ++i) {
+    uint64_t total_bytes = 0;
+    uint64_t class_count[kNumClasses] = {0};
+    (void)ThreadCache::GetStats(&total_bytes, class_count);
+    ThreadCache::set_overall_thread_cache_size(kMinThreadCacheSize * 2);
+    ThreadCache::set_overall_thread_cache_size(orig_size);
+  }
+  stop.store(true, std::memory_order_relaxed);
+  worker.join();
 }
 
 }  // namespace
