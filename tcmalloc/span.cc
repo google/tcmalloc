@@ -94,20 +94,16 @@ void Span::BuildBitmap(size_t size, size_t count) __restrict__ {
 int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
                         BitmapMode mode) __restrict__ {
   TC_ASSERT_GT(count, 0);
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   freelist_ = kListEnd;
-#endif
 
   if (mode != BitmapMode::kDisabled) {
     return DynamicBitmapBuild(size, count, batch, mode);
   }
 
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   if (UseBitmapForSize(size, mode)) {
     BuildBitmap(size, count);
     return BitmapPopBatch(batch, size);
   }
-#endif
 
   // First, push as much as we can into the batch.
   const uintptr_t start = first_page().start_uintptr();
@@ -118,18 +114,6 @@ int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
     ptr += size;
   }
   allocated_ = result;
-
-#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
-  if (ABSL_PREDICT_TRUE(UseBitmapForSize(size, mode))) {
-    TC_ASSERT_LE(count, bitmap_.size());
-    if (result < count) {
-      bitmap_.SetRange(result, count - result);
-    }
-    TC_ASSERT_EQ(bitmap_.CountBits(), count - result);
-    return result;
-  }
-  freelist_ = kListEnd;
-#endif
 
   const ObjIdx idxStep = size / static_cast<size_t>(kAlignment);
   // Valid objects are {0, idxStep, idxStep * 2, ..., idxStep * (count - 1)}.
