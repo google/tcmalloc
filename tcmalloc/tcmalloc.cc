@@ -359,9 +359,10 @@ extern "C" void MallocExtension_Internal_SetMemoryLimit(
   tc_globals.InitIfNecessary();
   if (limit_kind == tcmalloc::MallocExtension::LimitKind::kHard) {
     Parameters::set_heap_size_hard_limit(limit);
+  } else {
+    tc_globals.page_allocator().set_limit(
+        limit, static_cast<PageAllocator::LimitKind>(limit_kind));
   }
-  tc_globals.page_allocator().set_limit(
-      limit, static_cast<PageAllocator::LimitKind>(limit_kind));
 }
 
 extern "C" void MallocExtension_Internal_MarkThreadIdle() {
