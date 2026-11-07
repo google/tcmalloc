@@ -64,10 +64,10 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
 
   // Sets the total thread cache size to new_size, recomputing the
   // individual thread cache sizes as necessary.
-  static void set_overall_thread_cache_size(size_t new_size)
+  static void set_overall_thread_cache_size(int64_t new_size)
       ABSL_LOCKS_EXCLUDED(threadcache_lock_);
 
-  [[nodiscard]] static size_t overall_thread_cache_size()
+  [[nodiscard]] static int64_t overall_thread_cache_size()
       ABSL_LOCKS_EXCLUDED(threadcache_lock_) {
     return overall_thread_cache_size_.load(std::memory_order_relaxed);
   }
@@ -187,7 +187,7 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
   static ThreadCache* next_memory_steal_ ABSL_GUARDED_BY(threadcache_lock_);
 
   // Overall thread cache size.
-  static std::atomic<size_t> overall_thread_cache_size_;
+  static std::atomic<int64_t> overall_thread_cache_size_;
 
   // Global per-thread cache size.
   static size_t per_thread_cache_size_ ABSL_GUARDED_BY(threadcache_lock_);

@@ -149,6 +149,32 @@ bool TestMaxTotalThreadCacheBytes() {
     return false;
   }
 
+  MallocExtension::SetMaxTotalThreadCacheBytes(-1);
+  auto negative_limit = MallocExtension::GetNumericProperty(
+      "tcmalloc.max_total_thread_cache_bytes");
+  if (!negative_limit.has_value()) {
+    absl::FPrintF(stderr,
+                  "GetNumericProperty(max_total_thread_cache_bytes) failed\n");
+    return false;
+  }
+  MallocExtension::SetMaxTotalThreadCacheBytes(0);
+  auto zero_limit = MallocExtension::GetNumericProperty(
+      "tcmalloc.max_total_thread_cache_bytes");
+  if (!zero_limit.has_value()) {
+    absl::FPrintF(stderr,
+                  "GetNumericProperty(max_total_thread_cache_bytes) failed\n");
+    return false;
+  }
+  MallocExtension::SetMaxTotalThreadCacheBytes(
+      kDefaultMaxTotalThreadCacheBytes);
+  if (*negative_limit != *zero_limit) {
+    absl::FPrintF(
+        stderr,
+        "tcmalloc.max_total_thread_cache_bytes after -1: got %zu, want %zu\n",
+        *negative_limit, *zero_limit);
+    return false;
+  }
+
   return true;
 }
 
