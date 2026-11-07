@@ -174,6 +174,12 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf,
               HasSubstr(absl::StrCat("tcmalloc_filler_append_on_free: ",
                                      Parameters::filler_append_on_free())));
+  EXPECT_THAT(buf, HasSubstr(absl::StrCat(
+                       "tcmalloc_min_free_bytes_to_break_dense_hugepage: ",
+                       Parameters::min_free_bytes_to_break_dense_hugepage())));
+  EXPECT_THAT(buf, HasSubstr(absl::StrCat(
+                       "tcmalloc_min_free_bytes_to_break_sparse_hugepage: ",
+                       Parameters::min_free_bytes_to_break_sparse_hugepage())));
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_enable_unfiltered_collapse: false"));
   if (MallocExtension::PerCpuCachesActive()) {
@@ -264,6 +270,12 @@ TEST_F(GetStatsTest, Parameters) {
       Parameters::filler_append_on_free() ==
       tcmalloc_internal::FillerAppendOnFree::kEnabled;
   Parameters::set_filler_append_on_free(false);
+  const size_t old_min_free_bytes_to_break_dense_hugepage =
+      Parameters::min_free_bytes_to_break_dense_hugepage();
+  Parameters::set_min_free_bytes_to_break_dense_hugepage(0);
+  const size_t old_min_free_bytes_to_break_sparse_hugepage =
+      Parameters::min_free_bytes_to_break_sparse_hugepage();
+  Parameters::set_min_free_bytes_to_break_sparse_hugepage(0);
   const hot_cold_t old_min_hot_access_hint = Parameters::min_hot_access_hint();
   ScopedMadviseSampledAllocations s(MadviseSampledAllocations::kDisabled);
   ASSERT_NE(&TCMalloc_Internal_GetBackSmallAllocations, nullptr);
@@ -350,6 +362,14 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_filler_append_on_free 0)"));
     EXPECT_THAT(
+        buf,
+        HasSubstr(
+            R"(PARAMETER tcmalloc_min_free_bytes_to_break_dense_hugepage 0)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(
+            R"(PARAMETER tcmalloc_min_free_bytes_to_break_sparse_hugepage 0)"));
+    EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_madvise_sampled_allocations 0)"));
 
     EXPECT_THAT(pbtxt, HasSubstr(R"(using_hpaa_subrelease: false)"));
@@ -369,6 +389,12 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_prefer_backed_filler_pages: false)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_filler_append_on_free: false)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(R"(tcmalloc_min_free_bytes_to_break_dense_hugepage: 0)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(R"(tcmalloc_min_free_bytes_to_break_sparse_hugepage: 0)"));
 #ifdef TCMALLOC_DEPRECATED_PERTHREAD
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_per_cpu_caches: false)"));
 #endif  // TCMALLOC_DEPRECATED_PERTHREAD
@@ -437,6 +463,8 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_collapse_released_hugepages(true);
   Parameters::set_prefer_backed_filler_pages(true);
   Parameters::set_filler_append_on_free(true);
+  Parameters::set_min_free_bytes_to_break_dense_hugepage(131072);
+  Parameters::set_min_free_bytes_to_break_sparse_hugepage(65536);
   Parameters::set_min_hot_access_hint(hot_cold_t{3});
   Parameters::set_madvise_sampled_allocations(
       MadviseSampledAllocations::kEnabled);
@@ -488,6 +516,14 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_filler_append_on_free 1)"));
     EXPECT_THAT(
+        buf,
+        HasSubstr(
+            R"(PARAMETER tcmalloc_min_free_bytes_to_break_dense_hugepage 131072)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(
+            R"(PARAMETER tcmalloc_min_free_bytes_to_break_sparse_hugepage 65536)"));
+    EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_madvise_sampled_allocations 1)"));
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_back_small_allocations 1)"));
@@ -525,6 +561,14 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_prefer_backed_filler_pages: true)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_filler_append_on_free: true)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(
+            R"(tcmalloc_min_free_bytes_to_break_dense_hugepage: 131072)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(
+            R"(tcmalloc_min_free_bytes_to_break_sparse_hugepage: 65536)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 3)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_madvise_sampled_allocations: true)"));
@@ -546,6 +590,10 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_collapse_released_hugepages(old_collapse_released_hugepages);
   Parameters::set_prefer_backed_filler_pages(old_prefer_backed_filler_pages);
   Parameters::set_filler_append_on_free(old_filler_append_on_free);
+  Parameters::set_min_free_bytes_to_break_dense_hugepage(
+      old_min_free_bytes_to_break_dense_hugepage);
+  Parameters::set_min_free_bytes_to_break_sparse_hugepage(
+      old_min_free_bytes_to_break_sparse_hugepage);
   Parameters::set_min_hot_access_hint(old_min_hot_access_hint);
   TCMalloc_Internal_SetBackSmallAllocations(old_back_small_allocations);
 }

@@ -186,6 +186,31 @@ void Parameters::InitializeFromExperiments() {
   }
 
   if (IsExperimentActive(
+          Experiment::
+              TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE_DENSE_128K)) {
+    min_free_bytes_to_break_dense_hugepage_.store(128 * 1024,
+                                                  std::memory_order_relaxed);
+    min_free_bytes_to_break_sparse_hugepage_.store(0,
+                                                   std::memory_order_relaxed);
+  } else if (
+      IsExperimentActive(
+          Experiment::
+              TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE_DENSE_64K_SPARSE_64K)) {
+    min_free_bytes_to_break_dense_hugepage_.store(64 * 1024,
+                                                  std::memory_order_relaxed);
+    min_free_bytes_to_break_sparse_hugepage_.store(64 * 1024,
+                                                   std::memory_order_relaxed);
+  } else if (
+      IsExperimentActive(
+          Experiment::
+              TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE_DENSE_128K_SPARSE_64K)) {
+    min_free_bytes_to_break_dense_hugepage_.store(128 * 1024,
+                                                  std::memory_order_relaxed);
+    min_free_bytes_to_break_sparse_hugepage_.store(64 * 1024,
+                                                   std::memory_order_relaxed);
+  }
+
+  if (IsExperimentActive(
           Experiment::TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION)) {
     release_drained_slab_metadata_.store(false, std::memory_order_relaxed);
   }
