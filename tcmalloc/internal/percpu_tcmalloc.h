@@ -737,6 +737,20 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchSlabMemory(uintptr_t ptr) {
   PrefetchWT0(reinterpret_cast<void*>(ptr));
 }
 
+#if defined(__aarch64__)
+// On AArch64 the slab prefetch is split by direction so that each can choose
+// its own cache level and intent: Pop only reads slabs[current-3], while Push
+// writes slabs[current+1] on the next push.
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchSlabMemoryForPop(
+    uintptr_t ptr) {
+  PrefetchPldL1Keep(reinterpret_cast<void*>(ptr));
+}
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchSlabMemoryForPush(
+    uintptr_t ptr) {
+  PrefetchPstL1Keep(reinterpret_cast<void*>(ptr));
+}
+#endif  // defined(__aarch64__)
+
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
 // Note: These helpers must be "static inline" to avoid ODR violations due to
 // different labels emitted in TCMALLOC_RSEQ_PROLOGUE.
@@ -822,8 +836,8 @@ TcmallocSlab_Internal_Push(size_t size_class, void* item) {
       : overflow_label);
 
   // Current now points to the slot we are going to push to next.
-  PrefetchSlabMemory(reinterpret_cast<uintptr_t>(region_start) +
-                     current * sizeof(void*));
+  PrefetchSlabMemoryForPush(reinterpret_cast<uintptr_t>(region_start) +
+                            current * sizeof(void*));
   return true;
 overflow_label:
   return false;
@@ -866,7 +880,13 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchNextObject(
   // details.
   //
   // TODO(b/214608320): Evaluate prefetch for write.
+#if defined(__aarch64__)
+  // Stage the next object in L2 rather than L1D: it is only consumed by the
+  // next Pop of this size class.
+  PrefetchPldL2Keep(prefetch_target);
+#else
   __builtin_prefetch(prefetch_target, 0, 3);
+#endif
 }
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
@@ -966,7 +986,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
 
   // The next pop will be from current-2, but because we prefetch the previous
   // element we've already just read that, so prefetch current-3.
-  PrefetchSlabMemory(current_plus_slabs_addr - 3 * sizeof(void*));
+  PrefetchSlabMemoryForPop(current_plus_slabs_addr - 3 * sizeof(void*));
   PrefetchNextObject(prefetch);
   return AssumeNotNull(result);
 underflow_path:
