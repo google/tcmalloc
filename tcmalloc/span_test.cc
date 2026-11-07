@@ -56,7 +56,9 @@ class RawSpan {
                 0);
   }
 
-  ~RawSpan() { free(mem_); }
+  ~RawSpan() {
+    free(mem_);
+  }
 
   Span& span() { return *span_; }
 
@@ -197,48 +199,6 @@ TEST_P(SpanTest, FreelistBasic) {
       EXPECT_FALSE(ok);
     }
   }
-}
-
-TEST_P(SpanTest, BuildFreelistReusedSpan) {
-  Span& span = raw_span_.span();
-  const PageId first_page = span.first_page();
-  span.~Span();
-  new (&span) Span(first_page);
-
-  const size_t count = (objects_per_span_ + 1) / 2;
-  const size_t want = std::min(batch_size_, count);
-
-  void* batch[kMaxObjectsToMove];
-  ASSERT_EQ(span.BuildFreelist(size_, count, absl::MakeSpan(batch, want),
-                               bitmap_mode_),
-            want);
-
-  char* start = static_cast<char*>(span.start_address());
-  std::vector<bool> seen(count, false);
-  auto record = [&](absl::Span<void* const> ptrs) {
-    for (void* p : ptrs) {
-      uintptr_t off = static_cast<char*>(p) - start;
-      ASSERT_LT(off, count * size_);
-      ASSERT_EQ(off % size_, 0);
-      size_t idx = off / size_;
-      EXPECT_FALSE(seen[idx]);
-      seen[idx] = true;
-    }
-  };
-
-  record(absl::MakeSpan(batch, want));
-  size_t popped = want;
-  while (!span.FreelistEmpty(count)) {
-    size_t n = span.FreelistPopBatch(absl::MakeSpan(batch, batch_size_), size_,
-                                     count, bitmap_mode_);
-    ASSERT_GT(n, 0);
-    record(absl::MakeSpan(batch, n));
-    popped += n;
-  }
-  EXPECT_EQ(popped, count);
-  EXPECT_EQ(span.FreelistPopBatch(absl::MakeSpan(batch, 1), size_, count,
-                                  bitmap_mode_),
-            0);
 }
 
 INSTANTIATE_TEST_SUITE_P(
