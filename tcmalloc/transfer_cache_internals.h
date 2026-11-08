@@ -178,7 +178,7 @@ class ABSL_CACHELINE_ALIGNED TransferCache {
         if (got == N) {
           return;
         }
-        batch = {batch.data() + got, batch.size() - got};
+        batch = absl::MakeSpan(batch).subspan(got);
       }
     }
 
