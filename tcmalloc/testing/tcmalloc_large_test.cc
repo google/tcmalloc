@@ -95,7 +95,7 @@ class NoErrnoRegionFactory final : public AddressRegionFactory {
  public:
   explicit NoErrnoRegionFactory(AddressRegionFactory* underlying)
       : underlying_(underlying) {}
-  ~NoErrnoRegionFactory() override {}
+  ~NoErrnoRegionFactory() override = default;
 
   AddressRegion* Create(void* start, size_t size, UsageHint hint) override {
     AddressRegion* underlying_region = underlying_->Create(start, size, hint);
