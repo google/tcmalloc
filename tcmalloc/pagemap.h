@@ -245,12 +245,11 @@ class PageMap {
   //
   // TODO(b/406313446): Remove ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED once clang
   // optimizes out the array bounds check.
-  [[nodiscard]] PageMeta GetDescriptor(PageId p) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS
+  [[nodiscard]]
 #ifdef __clang__
-      ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
+  ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED
 #endif  // __clang__
-  {
+      ABSL_NO_THREAD_SAFETY_ANALYSIS PageMeta GetDescriptor(PageId p) const {
     auto [leaf, i3] = MaybeIndex(p);
     if (ABSL_PREDICT_FALSE(leaf == nullptr)) {
       return PageMeta{};
@@ -261,8 +260,8 @@ class PageMap {
   // Return the descriptor for the specified page.
   // PageId must have been previously allocated.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  [[nodiscard]] PageMeta GetExistingDescriptor(PageId p) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  [[nodiscard]] ABSL_NO_THREAD_SAFETY_ANALYSIS PageMeta
+  GetExistingDescriptor(PageId p) const {
     auto [leaf, i3] = MustIndex(p);
     return leaf->page[i3];
   }
@@ -273,8 +272,8 @@ class PageMap {
   //
   // TODO(b/193887621): Convert to atomics to permit the PageMap to run cleanly
   // under TSan.
-  [[nodiscard]] CompactSizeClass sizeclass(PageId p) const
-      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  [[nodiscard]] ABSL_NO_THREAD_SAFETY_ANALYSIS CompactSizeClass
+  sizeclass(PageId p) const {
     auto [leaf, i3] = MaybeIndex(p);
     if (ABSL_PREDICT_FALSE(leaf == nullptr)) {
       return 0;
