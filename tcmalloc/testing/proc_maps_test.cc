@@ -15,9 +15,13 @@
 #include "tcmalloc/internal/proc_maps.h"
 
 #include <stdint.h>
+#include <sys/mman.h>
 #include <sys/types.h>
 
+#include <algorithm>
 #include <cstddef>
+#include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -25,6 +29,7 @@
 #include "gtest/gtest.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/internal/config.h"
@@ -38,6 +43,8 @@ namespace {
 
 using ::testing::AnyOf;
 using ::testing::Contains;
+using ::testing::ElementsAre;
+using ::testing::IsEmpty;
 using ::testing::IsSupersetOf;
 using ::testing::Not;
 
@@ -142,6 +149,82 @@ TEST(ProcMapsTest, InspectMappings) {
       EXPECT_THAT(tcmalloc_regions, Not(slab_matcher));
     }
   }
+}
+
+TEST(ProcMapsTest, ParseNumaMapsLine) {
+  uintptr_t start_addr = 0;
+  EXPECT_EQ(ParseNumaMapsLine(
+                "7f8b12340000 default file=/lib/libc.so.6 mapped=16 N0=12 N1=4 "
+                "kernelpagesize_kB=4\n",
+                start_addr),
+            0);
+  EXPECT_EQ(start_addr, 0x7f8b12340000ULL);
+
+  EXPECT_EQ(
+      ParseNumaMapsLine(
+          "7f8b12350000 bind:1 anon=20 dirty=20 N0=5 N1=15 kernelpagesize_kB=4",
+          start_addr),
+      1);
+  EXPECT_EQ(start_addr, 0x7f8b12350000ULL);
+
+  EXPECT_EQ(
+      ParseNumaMapsLine(
+          "7f8b12360000 default anon=8 dirty=8 N2=4 N1=4 kernelpagesize_kB=4",
+          start_addr),
+      1);
+  EXPECT_EQ(start_addr, 0x7f8b12360000ULL);
+
+  EXPECT_EQ(
+      ParseNumaMapsLine("7f8b12370000 default kernelpagesize_kB=4", start_addr),
+      std::nullopt);
+  EXPECT_EQ(start_addr, 0x7f8b12370000ULL);
+
+  EXPECT_EQ(ParseNumaMapsLine("", start_addr), std::nullopt);
+}
+
+TEST(ProcMapsTest, ReadLines) {
+  auto collect_lines = [](absl::string_view input, size_t chunk_size) {
+    std::vector<std::string> lines;
+    ReadLines(
+        [&](char* buf, size_t count) -> ssize_t {
+          size_t to_read = std::min({input.size(), count, chunk_size});
+          if (to_read > 0) {
+            memcpy(buf, input.data(), to_read);
+            input.remove_prefix(to_read);
+          }
+          return to_read;
+        },
+        [&](absl::string_view line) { lines.emplace_back(line); });
+    return lines;
+  };
+
+  EXPECT_THAT(collect_lines("", 64), IsEmpty());
+  EXPECT_THAT(collect_lines("alpha\nbeta\ngamma\n", 64),
+              ElementsAre("alpha", "beta", "gamma"));
+  EXPECT_THAT(collect_lines("alpha\nbeta\ngamma", 1),
+              ElementsAre("alpha", "beta", "gamma"));
+}
+
+TEST(ProcMapsTest, ReadProcNumaMaps) {
+  constexpr size_t kSize = 64 << 10;
+  char* region = static_cast<char*>(
+      mmap(nullptr, 3 * kSize, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+  ASSERT_NE(region, MAP_FAILED);
+  char* middle = region + kSize;
+  ASSERT_EQ(mprotect(middle, kSize, PROT_READ | PROT_WRITE), 0);
+  memset(middle, 1, kSize);
+
+  const uintptr_t middle_addr = reinterpret_cast<uintptr_t>(middle);
+  std::optional<int> found_node;
+  ReadProcNumaMaps([&](uintptr_t start_addr, int numa_node) {
+    if (start_addr == middle_addr) {
+      found_node = numa_node;
+    }
+  });
+  ASSERT_EQ(munmap(region, 3 * kSize), 0);
+
+  ASSERT_TRUE(found_node.has_value());
+  EXPECT_GE(*found_node, 0);
 }
 
 }  // namespace
