@@ -49,6 +49,9 @@ class Residency {
   [[nodiscard]] virtual std::optional<Info> Get(const void* addr,
                                                 size_t size) = 0;
   [[nodiscard]] virtual inline size_t GetHardwarePagesInHugePage() const = 0;
+  [[nodiscard]] virtual std::optional<int> GetNumaNode(const void* addr) {
+    return std::nullopt;
+  }
 
   // Struct is ordered with bitmaps first to optimize cacheline usage.
   struct SinglePageBitmaps {
@@ -94,6 +97,8 @@ class ResidencyPageMap : public Residency {
   [[nodiscard]] size_t GetHardwarePagesInHugePage() const override {
     return kHardwarePagesInHugePage;
   }
+
+  [[nodiscard]] std::optional<int> GetNumaNode(const void* addr) override;
 
   // Using a hugepage-aligned address, parse through /proc/self/pagemap
   // to output two bitmaps - one for pages that are unbacked and one for pages
