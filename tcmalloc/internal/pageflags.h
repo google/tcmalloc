@@ -39,6 +39,10 @@ struct PageStats {
   // Number of mlocked bytes (KPF_MLOCKED); counts mlocked pages only and
   // excludes non-mlocked unevictable pages.
   size_t bytes_locked = 0;
+  // Number of bytes on pages marked KPF_INCOMPRESSIBLE in /proc/self/pageflags
+  // (set by kernels when a page is rejected by in-memory swap compression; 0 on
+  // kernels without this flag). Distinct from userspace compressibility and
+  // zero-byte estimates computed by CompressionAnalyzer.
   size_t bytes_incompressible = 0;
   // The number of seconds that must elapse (at minimum) for a page to be
   // considered "stale". 0 indicates that kstaled is disabled or we weren't
