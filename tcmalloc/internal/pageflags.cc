@@ -100,6 +100,7 @@ void MaybeAddToStats(PageStats& stats, const uint64_t flags,
   if (PageStale(flags)) stats.bytes_stale += delta;
   if (PageLocked(flags)) stats.bytes_locked += delta;
   if (PageIncompressible(flags)) stats.bytes_incompressible += delta;
+  if (IsHugepage(flags)) stats.bytes_hugepage += delta;
 }
 
 // Updates a contiguous run of set bits in `bitmap` at page index `i`.
@@ -162,9 +163,17 @@ absl::StatusCode PageFlags::MaybeReadOne(uintptr_t vaddr, uint64_t& flags,
   }
 
   if (ABSL_PREDICT_FALSE((PageHead(flags) || PageTail(flags)) &&
-                         !PageThp(flags))) {
-    TC_LOG("PageFlags asked for information on non-THP hugepage??");
+                         !IsHugepage(flags))) {
+    TC_LOG("PageFlags asked for information on non-huge compound page??");
     return absl::StatusCode::kFailedPrecondition;
+  }
+
+  if (PageHugetlbfs(flags) && !PageThp(flags)) {
+    // Hugetlbfs pages may be larger than 2 MiB (e.g., 1 GiB) and set KPF_HUGE
+    // on every subpage; scan per hardware page rather than assuming 2 MiB
+    // compound geometry.
+    is_huge = false;
+    return absl::StatusCode::kOk;
   }
 
   if (PageTail(flags)) {
@@ -207,17 +216,21 @@ absl::StatusCode PageFlags::ReadMany(int64_t num_pages, PageStats& output) {
     }
     for (int i = 0; i < batch_size; ++i) {
       uint64_t flags = buf_[i];
-      if (PageHead(flags)) {
-        last_head_read_ = flags;
-      }
-
-      if (PageTail(flags)) {
-        if (ABSL_PREDICT_FALSE(last_head_read_ == -1)) {
-          TC_LOG("Did not see head page before tail page (i=%v, buf=%v)", i,
-                 buf_[i]);
-          return absl::StatusCode::kFailedPrecondition;
+      if (PageHugetlbfs(flags) && !PageThp(flags)) {
+        last_head_read_ = -1;
+      } else {
+        if (PageHead(flags)) {
+          last_head_read_ = flags;
         }
-        flags = last_head_read_;
+
+        if (PageTail(flags)) {
+          if (ABSL_PREDICT_FALSE(last_head_read_ == -1)) {
+            TC_LOG("Did not see head page before tail page (i=%v, buf=%v)", i,
+                   buf_[i]);
+            return absl::StatusCode::kFailedPrecondition;
+          }
+          flags = last_head_read_;
+        }
       }
       MaybeAddToStats(output, flags, kHardwarePageSize);
     }

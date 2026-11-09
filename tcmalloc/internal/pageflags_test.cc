@@ -106,12 +106,14 @@ class PageFlagsFriend {
 std::ostream& operator<<(std::ostream& os, const PageStats& s) {
   return os << "{ stale = " << s.bytes_stale << ", locked = " << s.bytes_locked
             << ", incompressible = " << s.bytes_incompressible
+            << ", hugepage = " << s.bytes_hugepage
             << ", stale_scan_seconds = " << s.stale_scan_seconds << "}";
 }
 
 namespace {
 
 using ::testing::FieldsAre;
+using ::testing::Le;
 using ::testing::Optional;
 
 constexpr uint64_t kPageHead = (1UL << 15);
@@ -153,7 +155,7 @@ TEST(PageFlagsTest, Stack) {
 
   PageFlags s;
   EXPECT_THAT(s.Get(reinterpret_cast<void*>(buf), sizeof(buf)),
-              Optional(PageStats{}));
+              Optional(FieldsAre(0, 0, 0, Le(sizeof(buf)), 0)));
 }
 
 // Maps `size` bytes of anonymous memory starting `misalignment` bytes past a
@@ -282,7 +284,9 @@ TEST(PageFlagsTest, Stale) {
   ASSERT_EQ(madvise(p + 5 * kHugePageSize, kHugePageSize, MADV_HUGEPAGE), 0)
       << errno;
   PageFlags s;
-  ASSERT_THAT(s.Get(p, kHardwarePageSize * kNumPages), Optional(PageStats{}));
+  ASSERT_THAT(
+      s.Get(p, kHardwarePageSize * kNumPages),
+      Optional(FieldsAre(0, 0, 0, Le(kHardwarePageSize * kNumPages), 0)));
 
   // This doesn't work within a short test timeout. But if you have your own
   // machine with appropriate patches, you can try it out!
@@ -326,26 +330,25 @@ TEST(PageFlagsTest, Stale) {
         // CAUTION: If you think this test is very flaky, it's possible it's
         // only passing when the machine you get scheduled on is out of
         // hugepages.
-        EXPECT_THAT(mocks.Get(base_p, num_pages * kHardwarePageSize + offset),
-                    Optional(FieldsAre(num_pages * kHardwarePageSize + offset,
-                                       0, 0, scan_seconds)))
+        const size_t span_len = num_pages * kHardwarePageSize + offset;
+        EXPECT_THAT(
+            mocks.Get(base_p, span_len),
+            Optional(FieldsAre(span_len, 0, 0, Le(span_len), scan_seconds)))
             << num_pages << "," << offset;
 
-        EXPECT_THAT(mocks.Get((char*)fake_p - offset,
-                              num_pages * kHardwarePageSize + offset),
-                    Optional(FieldsAre(num_pages * kHardwarePageSize + offset,
-                                       0, 0, scan_seconds)))
+        EXPECT_THAT(
+            mocks.Get((char*)fake_p - offset, span_len),
+            Optional(FieldsAre(span_len, 0, 0, Le(span_len), scan_seconds)))
             << num_pages << "," << offset;
 
-        EXPECT_THAT(mocks.Get(fake_p, num_pages * kHardwarePageSize + offset),
-                    Optional(FieldsAre(num_pages * kHardwarePageSize + offset,
-                                       0, 0, scan_seconds)))
+        EXPECT_THAT(
+            mocks.Get(fake_p, span_len),
+            Optional(FieldsAre(span_len, 0, 0, Le(span_len), scan_seconds)))
             << num_pages << "," << offset;
 
-        EXPECT_THAT(mocks.Get((char*)fake_p + offset,
-                              num_pages * kHardwarePageSize + offset),
-                    Optional(FieldsAre(num_pages * kHardwarePageSize + offset,
-                                       0, 0, scan_seconds)))
+        EXPECT_THAT(
+            mocks.Get((char*)fake_p + offset, span_len),
+            Optional(FieldsAre(span_len, 0, 0, Le(span_len), scan_seconds)))
             << num_pages << "," << offset;
 
         scan_seconds = kSetScanSeconds;
@@ -353,6 +356,7 @@ TEST(PageFlagsTest, Stale) {
         EXPECT_THAT(mocks.Get((char*)kHugePageSize + offset,
                               num_pages * kHardwarePageSize),
                     Optional(FieldsAre(num_pages * kHardwarePageSize, 0, 0,
+                                       Le(num_pages * kHardwarePageSize),
                                        scan_seconds)))
             << num_pages << "," << offset;
       }
@@ -361,7 +365,8 @@ TEST(PageFlagsTest, Stale) {
     EXPECT_THAT(mocks.Get(reinterpret_cast<char*>(2 * kHugePageSize +
                                                   16 * kHardwarePageSize + 2),
                           kHugePageSize * 3),
-                Optional(FieldsAre(kHugePageSize * 3, 0, 0, kSetScanSeconds)));
+                Optional(FieldsAre(kHugePageSize * 3, 0, 0,
+                                   Le(kHugePageSize * 3), kSetScanSeconds)));
   }
 
   ASSERT_EQ(munmap(p, kNumPages * kHardwarePageSize), 0) << errno;
@@ -400,7 +405,9 @@ TEST(PageFlagsTest, Locked) {
     p[i] = absl::Uniform(rng, 0, 256);
   }
 
-  ASSERT_THAT(s.Get(p, kHardwarePageSize * kNumPages), Optional(PageStats{}));
+  ASSERT_THAT(
+      s.Get(p, kHardwarePageSize * kNumPages),
+      Optional(FieldsAre(0, 0, 0, Le(kHardwarePageSize * kNumPages), 0)));
 
   // Synchronously collapse the MADV_HUGEPAGE regions into transparent
   // hugepages before measuring. Otherwise khugepaged forms them
@@ -462,7 +469,7 @@ TEST(PageFlagsTest, MlockedFlags) {
   }
 
   PageFlagsFriend s;
-  ASSERT_THAT(s.Get(p, kSize), Optional(PageStats{}));
+  ASSERT_THAT(s.Get(p, kSize), Optional(FieldsAre(0, 0, 0, Le(kSize), 0)));
   for (size_t offset = 0; offset < kSize; offset += kHardwarePageSize) {
     uint64_t flags = 0;
     bool is_huge = false;
@@ -536,19 +543,19 @@ TEST(PageFlagsTest, UnevictableWithoutMlockedIsNotLocked) {
   PageFlagsFriend s(file_path);
   EXPECT_THAT(
       s.Get(reinterpret_cast<char*>(0 * kHardwarePageSize), kHardwarePageSize),
-      Optional(FieldsAre(0, 0, 0, 0)));
+      Optional(FieldsAre(0, 0, 0, 0, 0)));
   EXPECT_THAT(
       s.Get(reinterpret_cast<char*>(1 * kHardwarePageSize), kHardwarePageSize),
-      Optional(FieldsAre(0, kHardwarePageSize, 0, 0)));
+      Optional(FieldsAre(0, kHardwarePageSize, 0, 0, 0)));
   EXPECT_THAT(
       s.Get(reinterpret_cast<char*>(2 * kHardwarePageSize), kHardwarePageSize),
-      Optional(FieldsAre(0, kHardwarePageSize, 0, 0)));
+      Optional(FieldsAre(0, kHardwarePageSize, 0, 0, 0)));
   EXPECT_THAT(s.Get(reinterpret_cast<char*>(0), 3 * kHardwarePageSize),
-              Optional(FieldsAre(0, 2 * kHardwarePageSize, 0, 0)));
+              Optional(FieldsAre(0, 2 * kHardwarePageSize, 0, 0, 0)));
   EXPECT_THAT(s.Get(reinterpret_cast<char*>(kHugePageSize), kHugePageSize),
-              Optional(FieldsAre(0, 0, 0, 0)));
+              Optional(FieldsAre(0, 0, 0, kHugePageSize, 0)));
   EXPECT_THAT(s.Get(reinterpret_cast<char*>(2 * kHugePageSize), kHugePageSize),
-              Optional(FieldsAre(0, kHugePageSize, 0, 0)));
+              Optional(FieldsAre(0, kHugePageSize, 0, kHugePageSize, 0)));
 }
 
 TEST(PageFlagsTest, Incompressible) {
@@ -587,25 +594,116 @@ TEST(PageFlagsTest, Incompressible) {
   // Page 0: bit 47 not set -> 0 bytes_incompressible.
   EXPECT_THAT(
       s.Get(reinterpret_cast<char*>(0 * kHardwarePageSize), kHardwarePageSize),
-      Optional(FieldsAre(0, 0, 0, 0)));
+      Optional(FieldsAre(0, 0, 0, 0, 0)));
   // Page 1: incompressible + unevictable -> bytes_incompressible only.
   EXPECT_THAT(
       s.Get(reinterpret_cast<char*>(1 * kHardwarePageSize), kHardwarePageSize),
-      Optional(FieldsAre(0, 0, kHardwarePageSize, 0)));
+      Optional(FieldsAre(0, 0, kHardwarePageSize, 0, 0)));
   // Partial span inside page 1.
   EXPECT_THAT(s.Get(reinterpret_cast<char*>(1 * kHardwarePageSize + 100), 250),
-              Optional(FieldsAre(0, 0, 250, 0)));
+              Optional(FieldsAre(0, 0, 250, 0, 0)));
   // Span across pages 0..3: 1 stale page (page 2), 1 locked page (page 3),
   // 2 incompressible pages (pages 1 and 2).
   EXPECT_THAT(s.Get(reinterpret_cast<char*>(0), 4 * kHardwarePageSize),
               Optional(FieldsAre(kHardwarePageSize, kHardwarePageSize,
-                                 2 * kHardwarePageSize, kSetScanSeconds)));
+                                 2 * kHardwarePageSize, 0, kSetScanSeconds)));
   // Hugepage 1: compound THP inherits head flags across all tail pages.
   EXPECT_THAT(s.Get(reinterpret_cast<char*>(kHugePageSize), kHugePageSize),
-              Optional(FieldsAre(0, 0, kHugePageSize, 0)));
+              Optional(FieldsAre(0, 0, kHugePageSize, kHugePageSize, 0)));
   // Hugepage 2: compound THP without KPF_INCOMPRESSIBLE -> 0.
   EXPECT_THAT(s.Get(reinterpret_cast<char*>(2 * kHugePageSize), kHugePageSize),
-              Optional(FieldsAre(0, 0, 0, 0)));
+              Optional(FieldsAre(0, 0, 0, kHugePageSize, 0)));
+}
+
+TEST(PageFlagsTest, Hugepage) {
+  const size_t kHardwarePageSize = getpagesize();
+  const size_t kPagesPerHugepage = kHugePageSize / kHardwarePageSize;
+  std::vector<uint64_t> data(5 * kPagesPerHugepage, 0);
+
+  // Hugepage 0: native pages (non-huge).
+  data[0] = 0;
+  data[1] = kPageStale;
+  data[2] = kPageMlocked | kPageUnevictable;
+  data[3] = kPageIncompressible | kPageUnevictable;
+
+  // Hugepage 1: compound 2 MiB THP with KPF_STALE on the head page.
+  data[kPagesPerHugepage] = kPageHead | kPageThp | kPageStale;
+  for (size_t i = 1; i < kPagesPerHugepage; ++i) {
+    data[kPagesPerHugepage + i] = kPageTail | kPageThp;
+  }
+
+  // Hugepage 2: native pages (all zero flags).
+
+  // Hugepage 3..4: 4 MiB compound hugetlbfs span (head at 3 * kHugePageSize,
+  // tails extending past a 2 MiB boundary as in a 1 GiB hugetlbfs page).
+  data[3 * kPagesPerHugepage] = kPageHead | kPageHuge;
+  for (size_t i = 1; i < 2 * kPagesPerHugepage; ++i) {
+    data[3 * kPagesPerHugepage + i] = kPageTail | kPageHuge;
+  }
+
+  std::string file_path = absl::StrCat(testing::TempDir(), "/hugepage_stats");
+  SetContents(file_path,
+              absl::string_view(reinterpret_cast<const char*>(data.data()),
+                                data.size() * sizeof(data[0])));
+
+  PageFlagsFriend s(file_path);
+  constexpr uint64_t kSetScanSeconds = 63;
+  s.SetCachedScanSeconds(kSetScanSeconds);
+
+  // Native pages report zero bytes_hugepage.
+  EXPECT_THAT(s.Get(reinterpret_cast<char*>(0), 4 * kHardwarePageSize),
+              Optional(FieldsAre(kHardwarePageSize, kHardwarePageSize,
+                                 kHardwarePageSize, 0, kSetScanSeconds)));
+
+  // Full 2 MiB THP, single tail page, sub-page span, and multi-page span
+  // inside a THP.
+  EXPECT_THAT(
+      s.Get(reinterpret_cast<char*>(kHugePageSize), kHugePageSize),
+      Optional(FieldsAre(kHugePageSize, 0, 0, kHugePageSize, kSetScanSeconds)));
+  EXPECT_THAT(
+      s.Get(reinterpret_cast<char*>(kHugePageSize + 10 * kHardwarePageSize),
+            kHardwarePageSize),
+      Optional(FieldsAre(kHardwarePageSize, 0, 0, kHardwarePageSize,
+                         kSetScanSeconds)));
+  EXPECT_THAT(s.Get(reinterpret_cast<char*>(kHugePageSize +
+                                            10 * kHardwarePageSize + 100),
+                    250),
+              Optional(FieldsAre(250, 0, 0, 250, kSetScanSeconds)));
+  EXPECT_THAT(s.Get(reinterpret_cast<char*>(kHugePageSize +
+                                            10 * kHardwarePageSize + 100),
+                    3 * kHardwarePageSize),
+              Optional(FieldsAre(3 * kHardwarePageSize, 0, 0,
+                                 3 * kHardwarePageSize, kSetScanSeconds)));
+
+  // Unaligned cross-boundary spans entering and leaving a THP.
+  EXPECT_THAT(
+      s.Get(
+          reinterpret_cast<char*>(kHugePageSize - 2 * kHardwarePageSize + 100),
+          5 * kHardwarePageSize),
+      Optional(FieldsAre(3 * kHardwarePageSize + 100, 0, 0,
+                         3 * kHardwarePageSize + 100, kSetScanSeconds)));
+  EXPECT_THAT(
+      s.Get(reinterpret_cast<char*>(2 * kHugePageSize - 2 * kHardwarePageSize +
+                                    100),
+            5 * kHardwarePageSize),
+      Optional(FieldsAre(2 * kHardwarePageSize - 100, 0, 0,
+                         2 * kHardwarePageSize - 100, kSetScanSeconds)));
+
+  // Hugetlbfs spans: aligned 2 MiB, multi-2-MiB, mid-compound tail >2 MiB past
+  // head, and unaligned cross-boundary from native pages into hugetlbfs.
+  EXPECT_THAT(s.Get(reinterpret_cast<char*>(3 * kHugePageSize), kHugePageSize),
+              Optional(FieldsAre(0, 0, 0, kHugePageSize, 0)));
+  EXPECT_THAT(
+      s.Get(reinterpret_cast<char*>(3 * kHugePageSize), 2 * kHugePageSize),
+      Optional(FieldsAre(0, 0, 0, 2 * kHugePageSize, 0)));
+  EXPECT_THAT(s.Get(reinterpret_cast<char*>(4 * kHugePageSize +
+                                            7 * kHardwarePageSize + 64),
+                    3 * kHardwarePageSize),
+              Optional(FieldsAre(0, 0, 0, 3 * kHardwarePageSize, 0)));
+  EXPECT_THAT(s.Get(reinterpret_cast<char*>(3 * kHugePageSize -
+                                            kHardwarePageSize + 200),
+                    3 * kHardwarePageSize),
+              Optional(FieldsAre(0, 0, 0, 2 * kHardwarePageSize + 200, 0)));
 }
 
 TEST(PageFlagsTest, OnlyTails) {
@@ -695,12 +793,12 @@ TEST(PageFlagsTest, TooManyTails) {
 
   PageFlagsFriend s(file_path);
   EXPECT_THAT(s.Get(reinterpret_cast<char*>(kHugePageSize), kHugePageSize),
-              Optional(PageStats{}));
+              Optional(FieldsAre(0, 0, 0, kHugePageSize, 0)));
   EXPECT_THAT(s.Get(reinterpret_cast<char*>(kHugePageSize), 3 * kHugePageSize),
-              Optional(PageStats{}));
+              Optional(FieldsAre(0, 0, 0, 3 * kHugePageSize, 0)));
 
   EXPECT_THAT(s.Get(reinterpret_cast<char*>(3 * kHugePageSize), kHugePageSize),
-              Optional(PageStats{}));
+              Optional(FieldsAre(0, 0, 0, kHugePageSize, 0)));
   EXPECT_THAT(
       s.Get(reinterpret_cast<char*>(3 * kHugePageSize), 2 * kHugePageSize),
       std::nullopt);
@@ -774,7 +872,7 @@ TEST(StaleSeconds, Read) {
   g.reset();
 
   EXPECT_THAT(read_seconds, 123);
-  EXPECT_THAT(result, Optional(FieldsAre(1, 0, 0, 123)));
+  EXPECT_THAT(result, Optional(FieldsAre(1, 0, 0, Le(1), 123)));
 }
 
 void ExpectStaleSecondsFailedReadFrom(absl::string_view filename) {
