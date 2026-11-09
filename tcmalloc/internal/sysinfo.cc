@@ -55,7 +55,8 @@ std::optional<CpuSet> ParseCpulist(
       return std::nullopt;
     }
 
-    const absl::string_view current(buf.data(), carry_over + rc);
+    const absl::string_view current =
+        absl::string_view(buf.data(), buf.size()).substr(0, carry_over + rc);
 
     // If we have no more data to parse & couldn't read any then we've reached
     // the end of the input & are done.
