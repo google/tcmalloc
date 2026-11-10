@@ -1367,6 +1367,98 @@ TEST(CpuCacheTest, ResizeCpuSizeClassesHoldsLockForAvailable) {
   resizer.join();
 }
 
+TEST(CpuCacheTest, ResizeCpuSizeClassesSkipsUnpopulatedCpu) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  cache.forwarder().release_drained_slab_metadata_ = true;
+  constexpr size_t kLimit = 64;
+  cache.SetCacheLimit(kLimit);
+  cache.Activate();
+
+  const int num_cpus = NumCPUs();
+  const auto shift =
+      subtle::percpu::ToShiftType(cache.GetPerCpuSlabShiftBounds().max_shift);
+  if (subtle::percpu::GetSlabsAllocSize(shift, num_cpus) < 3 * kHugePageSize) {
+    GTEST_SKIP() << "Not enough CPUs to run test";
+  }
+
+  const int target_cpu = num_cpus / 2;
+  const int blocker_cpu = num_cpus - 1;
+
+  // Position ResizeSizeClasses's round-robin cursor at target_cpu, then leave
+  // blocker_cpu populated with zero used bytes so ResizeSizeClasses visits
+  // blocker_cpu first and target_cpu second while TryDrainingCaches locks
+  // target_cpu before blocker_cpu.
+  for (int cpu : {1, target_cpu}) {
+    ScopedFakeCpuId fake_cpu_id(cpu);
+    void* ptr = cache.Allocate(/*size_class=*/1);
+    cache.Deallocate(ptr, /*size_class=*/1);
+  }
+  cache.ResizeSizeClasses();
+  cache.TryDrainingCaches();
+  cache.TryDrainingCaches();
+
+  void* blocker_ptrs[5];
+  {
+    ScopedFakeCpuId fake_cpu_id(blocker_cpu);
+    for (void*& ptr : blocker_ptrs) {
+      ptr = cache.Allocate(/*size_class=*/1);
+    }
+  }
+
+  std::atomic<bool> ready{false};
+  std::atomic<bool> stop{false};
+  std::atomic<int> resizes_completed{0};
+  std::thread resizer([&]() {
+    uint64_t last_drain = cache.GetNumDrains(target_cpu);
+    ready.store(true, std::memory_order_release);
+    while (!stop.load(std::memory_order_relaxed)) {
+      if (cache.GetNumDrains(target_cpu) > last_drain) {
+        cache.ResizeSizeClasses();
+        last_drain = cache.GetNumDrains(target_cpu);
+        resizes_completed.fetch_add(1, std::memory_order_release);
+      }
+    }
+  });
+  while (!ready.load(std::memory_order_acquire)) {
+  }
+
+  {
+    ScopedFakeCpuId fake_cpu_id(target_cpu);
+    for (int i = 0; i < 100; ++i) {
+      void* ptr = cache.Allocate(/*size_class=*/1);
+      cache.Deallocate(ptr, /*size_class=*/1);
+      cache.TryDrainingCaches();
+      cache.TryDrainingCaches();
+      while (resizes_completed.load(std::memory_order_acquire) <= i) {
+      }
+      if (cache.Allocated(target_cpu) + cache.Unallocated(target_cpu) !=
+          kLimit) {
+        break;
+      }
+    }
+  }
+
+  stop.store(true, std::memory_order_relaxed);
+  resizer.join();
+
+  {
+    ScopedFakeCpuId fake_blocker(blocker_cpu);
+    for (void* ptr : blocker_ptrs) {
+      cache.Deallocate(ptr, /*size_class=*/1);
+    }
+  }
+
+  EXPECT_GT(cache.GetNumUnpopulates(target_cpu), 0);
+  EXPECT_EQ(cache.Capacity(target_cpu), kLimit);
+  EXPECT_EQ(cache.Allocated(target_cpu) + cache.Unallocated(target_cpu),
+            kLimit);
+}
+
 TEST(CpuCacheTest, DrainCpuCache) {
   if (!subtle::percpu::IsFast()) {
     return;
