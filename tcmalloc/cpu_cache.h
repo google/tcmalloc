@@ -1784,11 +1784,16 @@ void CpuCache<Forwarder>::ReplaceSlabs(
   void* new_slabs;
   int64_t reused_bytes;
   ResizeSlabsInfo info;
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
+  std::tie(new_slabs, reused_bytes) = prepare_slabs();
+#endif
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.lock();
   {
     // We can't allocate while holding the per-cpu spinlocks.
     AllocationGuard enforce_no_alloc;
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     std::tie(new_slabs, reused_bytes) = prepare_slabs();
+#endif
     info = resize(new_slabs);
   }
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.unlock();
