@@ -612,8 +612,12 @@ struct UpdateMaxCapacities {
     }
     const size_t sc = 1 + (size_class % (kNumClasses - 1));
     const size_t target_cap = new_max_capacity % (kMaxCapacity + 1);
-    PerSizeClassMaxCapacity new_caps[1] = {
-        {.size_class = sc, .max_capacity = target_cap}};
+    std::array<std::atomic<uint16_t>, kNumClasses> new_caps;
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      new_caps[size_class].store(state.max_capacity[size_class],
+                                 std::memory_order_relaxed);
+    }
+    new_caps[sc].store(target_cap, std::memory_order_relaxed);
     const Shift shift = ToShiftType(state.slab.GetShift());
     const size_t slabs_size = GetSlabsAllocSize(shift, state.num_cpus);
     void* new_slabs = Malloc(slabs_size, SlabAlignment(shift));
@@ -637,7 +641,7 @@ struct UpdateMaxCapacities {
               std::min<size_t>(old_cap, state.max_capacity[size_class]);
           state.HandleDrain(cpu, size_class, batch, size, cap, old_cap - kept);
         },
-        new_caps, 1);
+        new_caps.data());
     TC_CHECK_EQ(state.max_capacity[sc], target_cap);
     sized_aligned_delete(old_slabs, old_slabs_size, SlabAlignment(shift));
     // UpdateMaxCapacities transfers existing pointers and capacities up to the

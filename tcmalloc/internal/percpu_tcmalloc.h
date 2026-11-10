@@ -61,11 +61,6 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-struct PerSizeClassMaxCapacity {
-  size_t size_class;
-  size_t max_capacity;
-};
-
 struct PerCPUMetadataState {
   size_t virtual_size;
   size_t resident_size;
@@ -163,14 +158,12 @@ class TcmallocSlab {
   // return value should remain constant for the duration of the call.
   // <new_max_capacity> provides an array of new maximum capacities to be
   // updated for size classes.
-  // <classes_to_resize> provides the number of size classes for which the
-  // capacity needs to be updated.
   // <drain_handler> callback drains the old slab.
   [[nodiscard]] ResizeSlabsInfo UpdateMaxCapacities(
       void* new_slabs, absl::FunctionRef<size_t(size_t)> max_capacity,
       absl::FunctionRef<void(int, uint16_t)> update_max_capacity,
       absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler,
-      PerSizeClassMaxCapacity* new_max_capacity, int classes_to_resize);
+      std::atomic<uint16_t>* new_max_capacity);
 
   // Grows or shrinks the size of the slabs to use the <new_shift> value. First
   // we initialize <new_slabs>, then lock all headers on the old slabs,
@@ -1424,7 +1417,7 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
     void* new_slabs, absl::FunctionRef<size_t(size_t)> max_capacity,
     absl::FunctionRef<void(int, uint16_t)> update_max_capacity,
     absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler,
-    PerSizeClassMaxCapacity* new_max_capacity, int classes_to_resize) {
+    std::atomic<uint16_t>* new_max_capacity) {
   const int n_cpus = num_cpus();
   const auto [old_slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
 
@@ -1453,10 +1446,9 @@ ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
 #endif
 
   // Phase 2: Update max capacity of the size classes.
-  for (int i = 0; i < classes_to_resize; ++i) {
-    size_t size_class = new_max_capacity[i].size_class;
-    size_t cap = new_max_capacity[i].max_capacity;
-    update_max_capacity(size_class, cap);
+  for (int size_class = 1; size_class < NumClasses; ++size_class) {
+    update_max_capacity(size_class, new_max_capacity[size_class].load(
+                                        std::memory_order_relaxed));
   }
 
   // Phase 3: Initialize slabs.

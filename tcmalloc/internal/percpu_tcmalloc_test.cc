@@ -105,7 +105,7 @@ struct GetMaxCapacity {
     return max_capacities[size_class].load(std::memory_order_relaxed);
   }
 
-  const std::atomic<size_t>* max_capacities;
+  const std::atomic<uint16_t>* max_capacities;
 };
 
 class TcmallocSlabTest : public testing::Test {
@@ -476,14 +476,7 @@ TEST_F(TcmallocSlabTest, ResizeMaxCapacities) {
   size_t small_capacity = slab_.Capacity(kCpu, kSizeClassToShrink);
 
   for (int i = 0; i < kCapacity; ++i) {
-    PerSizeClassMaxCapacity new_max_capacity[2];
-    new_max_capacity[0] = PerSizeClassMaxCapacity{
-        .size_class = kSizeClassToGrow,
-        .max_capacity = max_capacity[kSizeClassToGrow] + 1};
-    new_max_capacity[1] = PerSizeClassMaxCapacity{
-        .size_class = kSizeClassToShrink,
-        .max_capacity = max_capacity[kSizeClassToShrink] - 1};
-    std::array<size_t, kStressSlabs> updated_max_capacity;
+    std::array<std::atomic<uint16_t>, kStressSlabs> updated_max_capacity;
     for (int sc = 0; sc < kStressSlabs; ++sc) {
       updated_max_capacity[sc] = max_capacity[sc];
     }
@@ -492,14 +485,16 @@ TEST_F(TcmallocSlabTest, ResizeMaxCapacities) {
     void* slabs = AllocSlabs(allocator, kShift);
     const auto [old_slabs, old_slabs_size] = slab_.UpdateMaxCapacities(
         slabs,
-        [&](size_t size_class) { return updated_max_capacity[size_class]; },
+        [&](size_t size_class) {
+          return updated_max_capacity[size_class].load(
+              std::memory_order_relaxed);
+        },
         [&](int size, uint16_t cap) { max_capacity[size] = cap; },
         [](int cpu) { return cpu == kCpu; },
         [&](int cpu, size_t size_class, void** batch, size_t size, size_t cap) {
           EXPECT_EQ(size, 0);
         },
-        new_max_capacity,
-        /*classes_to_resize=*/2);
+        updated_max_capacity.data());
 
     // UpdateMaxCapacities() zeroes out our thread's slabs pointer,
     // which Grow() expects to be there. Normally, any other caller
@@ -589,7 +584,7 @@ TEST_F(TcmallocSlabTest, GrowRacingResizeDeclinesReservedIndex) {
 
   // Classes 1..3 get kStressCapacity; the last class takes every remaining
   // slot, so its region ends at 0xfffe.
-  std::atomic<size_t> max_capacity[kStressSlabs] = {};
+  std::atomic<uint16_t> max_capacity[kStressSlabs] = {};
   for (size_t sc = 1; sc < kLastClass; ++sc) {
     max_capacity[sc].store(kStressCapacity, std::memory_order_relaxed);
   }
@@ -623,22 +618,28 @@ TEST_F(TcmallocSlabTest, GrowRacingResizeDeclinesReservedIndex) {
   size_t alt_slabs_size = GetSlabsAllocSize(ToShiftType(kBigShift), num_cpus);
   for (int i = 0; i < 10000; ++i) {
     const size_t delta = i % 2 == 0;
-    PerSizeClassMaxCapacity updates[2] = {
-        {.size_class = 1, .max_capacity = kStressCapacity + delta},
-        {.size_class = kLastClass, .max_capacity = last_cap - delta},
-    };
+    std::array<std::atomic<uint16_t>, kStressSlabs> updated_max_capacity;
+    for (size_t sc = 1; sc < kLastClass; ++sc) {
+      updated_max_capacity[sc].store(
+          max_capacity[sc].load(std::memory_order_relaxed),
+          std::memory_order_relaxed);
+    }
+    updated_max_capacity[1].store(kStressCapacity + delta,
+                                  std::memory_order_relaxed);
+    updated_max_capacity[kLastClass].store(last_cap - delta,
+                                           std::memory_order_relaxed);
     const auto [old_slabs, old_size] = slab_.UpdateMaxCapacities(
         alt_slabs,
         [&](size_t sc) {
-          return sc == 1            ? updates[0].max_capacity
-                 : sc == kLastClass ? updates[1].max_capacity
+          return sc == 1            ? kStressCapacity + delta
+                 : sc == kLastClass ? last_cap - delta
                                     : max_cap_fn(sc);
         },
         [&](int sc, uint16_t cap) {
           max_capacity[sc].store(cap, std::memory_order_relaxed);
         },
         [](size_t) { return true; }, [](int, size_t, void**, size_t, size_t) {},
-        updates, 2);
+        updated_max_capacity.data());
     alt_slabs = old_slabs;
     alt_slabs_size = old_size;
   }
@@ -767,7 +768,7 @@ struct Context {
   std::atomic<bool>* stop;
   absl::Span<bool> init;
   absl::Span<std::atomic<bool>> has_init;
-  std::atomic<size_t>* max_capacity;
+  std::atomic<uint16_t>* max_capacity;
 
   GetMaxCapacity GetMaxCapacityFunctor() const { return {max_capacity}; }
 };
@@ -795,23 +796,17 @@ void InitCurrentCpuOnce(Context& ctx) {
 }
 
 int GetResizedMaxCapacities(Context& ctx,
-                            PerSizeClassMaxCapacity* new_max_capacity) {
-  std::atomic<size_t>* max_capacity = ctx.max_capacity;
+                            std::atomic<uint16_t>* new_max_capacity) {
   absl::BitGen rnd;
   size_t to_shrink = absl::Uniform<int32_t>(rnd, 0, kStressSlabs);
   size_t to_grow = absl::Uniform<int32_t>(rnd, 0, kStressSlabs);
-  if (to_shrink == to_grow || max_capacity[to_shrink] == 0 ||
-      max_capacity[to_grow].load(std::memory_order_relaxed) ==
+  if (to_shrink == to_grow ||
+      new_max_capacity[to_shrink].load(std::memory_order_relaxed) == 0 ||
+      new_max_capacity[to_grow].load(std::memory_order_relaxed) ==
           kMaxStressCapacity - 1)
     return 0;
-  new_max_capacity[0] = PerSizeClassMaxCapacity{
-      .size_class = to_shrink,
-      .max_capacity =
-          max_capacity[to_shrink].load(std::memory_order_relaxed) - 1};
-  new_max_capacity[1] = PerSizeClassMaxCapacity{
-      .size_class = to_grow,
-      .max_capacity =
-          max_capacity[to_grow].load(std::memory_order_relaxed) + 1};
+  new_max_capacity[to_shrink].fetch_sub(1, std::memory_order_relaxed);
+  new_max_capacity[to_grow].fetch_add(1, std::memory_order_relaxed);
   return 2;
 }
 
@@ -1075,20 +1070,15 @@ void ResizeMaxCapacitiesThread(
 
   while (!*ctx.stop) {
     for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].lock();
-    PerSizeClassMaxCapacity new_max_capacity[2];
-    int to_resize = GetResizedMaxCapacities(ctx, new_max_capacity);
     size_t old_slabs_idx = 0;
 
-    std::atomic<size_t> updated_max_capacity[kStressSlabs];
+    std::atomic<uint16_t> updated_max_capacity[kStressSlabs];
     for (size_t sc = 0; sc < kStressSlabs; ++sc) {
       updated_max_capacity[sc].store(
           ctx.max_capacity[sc].load(std::memory_order_relaxed),
           std::memory_order_relaxed);
     }
-    for (int i = 0; i < to_resize; ++i) {
-      updated_max_capacity[new_max_capacity[i].size_class].store(
-          new_max_capacity[i].max_capacity, std::memory_order_relaxed);
-    }
+    GetResizedMaxCapacities(ctx, updated_max_capacity);
 
     uint8_t shift = ctx.slab->GetShift();
     void* slabs = AllocSlabs(allocator, shift);
@@ -1100,7 +1090,7 @@ void ResizeMaxCapacitiesThread(
         [&](size_t cpu) {
           return ctx.has_init[cpu].load(std::memory_order_relaxed);
         },
-        drain_handler, new_max_capacity, to_resize);
+        drain_handler, updated_max_capacity);
     for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].unlock();
     ASSERT_NE(old_slabs, nullptr);
     // We sometimes don't madvise away the old slabs in order to simulate
@@ -1172,7 +1162,7 @@ void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
   const size_t num_cpus = NumCPUs();
   size_t shift = kResizeInitialShift;
   size_t old_slabs_idx = 0;
-  std::atomic<size_t> new_max_capacity[kStressSlabs];
+  std::atomic<uint16_t> new_max_capacity[kStressSlabs];
   for (size_t size_class = 0; size_class < kStressSlabs; ++size_class) {
     new_max_capacity[size_class].store(kStressCapacity,
                                        std::memory_order_relaxed);
@@ -1293,7 +1283,7 @@ TEST_P(StressThreadTest, Stress) {
   const size_t num_cpus = NumCPUs();
   const size_t n_stress_threads = 2 * num_cpus;
   const size_t n_threads = n_stress_threads + resize;
-  std::atomic<size_t> max_capacity[kStressSlabs];
+  std::atomic<uint16_t> max_capacity[kStressSlabs];
 
   for (size_t size_class = 0; size_class < kStressSlabs; ++size_class) {
     max_capacity[size_class].store(kStressCapacity, std::memory_order_relaxed);
