@@ -18,13 +18,47 @@
 #include <stdint.h>
 #include <sys/types.h>
 
+#include <array>
 #include <cstddef>
+#include <optional>
 
+#include "absl/functional/function_ref.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+// Reads from `read` until EOF (<= 0 return) and invokes `callback(line)` for
+// each line (without the trailing newline).
+void ReadLines(absl::FunctionRef<ssize_t(char* buf, size_t count)> read,
+               absl::FunctionRef<void(absl::string_view line)> callback);
+
+struct NumaMapEntry {
+  static constexpr size_t kNumaNodeBuckets = 3;
+
+  uintptr_t start_addr = 0;
+  // Resident page counts from /proc/self/numa_maps ("N<node>=<nr_pages>"):
+  //   node_pages[0]: NUMA node 0
+  //   node_pages[1]: NUMA node 1
+  //   node_pages[2]: NUMA nodes > 1
+  std::array<uint64_t, kNumaNodeBuckets> node_pages = {};
+
+  bool operator==(const NumaMapEntry& rhs) const {
+    return start_addr == rhs.start_addr && node_pages == rhs.node_pages;
+  }
+};
+
+// Parses a single line from /proc/self/numa_maps and returns the VMA start
+// address and per-NUMA-node resident page counts, or std::nullopt if the line
+// is malformed.
+[[nodiscard]] std::optional<NumaMapEntry> ParseNumaMapsLine(
+    absl::string_view line);
+
+// Reads /proc/self/numa_maps and invokes `callback(entry)` for each VMA entry.
+void ReadProcNumaMaps(
+    absl::FunctionRef<void(const NumaMapEntry& entry)> callback);
 
 // A ProcMapsIterator abstracts access to /proc/maps for a given process.
 class ProcMapsIterator {

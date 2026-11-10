@@ -1316,10 +1316,30 @@ tcmalloc_cc_library(
   SRCS
     "proc_maps.cc"
   DEPS
+    "absl::core_headers"
+    "absl::function_ref"
     "absl::str_format"
+    "absl::strings"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_util"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_proc_maps_fuzz
+  SRCS
+    "proc_maps_fuzz.cc"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "absl::str_format"
+    "absl::string_view"
+    "absl::strings"
+    "fuzztest::fuzztest"
+    "fuzztest::fuzztest_gtest_main"
+    "tcmalloc::internal_proc_maps"
+    "tcmalloc::tcmalloc"
 )
 
 tcmalloc_cc_library(

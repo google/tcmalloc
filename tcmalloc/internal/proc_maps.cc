@@ -18,11 +18,20 @@
 #include <sys/sysmacros.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <optional>
+#include <utility>
 
+#include "absl/base/optimization.h"
+#include "absl/functional/function_ref.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_format.h"
+#include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
+#include "absl/strings/strip.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"
@@ -30,6 +39,111 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+std::optional<NumaMapEntry> ParseNumaMapsLine(absl::string_view line) {
+  // Each line in /proc/self/numa_maps has the format:
+  //   <start_addr> <policy> [<attribute> ...]
+  // For example:
+  //   7f8b12340000 default file=/lib/libc.so.6 mapped=16 N0=12 N1=4
+  //
+  // Split the hexadecimal VMA start address from the remaining fields.
+  std::pair<absl::string_view, absl::string_view> fields =
+      absl::StrSplit(line, absl::MaxSplits(' ', 1));
+  NumaMapEntry entry;
+  if (!absl::SimpleHexAtoi(fields.first, &entry.start_addr)) {
+    return std::nullopt;
+  }
+
+  // Scan the space-separated attributes (e.g., memory policy "default" or
+  // "bind:0", "file=...", "anon=...", "N<node>=<nr_pages>") and accumulate
+  // resident page counts for NUMA node 0, node 1, and nodes > 1.
+  for (absl::string_view token : absl::StrSplit(fields.second, ' ')) {
+    // Per-node residency attributes have the form "N<node>=<nr_pages>".
+    if (!absl::ConsumePrefix(&token, "N")) {
+      continue;
+    }
+    std::pair<absl::string_view, absl::string_view> kv =
+        absl::StrSplit(token, absl::MaxSplits('=', 1));
+    uint32_t node = 0;
+    uint64_t pages = 0;
+    if (!absl::SimpleAtoi(kv.first, &node) ||
+        !absl::SimpleAtoi(kv.second, &pages)) {
+      continue;
+    }
+    entry.node_pages[std::min<size_t>(
+        node, NumaMapEntry::kNumaNodeBuckets - 1)] += pages;
+  }
+  return entry;
+}
+
+void ReadLines(absl::FunctionRef<ssize_t(char* buf, size_t count)> read,
+               absl::FunctionRef<void(absl::string_view line)> callback) {
+  char buf[ProcMapsIterator::Buffer::kBufSize];
+  size_t buf_len = 0;
+  bool eof = false;
+  bool skip_to_newline = false;
+  while (!eof) {
+    ssize_t rc =
+        read(buf + buf_len, ProcMapsIterator::Buffer::kBufSize - buf_len);
+    if (rc > 0) {
+      buf_len += static_cast<size_t>(rc);
+    } else {
+      eof = true;
+    }
+
+    absl::string_view contents(buf, buf_len);
+    while (!contents.empty()) {
+      size_t nl = contents.find('\n');
+      if (nl == absl::string_view::npos) {
+        if (ABSL_PREDICT_FALSE(skip_to_newline)) {
+          contents.remove_prefix(contents.size());
+          break;
+        }
+        if (!eof) {
+          break;
+        }
+        nl = contents.size();
+      }
+      absl::string_view line = contents.substr(0, nl);
+      contents.remove_prefix(std::min(nl + 1, contents.size()));
+      if (ABSL_PREDICT_FALSE(skip_to_newline)) {
+        skip_to_newline = false;
+        continue;
+      }
+      callback(line);
+    }
+
+    buf_len = contents.size();
+    if (ABSL_PREDICT_FALSE(buf_len == ProcMapsIterator::Buffer::kBufSize)) {
+      buf_len = 0;
+      skip_to_newline = true;
+    } else if (buf_len > 0 && contents.data() != buf) {
+      memmove(buf, contents.data(), buf_len);
+    }
+  }
+}
+
+void ReadProcNumaMaps(
+    absl::FunctionRef<void(const NumaMapEntry& entry)> callback) {
+#if defined(__linux__)
+  int fd = signal_safe_open("/proc/self/numa_maps", O_RDONLY | O_CLOEXEC);
+  if (fd < 0) {
+    return;
+  }
+
+  ReadLines(
+      [fd](char* buf, size_t count) {
+        return signal_safe_read(fd, buf, count, /*bytes_read=*/nullptr);
+      },
+      [&](absl::string_view line) {
+        if (std::optional<NumaMapEntry> entry = ParseNumaMapsLine(line);
+            entry.has_value()) {
+          callback(*entry);
+        }
+      });
+  signal_safe_close(fd);
+#endif
+}
 
 ProcMapsIterator::ProcMapsIterator(Buffer* buffer) {
   ibuf_ = buffer->buf;
