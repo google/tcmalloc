@@ -5756,7 +5756,7 @@ TEST_F(FillerTest, ConcurrentPutEmptiesSubreleasedTrackerDuringCollapse) {
 
     EXPECT_EQ(DrainFreedTrackers(), 1);
     if (mode == CollapseReleasedHugePages::kEnabled) {
-      EXPECT_EQ(ReleasePages(Length(0)), Length(1));
+      EXPECT_EQ(ReleasePages(Length(0)), Length(0));
     }
     CheckStats();
   }
@@ -9358,6 +9358,81 @@ TEST_F(FillerTest, MinFreePagesToBreakHugepage) {
   EXPECT_TRUE(DeleteVector(dense_keep));
 }
 
+TEST_F(FillerTest, PutLastSpanDuringCollapseUnbacksCollapsedHugepage) {
+  randomize_density_ = false;
+  collapse_released_ = CollapseReleasedHugePages::kEnabled;
+  const SpanAllocInfo kSparseInfo = {1, AccessDensityPrediction::kSparse};
+
+  for (bool collapse_succeeds : {true, false}) {
+    collapse_.SetSuccess(collapse_succeeds);
+    // Allocate two spans on one hugepage and subrelease the rest so the tracker
+    // is partially released.
+    PAlloc a0 = AllocateWithSpanAllocInfo(Length(1), kSparseInfo);
+    PAlloc a1 = AllocateWithSpanAllocInfo(Length(1), kSparseInfo);
+    ASSERT_EQ(a0.pt, a1.pt);
+    PageTracker* pt = a0.pt;
+    EXPECT_EQ(ReleasePages(kPagesPerHugePage - Length(2)),
+              kPagesPerHugePage - Length(2));
+    ASSERT_TRUE(pt->released());
+    ASSERT_FALSE(pt->unbroken());
+    ASSERT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(2));
+
+    // Free one span and mark the hugepage eligible for collapse.
+    DeleteRaw(a0);
+
+    FakePageFlags pageflags;
+    FakeResidency residency;
+    pageflags.MarkHugePageBacked(pt->location().start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    residency.SetUnbackedAndSwappedBitmaps(pt->location().start_addr(), {}, {});
+    pageflags.SetStaleBitmap(pt->location().start_addr(), {});
+
+    int unback_calls = 0;
+    blocking_unback_without_lock_.unlocked_hook_ = [&](Range r) {
+      ++unback_calls;
+    };
+    collapse_.unlocked_hook_ = [&](Range r) {
+      // Free the last span while Collapse holds BeingCollapsed with
+      // pageheap_lock dropped.
+      PageTracker* ret;
+      {
+        PageHeapSpinLockHolder l;
+        ret = filler_.Put(a1.pt, Range(a1.p, a1.n), a1.span_alloc_info,
+                          append_on_free_);
+      }
+      total_allocated_ -= a1.n;
+      // Put parks the pinned tracker and defers unbacking until Collapse ends.
+      EXPECT_EQ(ret, nullptr);
+      EXPECT_EQ(unback_calls, 0);
+    };
+
+    TreatHugepageTrackers(EnableCollapse::kEnabled,
+                          EnableUnfilteredCollapse::kDisabled,
+                          ReleaseStalePages::kDisabled, &pageflags, &residency);
+    collapse_.unlocked_hook_ = nullptr;
+    blocking_unback_without_lock_.unlocked_hook_ = nullptr;
+
+    // Retiring the tracker clears its prior subreleased-page accounting.
+    EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+    EXPECT_EQ(filler_.stats().unmapped_bytes, 0);
+    if (collapse_succeeds) {
+      // Successful collapse re-backed the hugepage; no deferred unback runs and
+      // draining the retired tracker adds no newly unbacked pages.
+      EXPECT_EQ(unback_calls, 0);
+      EXPECT_FALSE(pt->released());
+      EXPECT_TRUE(pt->unbroken());
+      EXPECT_EQ(DrainFreedTrackers(), 1);
+      EXPECT_EQ(ReleasePages(Length(2)), Length(0));
+    } else {
+      // Failed collapse runs the deferred unback for the remaining 2 pages.
+      EXPECT_EQ(unback_calls, 1);
+      EXPECT_TRUE(pt->released());
+      EXPECT_FALSE(pt->unbroken());
+      EXPECT_EQ(DrainFreedTrackers(), 1);
+      EXPECT_EQ(ReleasePages(Length(2)), Length(2));
+    }
+  }
+}
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

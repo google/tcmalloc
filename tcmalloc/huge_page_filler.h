@@ -1189,12 +1189,14 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
     TC_ASSERT_GE(unmapped_, released_pages);
     unmapped_ -= released_pages;
 
-    UnbackFullyFreedTracker(pt);
-    // pageheap_lock may have been dropped for the unback.  Another thread may
-    // have reported filler stats at a later time meanwhile, and reporting with
-    // the earlier time below would read as a clock regression to the time
-    // series tracker, which discards its demand history in response.
-    now = clock_.now();
+    if (!pt->BeingCollapsed()) {
+      UnbackFullyFreedTracker(pt);
+      // pageheap_lock may have been dropped for the unback.  Another thread may
+      // have reported filler stats at a later time meanwhile, and reporting
+      // with the earlier time below would read as a clock regression to the
+      // time series tracker, which discards its demand history in response.
+      now = clock_.now();
+    }
   }
 
   RecordLifetime(pt, now);
@@ -1938,6 +1940,9 @@ inline MemoryModifyStatus HugePageFiller<TrackerType>::Collapse(
         TC_ASSERT(!pt->BeingReleased());
         OnCollapseSuccess(pt, preserve_donated_on_collapse, collapse_released);
       }
+    } else if (pt->fully_freed() && pt->released()) {
+      UnbackFullyFreedTracker(pt);
+      UpdateFillerStatsTracker(clock_.now());
     }
     pt->SetBeingCollapsed(/*value=*/false);
   }
