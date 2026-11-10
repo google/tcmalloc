@@ -54,11 +54,16 @@ bool StackMatches(const char* target, const void* const* stack, size_t len) {
   return false;
 }
 
+// An 11000 byte allocation aligned to 2K will map to the same size class as
+// malloc(11000).
+constexpr size_t kRequestedSize = 11000;
+constexpr size_t kRequestedAlignment = 2048;
+
 template <bool CheckSize>
 size_t CountMatchingBytes(const char* target, Profile profile) {
   size_t sum = 0;
   profile.Iterate([&](const Profile::Sample& e) {
-    if (e.requested_size == 10000 || !CheckSize) {
+    if (e.requested_size == kRequestedSize || !CheckSize) {
       if (StackMatches(target, e.stack, e.depth)) {
         sum += static_cast<size_t>(e.sum);
       }
@@ -67,11 +72,6 @@ size_t CountMatchingBytes(const char* target, Profile profile) {
 
   return sum;
 }
-
-// A 10000 byte allocation aligned to 2K will map to the same size class as
-// malloc(10000).
-constexpr size_t kRequestedSize = 10000;
-constexpr size_t kRequestedAlignment = 2048;
 
 ABSL_ATTRIBUTE_NOINLINE static void* AllocateAllocate(bool align) {
   void* p;
