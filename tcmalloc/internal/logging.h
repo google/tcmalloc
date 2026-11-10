@@ -260,11 +260,12 @@ class Printer {
                      // point
 
  public:
-  // REQUIRES: "length > 0"
   Printer(char* buf, size_t length)
       : start_(buf), buf_(buf), left_(length), required_(0) {
-    TC_ASSERT_GT(length, 0u);
-    buf[0] = '\0';
+    if (length > 0) {
+      TC_ASSERT_NE(buf, nullptr);
+      buf[0] = '\0';
+    }
   }
 
   Printer(const Printer&) = delete;
@@ -273,7 +274,9 @@ class Printer {
   template <typename... Args>
   void printf(const absl::FormatSpec<Args...>& format, const Args&... args) {
     AllocationGuard enforce_no_alloc;
-    const int r = absl::SNPrintF(buf_, left_, format, args...);
+    char dummy;
+    const int r =
+        absl::SNPrintF(left_ > 0 ? buf_ : &dummy, left_, format, args...);
     if (r < 0) {
       left_ = 0;
       return;

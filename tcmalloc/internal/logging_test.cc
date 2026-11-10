@@ -273,6 +273,22 @@ TEST(Printer, NullTerminationAndExactBoundary) {
   EXPECT_EQ(buf[3], '\0');
   EXPECT_STREQ(buf, "abc");
   EXPECT_EQ(buf[4], 'X');
+
+  // When length == 0, Printer must not write to buf and still track
+  // SpaceRequired().
+  memset(buf, 'X', sizeof(buf));
+  Printer p_zero(buf, 0);
+  p_zero.Append("abcd");
+  p_zero.printf("%s", "efgh");
+  EXPECT_EQ(p_zero.SpaceRequired(), 8);
+  EXPECT_EQ(p_zero.view(), "");
+  EXPECT_EQ(buf[0], 'X');
+
+  Printer p_null(nullptr, 0);
+  p_null.Append("abcd");
+  p_null.printf("%s", "efgh");
+  EXPECT_EQ(p_null.SpaceRequired(), 8);
+  EXPECT_EQ(p_null.view(), "");
 }
 
 }  // namespace
