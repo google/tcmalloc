@@ -802,7 +802,9 @@ void Allocate::Perform(State& state) const {
     state.next_hugepage++;
     {
       PageHeapSpinLockHolder l;
-      result.page = result.pt->Get(n, alloc_info, prefer_backed_pages).page;
+      auto alloc = result.pt->Get(n, alloc_info, prefer_backed_pages);
+      result.page = alloc.page;
+      result.zeroed = false;
       state.filler.Contribute(result.pt, donated, alloc_info);
     }
     state.trackers.push_back(result.pt);
@@ -820,11 +822,19 @@ void Allocate::Perform(State& state) const {
     TC_CHECK(!(result.page < live.p + live.n && live.p < result.page + n));
   }
 
+  bool all_released = true;
   for (PageId p = result.page, end = p + n; p != end; ++p) {
     // Only a previously released hugepage can hand out unmapped pages.
     TC_CHECK(result.from_released || !state.released_set.contains(p));
+    TC_CHECK(!result.zeroed || state.non_resident_set.contains(p));
+    if (!state.released_set.contains(p)) {
+      all_released = false;
+    }
     state.released_set.erase(p);
     state.non_resident_set.erase(p);
+  }
+  if (state.depth == 0 && state.lock_drops == 0) {
+    TC_CHECK_EQ(result.zeroed, all_released);
   }
 
   state.allocs[hp].push_back({{result.page, n}, alloc_info});

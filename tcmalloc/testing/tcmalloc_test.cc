@@ -38,6 +38,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 
 #include <algorithm>
 #include <array>
@@ -1892,6 +1893,116 @@ TEST(TCMallocTest, ReallocOveralignedToSmallSizeClass) {
   EXPECT_EQ(static_cast<unsigned char*>(p)[0], 0xAB);
   EXPECT_EQ(static_cast<unsigned char*>(p)[page_size - 1], 0xAB);
   free_sized(p, page_size);
+}
+
+TEST(TcmallocTest, CallocDoesNotFaultZeroedPages) {
+  if (kSanitizerPresent) {
+    GTEST_SKIP() << "Sanitizers intercept calloc and fault in pages.";
+  }
+
+  ScopedNeverSample never_sample;
+  constexpr size_t kSize = 2 * kHugePageSize;
+  const size_t os_page_size = GetPageSize();
+  const size_t num_os_pages = kSize / os_page_size;
+  std::vector<unsigned char> vec(num_os_pages, 0);
+
+  auto count_resident_pages = [&](void* ptr) -> size_t {
+    EXPECT_EQ(mincore(ptr, kSize, vec.data()), 0) << errno;
+    size_t resident = 0;
+    for (unsigned char b : vec) {
+      if ((b & 1) != 0) {
+        ++resident;
+      }
+    }
+    return resident;
+  };
+
+  // Warm up a 2-hugepage allocation, dirty it, free it, and release all free
+  // pages to the OS via MADV_DONTNEED.
+  void* warmup = malloc(kSize);
+  ASSERT_NE(warmup, nullptr);
+  memset(warmup, 0xAB, kSize);
+  free(warmup);
+  MallocExtension::ReleaseMemoryToSystem(std::numeric_limits<size_t>::max());
+
+  // 1. calloc() backed by unbacked / MADV_DONTNEED pages must not fault in the
+  //    pages.
+  auto* ptr = static_cast<unsigned char*>(calloc(1, kSize));
+  ASSERT_NE(ptr, nullptr);
+  EXPECT_EQ(count_resident_pages(ptr), 0);
+  for (size_t i = 0; i < kSize; i += os_page_size) {
+    EXPECT_EQ(ptr[i], 0);
+  }
+
+  // Dirty all pages and return to the cache without releasing to the OS.
+  memset(ptr, 0xCD, kSize);
+  EXPECT_EQ(count_resident_pages(ptr), num_os_pages);
+  free(ptr);
+
+  // 2. calloc() backed by dirty reused pages in HugeCache must zero the pages.
+  auto* ptr2 = static_cast<unsigned char*>(calloc(1, kSize));
+  ASSERT_NE(ptr2, nullptr);
+  for (size_t i = 0; i < kSize; i += os_page_size) {
+    EXPECT_EQ(ptr2[i], 0);
+    EXPECT_EQ(ptr2[i + os_page_size - 1], 0);
+  }
+
+  // Dirty again, free, and release to the OS; the next calloc() must again
+  // avoid faulting in the pages.
+  memset(ptr2, 0xEF, kSize);
+  free(ptr2);
+  MallocExtension::ReleaseMemoryToSystem(std::numeric_limits<size_t>::max());
+
+  auto* ptr3 = static_cast<unsigned char*>(calloc(1, kSize));
+  ASSERT_NE(ptr3, nullptr);
+  EXPECT_EQ(count_resident_pages(ptr3), 0);
+  for (size_t i = 0; i < kSize; i += os_page_size) {
+    EXPECT_EQ(ptr3[i], 0);
+  }
+  free(ptr3);
+}
+
+TEST(TcmallocTest, CallocZeroesDirtyPagesAcrossSizes) {
+  const size_t sizes[] = {
+      16,
+      256,
+      4096,
+      32768,
+      kMaxSize,
+      kMaxSize + 1,
+      512 * 1024,
+      kHugePageSize / 2,
+      kHugePageSize,
+      kHugePageSize + 64 * 1024,
+      2 * kHugePageSize,
+  };
+
+  for (bool always_sample : {false, true}) {
+    std::optional<ScopedNeverSample> never;
+    std::optional<ScopedAlwaysSample> always;
+    if (always_sample) {
+      always.emplace();
+    } else {
+      never.emplace();
+    }
+
+    for (size_t size : sizes) {
+      void* p1 = malloc(size);
+      ASSERT_NE(p1, nullptr);
+      memset(p1, 0x5A, size);
+      free(p1);
+
+      auto* p2 = static_cast<unsigned char*>(calloc(1, size));
+      ASSERT_NE(p2, nullptr);
+      EXPECT_EQ(p2[0], 0);
+      EXPECT_EQ(p2[size / 2], 0);
+      EXPECT_EQ(p2[size - 1], 0);
+      for (size_t i = 0; i < size; i += 4096) {
+        EXPECT_EQ(p2[i], 0);
+      }
+      free(p2);
+    }
+  }
 }
 
 }  // namespace

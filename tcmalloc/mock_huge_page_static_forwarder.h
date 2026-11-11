@@ -128,6 +128,12 @@ class FakeHugePageStaticForwarder : private Parameters {
 
   [[nodiscard]] bool release_succeeds() const { return release_succeeds_; }
   void set_release_succeeds(bool value) { release_succeeds_ = value; }
+  [[nodiscard]] bool has_released_with_madv_free() const {
+    return released_with_madv_free_;
+  }
+  void set_released_with_madv_free(bool value) {
+    released_with_madv_free_ = value;
+  }
   void set_collapse_succeeds(bool value) { collapse_succeeds_ = value; }
   void set_error_number(int value) { error_number_ = value; }
 
@@ -209,12 +215,25 @@ class FakeHugePageStaticForwarder : private Parameters {
     absl::base_internal::SpinLockHolder h(live_spans_lock_);
     for (PageId p = r.p, end = r.p + r.n; p != end; ++p) {
       non_resident_pages_.insert(p);
+      dirty_pages_.erase(p);
+    }
+  }
+
+  void MarkPagesDirty(Range r) {
+    absl::base_internal::SpinLockHolder h(live_spans_lock_);
+    for (PageId p = r.p, end = r.p + r.n; p != end; ++p) {
+      dirty_pages_.insert(p);
     }
   }
 
   [[nodiscard]] bool IsPageResident(PageId p) const {
     absl::base_internal::SpinLockHolder h(live_spans_lock_);
     return !non_resident_pages_.contains(p);
+  }
+
+  [[nodiscard]] bool IsPageDirty(PageId p) const {
+    absl::base_internal::SpinLockHolder h(live_spans_lock_);
+    return dirty_pages_.contains(p);
   }
 
   template <typename Fn>
@@ -291,6 +310,7 @@ class FakeHugePageStaticForwarder : private Parameters {
     return a;
   }
   bool release_succeeds_ = true;
+  bool released_with_madv_free_ = false;
   bool collapse_succeeds_ = true;
   int error_number_ = 0;
 
@@ -346,6 +366,9 @@ class FakeHugePageStaticForwarder : private Parameters {
   absl::flat_hash_set<PageId, absl::Hash<PageId>, std::equal_to<PageId>,
                       AllocAdaptor<PageId>>
       non_resident_pages_ ABSL_GUARDED_BY(live_spans_lock_);
+  absl::flat_hash_set<PageId, absl::Hash<PageId>, std::equal_to<PageId>,
+                      AllocAdaptor<PageId>>
+      dirty_pages_ ABSL_GUARDED_BY(live_spans_lock_);
   bool last_may_have_grown_{false};
 };
 
