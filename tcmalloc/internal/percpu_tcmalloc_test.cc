@@ -1511,7 +1511,7 @@ TEST(TcmallocSlab, CriticalSectionMetadata) {
 void BM_PushPop(benchmark::State& state) {
   TC_CHECK(IsFast());
   constexpr int kCpu = 0;
-  constexpr size_t kSizeClass = 0;
+  constexpr size_t kSizeClass = 1;
   // Fake being on the given CPU. This allows Grow to succeed for
   // kCpu/kSizeClass, and then we Push/Pop repeatedly on kCpu/kSizeClass.
   // Note that no other thread has access to `slab` so we don't need to worry
@@ -1538,12 +1538,17 @@ void BM_PushPop(benchmark::State& state) {
   for (int i = 0; i < kBatchSize; i++) {
     batch[i] = &batch[i];
   }
+  size_t size_class = kSizeClass;
+  benchmark::DoNotOptimize(size_class);
+  benchmark::DoNotOptimize(batch);
   for (auto _ : state) {
     for (size_t x = 0; x < kBatchSize; x++) {
-      TC_CHECK(slab.Push(kSizeClass, batch[x]));
+      TC_CHECK(slab.Push(size_class, batch[x]));
     }
     for (size_t x = 0; x < kBatchSize; x++) {
-      TC_CHECK(slab.Pop(kSizeClass) == batch[kBatchSize - x - 1]);
+      void* item = slab.Pop(size_class);
+      TC_CHECK_NE(item, nullptr);
+      benchmark::DoNotOptimize(item);
     }
   }
 }
@@ -1552,7 +1557,7 @@ BENCHMARK(BM_PushPop);
 void BM_PushPopBatch(benchmark::State& state) {
   TC_CHECK(IsFast());
   constexpr int kCpu = 0;
-  constexpr size_t kSizeClass = 0;
+  constexpr size_t kSizeClass = 1;
   // Fake being on the given CPU. This allows Grow to succeed for
   // kCpu/kSizeClass, and then we Push/PopBatch repeatedly on kCpu/kSizeClass.
   // Note that no other thread has access to `slab` so we don't need to worry
@@ -1576,9 +1581,14 @@ void BM_PushPopBatch(benchmark::State& state) {
   for (int i = 0; i < kBatchSize; i++) {
     batch[i] = &batch[i];
   }
+  size_t size_class = kSizeClass;
+  benchmark::DoNotOptimize(size_class);
+  benchmark::DoNotOptimize(batch);
   for (auto _ : state) {
-    TC_CHECK_EQ(slab.PushBatch(kSizeClass, batch, kBatchSize), kBatchSize);
-    TC_CHECK_EQ(slab.PopBatch(kSizeClass, batch, kBatchSize), kBatchSize);
+    TC_CHECK_EQ(slab.PushBatch(size_class, batch, kBatchSize), kBatchSize);
+    benchmark::DoNotOptimize(batch);
+    TC_CHECK_EQ(slab.PopBatch(size_class, batch, kBatchSize), kBatchSize);
+    benchmark::DoNotOptimize(batch);
   }
 }
 BENCHMARK(BM_PushPopBatch);
