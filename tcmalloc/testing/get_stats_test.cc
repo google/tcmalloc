@@ -51,6 +51,39 @@ using ::testing::HasSubstr;
 
 class GetStatsTest : public ::testing::Test {};
 
+struct MalloczSnapshot {
+  std::string stats;
+  std::string pbtxt;
+};
+
+MalloczSnapshot CaptureMalloczSnapshot() {
+  return MalloczSnapshot{
+      .stats = MallocExtension::GetStats(),
+      .pbtxt = GetStatsInPbTxt(),
+  };
+}
+
+const MalloczSnapshot& PreMainMalloczSnapshot() {
+  static const MalloczSnapshot* const kSnapshot =
+      new MalloczSnapshot(CaptureMalloczSnapshot());
+  return *kSnapshot;
+}
+
+ABSL_ATTRIBUTE_UNUSED const MalloczSnapshot& kTriggerPreMainMalloczSnapshot =
+    PreMainMalloczSnapshot();
+
+TEST_F(GetStatsTest, PreInitGoogle) {
+  const auto check_snapshot = [](const MalloczSnapshot& snapshot) {
+    if (tcmalloc_internal::kSanitizerPresent) {
+      return;
+    }
+    EXPECT_THAT(snapshot.stats, HasSubstr("MALLOC:"));
+    EXPECT_THAT(snapshot.pbtxt, ContainsRegex(R"(in_use_by_app: [0-9]+)"));
+  };
+
+  check_snapshot(PreMainMalloczSnapshot());
+}
+
 TEST_F(GetStatsTest, Pbtxt) {
   // Trigger a sampled allocation.
   constexpr size_t kSize = 123456;
