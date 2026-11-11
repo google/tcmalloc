@@ -1751,6 +1751,32 @@ tcmalloc_cc_test(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_internal_top_k_buffer
+  ALIAS
+    tcmalloc::internal_top_k_buffer
+  HDRS
+    "top_k_buffer.h"
+  DEPS
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_logging"
+)
+
+tcmalloc_cc_test(
+  NAME
+    tcmalloc_internal_top_k_buffer_test
+  SRCS
+    "top_k_buffer_test.cc"
+  DEPS
+    "GTest::gtest_main"
+    "GTest::gmock_main"
+    "GTest::gmock"
+    "absl::random_random"
+    "tcmalloc::internal_top_k_buffer"
+    "tcmalloc::tcmalloc"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_internal_util
   ALIAS
     tcmalloc::internal_util

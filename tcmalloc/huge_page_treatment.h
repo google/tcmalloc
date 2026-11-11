@@ -59,6 +59,7 @@
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/residency.h"
 #include "tcmalloc/internal/system_allocator.h"
+#include "tcmalloc/internal/top_k_buffer.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
@@ -479,6 +480,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     // pinning here and unpinning on eviction would touch a cold tracker per
     // eviction under pageheap_lock.
     auto PushCandidate = [&](PageTracker& pt) GOOGLE_MALLOC_SECTION {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
       if (num_valid_trackers_ < kTotalTrackersToScan) {
         selected_trackers_[num_valid_trackers_] = &pt;
         ++num_valid_trackers_;
@@ -490,15 +492,9 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         return;
       }
 
-#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
       if (CompareForHugePageTreatment(selected_trackers_[0], &pt)) {
         return;
       }
-#else
-      if (!CompareForHugePageTreatment(&pt, selected_trackers_[0])) {
-        return;
-      }
-#endif
       std::pop_heap(selected_trackers_.begin(),
                     selected_trackers_.begin() + num_valid_trackers_,
                     CompareForHugePageTreatment);
@@ -506,6 +502,9 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       std::push_heap(selected_trackers_.begin(),
                      selected_trackers_.begin() + num_valid_trackers_,
                      CompareForHugePageTreatment);
+#else
+      selected_trackers_.Push(&pt);
+#endif
     };
 
     if (pt.PinnedByTreatment(HugePageTreatmentType::kCollapse)) return;
@@ -531,24 +530,36 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   }
 
   void FinishSelection() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     TC_ASSERT_LE(num_valid_trackers_, kTotalTrackersToScan);
     for (int i = 0; i < num_valid_trackers_; ++i) {
       TC_ASSERT_NE(selected_trackers_[i], nullptr);
       Pin(*selected_trackers_[i]);
     }
+#else
+    selected_trackers_.Finish();
+    for (PageTracker* tracker : selected_trackers_) {
+      TC_ASSERT_NE(tracker, nullptr);
+      Pin(*tracker);
+    }
+#endif
   }
 
   [[nodiscard]] int num_valid_trackers() const override {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     return num_valid_trackers_;
+#else
+    return selected_trackers_.size();
+#endif
   }
 
   [[nodiscard]] bool tracker_list_full() const {
-    return num_valid_trackers_ >= kTotalTrackersToScan;
+    return num_valid_trackers() >= static_cast<int>(kTotalTrackersToScan);
   }
 
   void Treat() ABSL_LOCKS_EXCLUDED(pageheap_lock) override {
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
-    if (num_valid_trackers_ == 0) {
+    if (selected_trackers_.size() == 0) {
       return;
     }
 #endif
@@ -566,9 +577,10 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       res = &residency_obj;
     }
 
-    TC_ASSERT_LE(num_valid_trackers_, kTotalTrackersToScan);
+    const int valid_trackers = num_valid_trackers();
+    TC_ASSERT_LE(valid_trackers, kTotalTrackersToScan);
     if (enable_collapse_ == EnableCollapse::kEnabled) {
-      treatment_stats_.collapse_eligible += NHugePages(num_valid_trackers_);
+      treatment_stats_.collapse_eligible += NHugePages(valid_trackers);
     }
     // Outside of the pageheap lock, obtain the residency and pageflags
     // information for the collected addresses. Try to collapse the pages that
@@ -579,7 +591,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         absl::ToDoubleSeconds(kMaxCollapseLatencyThreshold) * clock_.freq();
     const size_t pages_per_huge_page = kHugePageSize / GetPageSize();
     num_residency_states_ = 0;
-    for (int i = 0; i < num_valid_trackers_; ++i) {
+    for (int i = 0; i < valid_trackers; ++i) {
       PageTracker* tracker = selected_trackers_[i];
       TC_ASSERT_NE(tracker, nullptr);
       Record(tracker, Observe(*tracker, *pf, *res, pages_per_huge_page,
@@ -784,6 +796,12 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     return ret.success;
   }
 
+  struct CompareTracker {
+    [[nodiscard]] bool operator()(PageTracker* a, PageTracker* b) const {
+      return CompareForHugePageTreatment(a, b);
+    }
+  };
+
   static constexpr size_t kTotalTrackersToScan = 64;
   static constexpr size_t kMaxSwappedPagesForCollapse = 128;
   static constexpr size_t kMaxUnbackedPagesForCollapse = 64;
@@ -793,9 +811,14 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   Residency* residency_;
   MemoryModifyFunction& collapse_;
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   using TrackerArray = std::array<PageTracker*, kTotalTrackersToScan>;
   TrackerArray selected_trackers_;
   int num_valid_trackers_ = 0;
+#else
+  TopKBuffer<PageTracker*, kTotalTrackersToScan, CompareTracker>
+      selected_trackers_;
+#endif
 
   struct ResidencyState {
     PageTracker* tracker;

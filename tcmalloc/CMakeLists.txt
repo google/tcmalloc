@@ -381,6 +381,7 @@ tcmalloc_cc_library_variants(
     "tcmalloc::internal_sysinfo"
     "tcmalloc::internal_system_allocator"
     "tcmalloc::internal_timeseries_tracker"
+    "tcmalloc::internal_top_k_buffer"
     "tcmalloc::internal_util"
     "tcmalloc::malloc_extension"
     "tcmalloc::malloc_hook"

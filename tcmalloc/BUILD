@@ -356,6 +356,7 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:sysinfo",
         "//tcmalloc/internal:system_allocator",
         "//tcmalloc/internal:timeseries_tracker",
+        "//tcmalloc/internal:top_k_buffer",
         "//tcmalloc/internal:util",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base",

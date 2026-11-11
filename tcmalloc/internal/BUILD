@@ -1716,6 +1716,30 @@ cc_test(
 )
 
 cc_library(
+    name = "top_k_buffer",
+    hdrs = ["top_k_buffer.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        ":logging",
+    ],
+)
+
+cc_test(
+    name = "top_k_buffer_test",
+    srcs = ["top_k_buffer_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":top_k_buffer",
+        "@com_google_absl//absl/random",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "util",
     srcs = ["util.cc"],
     hdrs = ["util.h"],
