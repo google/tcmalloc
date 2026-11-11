@@ -1556,6 +1556,7 @@ void TCMalloc_Internal_SetMadvise(
 // Exported routines
 //-------------------------------------------------------------------
 
+using tcmalloc::tcmalloc_internal::AddOverflow;
 using tcmalloc::tcmalloc_internal::BytesToLengthCeil;
 using tcmalloc::tcmalloc_internal::CorrectAlignment;
 using tcmalloc::tcmalloc_internal::CorrectSize;
@@ -2013,10 +2014,10 @@ extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* TCMallocInternalPvalloc(
   if (size == 0) {     // pvalloc(0) should allocate one page, according to
     size = page_size;  // http://man.free4web.biz/man3/libmpatrol.3.html
   }
-  size = (size + page_size - 1) & ~(page_size - 1);
-  if (ABSL_PREDICT_FALSE(size == 0)) {
+  if (ABSL_PREDICT_FALSE(AddOverflow(size, page_size - 1, &size))) {
     return MallocPolicy::handle_oom(std::numeric_limits<size_t>::max());
   }
+  size &= ~(page_size - 1);
   return fast_alloc(size, MallocPolicy().AlignAs(page_size));
 }
 
@@ -2374,10 +2375,10 @@ TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new[](
     if (size == 0) {                                                           \
       size = page_size;                                                        \
     }                                                                          \
-    size = (size + page_size - 1) & ~(page_size - 1);                          \
-    if (ABSL_PREDICT_FALSE(size == 0)) {                                       \
+    if (ABSL_PREDICT_FALSE(AddOverflow(size, page_size - 1, &size))) {         \
       return MallocPolicy::handle_oom(std::numeric_limits<size_t>::max());     \
     }                                                                          \
+    size &= ~(page_size - 1);                                                  \
     return fast_alloc(                                                         \
         size,                                                                  \
         MallocPolicy().WithSecurityToken<TokenId{id}>().AlignAs(page_size));   \
