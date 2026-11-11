@@ -199,6 +199,11 @@ class PageTracker : public TList<PageTracker>::Elem {
   [[nodiscard]] size_t nallocs() const { return tracker_.allocs(); }
   [[nodiscard]] size_t nobjects() const { return num_objects_; }
   [[nodiscard]] Length used_pages() const { return Length(tracker_.used()); }
+  // Like used_pages(), but callable without pageheap_lock.  The result may be
+  // stale; CentralFreeList uses it as a hint to prioritize spans.
+  [[nodiscard]] Length used_pages_unlocked() const {
+    return Length(used_pages_unlocked_.load(std::memory_order_relaxed));
+  }
   [[nodiscard]] Length released_pages() const {
     return Length(released_count_);
   }
@@ -448,6 +453,10 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   RangeTracker<kPagesPerHugePage.raw_num()> tracker_;
 
+  // Copy of tracker_.used() readable without pageheap_lock.  Get() and Put()
+  // update it under the lock.
+  std::atomic<uint16_t> used_pages_unlocked_{0};
+
   uint64_t num_objects_;
 
   TrackerFeatures features_;
@@ -518,6 +527,7 @@ inline typename PageTracker::PageAllocation PageTracker::Get(
   } else {
     index = Length(tracker_.FindAndMark(n.raw_num()));
   }
+  used_pages_unlocked_.store(tracker_.used(), std::memory_order_relaxed);
   num_objects_ += span_alloc_info.objects_per_span;
 
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
@@ -583,6 +593,7 @@ inline PageTracker::HardwarePageResidencyInfo PageTracker::CountInfoInHugePage(
 inline void PageTracker::Put(Range r, SpanAllocInfo span_alloc_info) {
   Length index = r.p - location_.first_page();
   tracker_.Unmark(index.raw_num(), r.n.raw_num());
+  used_pages_unlocked_.store(tracker_.used(), std::memory_order_relaxed);
   if (ABSL_PREDICT_FALSE(PinnedByTreatment(HugePageTreatmentType::kCollapse))) {
     freed_since_selected_ = true;
   }

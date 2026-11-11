@@ -32,6 +32,7 @@
 #include "absl/types/span.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/central_freelist_hooks.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/hook_list.h"
@@ -90,6 +91,38 @@ class FakeStaticForwarder {
     return nullptr;
   }
 
+  // Returns the used pages configured for the hugepage containing `p`, see
+  // SetHugepageUsedPages() and set_default_hugepage_used_pages().
+  [[nodiscard]] Length HugepageUsedPages(PageId p) {
+    absl::MutexLock l(mu_);
+    auto it = map_.upper_bound(p);
+    if (it == map_.begin()) {
+      return default_hugepage_used_pages_;
+    }
+    --it;
+    if (p < it->first + it->second.pages_per_span) {
+      return it->second.hugepage_used_pages;
+    }
+    return default_hugepage_used_pages_;
+  }
+
+  // Sets the used pages reported for the hugepage containing `span`.
+  void SetHugepageUsedPages(const Span* span, Length used_pages) {
+    absl::MutexLock l(mu_);
+    auto it = map_.find(span->first_page());
+    EXPECT_NE(it, map_.end());
+    if (it == map_.end()) {
+      return;
+    }
+    it->second.hugepage_used_pages = used_pages;
+  }
+
+  // Sets the used pages reported for spans allocated from now on.
+  void set_default_hugepage_used_pages(Length used_pages) {
+    absl::MutexLock l(mu_);
+    default_hugepage_used_pages_ = used_pages;
+  }
+
   [[nodiscard]] Span* AllocateSpan(int, size_t objects_per_span,
                                    Length pages_per_span) {
     void* backing = ::operator new(pages_per_span.raw_num() * page_size_,
@@ -106,6 +139,7 @@ class FakeStaticForwarder {
         .objects_per_span = objects_per_span,
         .density = AccessDensityPrediction::kSparse};
     info.span_alloc_info = span_alloc_info;
+    info.hugepage_used_pages = default_hugepage_used_pages_;
     map_.emplace(page, info);
     return span;
   }
@@ -137,10 +171,14 @@ class FakeStaticForwarder {
     Span* span;
     Length pages_per_span;
     SpanAllocInfo span_alloc_info;
+    // Number of allocated pages reported for the hugepage backing this span.
+    Length hugepage_used_pages;
   };
 
   absl::Mutex mu_;
   std::map<PageId, SpanInfo> map_ ABSL_GUARDED_BY(mu_);
+  // Defaults to a fully allocated hugepage (tier 0).
+  Length default_hugepage_used_pages_ ABSL_GUARDED_BY(mu_) = kPagesPerHugePage;
   size_t class_size_;
   Length pages_;
   size_t page_size_;
@@ -221,10 +259,13 @@ class FakeCentralFreeListEnvironment {
       size_t class_size, Bytes span_bytes, size_t num_objects_to_move,
       central_freelist_internal::CflSubbucketPrioritization
           cfl_subbucket_prioritization,
+      central_freelist_internal::CflHugepageOccupancyPrioritization
+          cfl_hugepage_occupancy_prioritization,
       size_t page_size = kPageSize)
       : batch_size_(num_objects_to_move) {
     forwarder().Init(class_size, span_bytes, num_objects_to_move, page_size);
-    cache_.Init(kSizeClass, cfl_subbucket_prioritization);
+    cache_.Init(kSizeClass, cfl_subbucket_prioritization,
+                cfl_hugepage_occupancy_prioritization);
   }
 
   ~FakeCentralFreeListEnvironment() { EXPECT_EQ(cache_.length(), 0); }

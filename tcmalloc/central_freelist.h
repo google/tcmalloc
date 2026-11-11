@@ -38,6 +38,7 @@
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/hinted_tracker_lists.h"
+#include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/delay_injection.h"
@@ -74,9 +75,63 @@ class ABSL_SCOPED_LOCKABLE CentralFreeListLockHolder {
 
 namespace central_freelist_internal {
 
-// Specifies number of nonempty_ lists that keep track of non-empty spans.
-static constexpr size_t kNumLists = 8;
+// Non-empty spans are kept in kNumLists priority lists, and RemoveRange
+// allocates from the lowest-indexed non-empty list.  By default a span's index
+// is its span utilization bucket: the number of allocated objects maps to one
+// of kSpanUtilBuckets buckets, 0 being the most utilized (see
+// SpanUtilBucketFor()).
+//
+// With CflHugepageOccupancyPrioritization enabled, the index is tier + grade
+// instead (see IndexFor()):
+//
+//  * tier: occupancy of the span's hugepage, 0 being fully allocated (see
+//    HugepageOccupancyTier()).
+//  * grade: the span's bucket, folded into kSpanUtilGrades grades.
+//
+// Allocations then go to well utilized spans on full hugepages first, so that
+// sparsely populated hugepages can drain back to the page heap.
+static constexpr size_t kSpanUtilBuckets = 8;
+// Grade of each bucket.  The least utilized bucket (one allocated object)
+// keeps its own grade: those spans are the most likely to become free, and
+// allocating from them leaves more partially used spans behind.
+static constexpr std::array<uint8_t, kSpanUtilBuckets> kSpanUtilGradeForBucket =
+    {0, 0, 0, 1, 1, 2, 2, 3};
+static constexpr size_t kSpanUtilGrades =
+    kSpanUtilGradeForBucket[kSpanUtilBuckets - 1] + 1;
+static constexpr size_t kHugepageOccupancyTiers = 5;
+static constexpr size_t kNumLists =
+    kHugepageOccupancyTiers + kSpanUtilGrades - 1;
+static_assert(kSpanUtilGradeForBucket[0] == 0);
+static_assert(kNumLists == 8);
+// Indexing by bucket alone must fit as well.
+static_assert(kSpanUtilBuckets <= kNumLists);
 static_assert(1 << Span::kNonemptyIndexBits >= kNumLists);
+
+// Minimum number of used pages for each tier but the last:
+//   tier 0: 100% allocated
+//   tier 1: >= 90%
+//   tier 2: >= 80%
+//   tier 3: >= 60%
+//   tier 4: < 60%, or occupancy unknown
+static constexpr std::array<Length, kHugepageOccupancyTiers - 1>
+    kHugepageOccupancyTierMinUsedPages = {
+        kPagesPerHugePage,
+        Length((kPagesPerHugePage.raw_num() * 9 + 9) / 10),
+        Length((kPagesPerHugePage.raw_num() * 8 + 9) / 10),
+        Length((kPagesPerHugePage.raw_num() * 6 + 9) / 10),
+    };
+
+// Returns the tier in [0, kHugepageOccupancyTiers) of a hugepage with
+// `used_pages` pages allocated.
+[[nodiscard]] constexpr size_t HugepageOccupancyTier(Length used_pages) {
+  for (size_t tier = 0; tier < kHugepageOccupancyTiers - 1; ++tier) {
+    if (used_pages >= kHugepageOccupancyTierMinUsedPages[tier]) {
+      return tier;
+    }
+  }
+  return kHugepageOccupancyTiers - 1;
+}
+
 // Specifies the number of buckets in the histogram that tracks the number of
 // spans used to fill a batch.
 static constexpr size_t kSpansUsedStatBuckets =
@@ -103,14 +158,17 @@ class CentralFreeList {
         pages_per_span_(0),
         nonempty_(),
         use_all_buckets_for_few_object_spans_(false),
-        cfl_subbucket_prioritization_(CflSubbucketPrioritization::kDisabled) {
-  }
+        cfl_subbucket_prioritization_(CflSubbucketPrioritization::kDisabled),
+        cfl_hugepage_occupancy_prioritization_(
+            CflHugepageOccupancyPrioritization::kDisabled) {}
 
   CentralFreeList(const CentralFreeList&) = delete;
   CentralFreeList& operator=(const CentralFreeList&) = delete;
 
-  void Init(size_t size_class,
-            CflSubbucketPrioritization cfl_subbucket_prioritization)
+  void Init(
+      size_t size_class,
+      CflSubbucketPrioritization cfl_subbucket_prioritization,
+      CflHugepageOccupancyPrioritization cfl_hugepage_occupancy_prioritization)
       ABSL_LOCKS_EXCLUDED(lock_);
 
   // These methods all do internal locking.
@@ -193,11 +251,25 @@ class CentralFreeList {
   // lists. Else, returns nullptr.
   [[nodiscard]] auto FirstNonEmptySpan() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
-  // Returns index into nonempty_ based on the number of allocated objects for
-  // the span. Depending on the number of objects per span, either the absolute
-  // number of allocated objects or the absl::bit_width(allocated), passed as
-  // bitwidth, is used to to calculate the list index.
-  [[nodiscard]] uint8_t IndexFor(uint16_t allocated, uint8_t bitwidth);
+  // Returns the index into nonempty_ for `span` with `allocated` objects
+  // (`bitwidth` is absl::bit_width(allocated)).  With hugepage occupancy
+  // prioritization, this looks up the occupancy of the span's hugepage, so the
+  // result may differ from span->nonempty_index().
+  [[nodiscard]] uint8_t IndexFor(const Span* absl_nonnull span,
+                                 uint16_t allocated, uint8_t bitwidth);
+
+  // Returns the span utilization bucket in [0, kSpanUtilBuckets), computed
+  // from `allocated` or `bitwidth` depending on the number of objects per
+  // span.
+  [[nodiscard]] uint8_t SpanUtilBucketFor(uint16_t allocated, uint8_t bitwidth);
+
+  // Returns the span utilization grade in [0, kSpanUtilGrades).
+  [[nodiscard]] uint8_t SpanUtilGradeFor(uint16_t allocated, uint8_t bitwidth) {
+    return kSpanUtilGradeForBucket[SpanUtilBucketFor(allocated, bitwidth)];
+  }
+
+  // Returns the occupancy tier of the hugepage `span` resides on.
+  [[nodiscard]] uint8_t HugepageOccupancyTierFor(const Span* absl_nonnull span);
 
   // Records span utilization in objects_to_span_ map. Instead of using the
   // absolute number of allocated objects, it uses absl::bit_width(allocated),
@@ -297,16 +369,14 @@ class CentralFreeList {
   static constexpr size_t kSpanUtilBucketCapacity = 16;
   StatsCounter objects_to_spans_[kSpanUtilBucketCapacity];
 
-  // Non-empty lists that distinguish spans based on the number of objects
-  // allocated from them. As we prioritize spans, spans may be added to any of
-  // the kNumLists nonempty_ lists based on their allocated objects.
-  // If span prioritization is disabled, we add spans to the
-  // nonempty_[kNumLists-1] list, leaving other lists unused.
+  // Non-empty spans, prioritized by span utilization and optionally hugepage
+  // occupancy; see IndexFor().
   HintedTrackerLists<Span, kNumLists> nonempty_ ABSL_GUARDED_BY(lock_);
 
   bool use_all_buckets_for_few_object_spans_;
 
   CflSubbucketPrioritization cfl_subbucket_prioritization_;
+  CflHugepageOccupancyPrioritization cfl_hugepage_occupancy_prioritization_;
 
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 };
@@ -314,7 +384,8 @@ class CentralFreeList {
 // Like a constructor and hence we disable thread safety analysis.
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::Init(
-    size_t size_class, CflSubbucketPrioritization cfl_subbucket_prioritization)
+    size_t size_class, CflSubbucketPrioritization cfl_subbucket_prioritization,
+    CflHugepageOccupancyPrioritization cfl_hugepage_occupancy_prioritization)
     ABSL_NO_THREAD_SAFETY_ANALYSIS {
   TC_CHECK_EQ(size_class_, 0);
   size_class_ = size_class;
@@ -338,10 +409,13 @@ inline void CentralFreeList<Forwarder>::Init(
   objects_per_span_ = objects_per_span;
   bitmap_mode_ = bitmap_mode;
   size_reciprocal_ = CalcReciprocal(object_size_);
-  use_all_buckets_for_few_object_spans_ = objects_per_span_ <= 2 * kNumLists;
+  use_all_buckets_for_few_object_spans_ =
+      objects_per_span_ <= 2 * kSpanUtilBuckets;
 
   TC_ASSERT_LE(absl::bit_width(objects_per_span_), kSpanUtilBucketCapacity);
   cfl_subbucket_prioritization_ = cfl_subbucket_prioritization;
+  cfl_hugepage_occupancy_prioritization_ =
+      cfl_hugepage_occupancy_prioritization;
 }
 
 template <class Forwarder>
@@ -380,14 +454,30 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
     RecordSpanUtil(prev_bitwidth, /*increase=*/false);
     RecordSpanUtil(cur_bitwidth, /*increase=*/true);
   }
-  // If span allocation changes so that it moved to a different nonempty_ list,
-  // we remove it from the previous list and add it to the desired list indexed
-  // by cur_index.
-  const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
+  uint8_t cur_index;
+  if (cfl_hugepage_occupancy_prioritization_ ==
+      CflHugepageOccupancyPrioritization::kDisabled) {
+    cur_index = SpanUtilBucketFor(cur_allocated, cur_bitwidth);
+  } else {
+    // Frees do not look up the hugepage occupancy tier (Populate and
+    // RemoveRange refresh it), since a page heap lookup per freed span would
+    // be costly under lock_.  As index == tier + grade, the tier is recovered
+    // from the span's current list.  Only a span that was full, and thus on no
+    // list, needs a lookup.
+    uint8_t tier;
+    if (ABSL_PREDICT_FALSE(was_empty)) {
+      tier = HugepageOccupancyTierFor(span);
+    } else {
+      tier = prev_index - SpanUtilGradeFor(prev_allocated, prev_bitwidth);
+    }
+    cur_index = tier + SpanUtilGradeFor(cur_allocated, cur_bitwidth);
+  }
+  ASSUME(cur_index < kNumLists);
   if (ABSL_PREDICT_FALSE(was_empty)) {
     nonempty_.Add(span, cur_index, use_prepend);
     span->set_nonempty_index(cur_index);
   } else if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
+    // The span's index changed; move it to the matching list.
     nonempty_.Move(span, prev_index, cur_index, use_prepend);
     span->set_nonempty_index(cur_index);
   }
@@ -403,18 +493,31 @@ inline auto CentralFreeList<Forwarder>::FirstNonEmptySpan() {
 }
 
 template <class Forwarder>
-inline uint8_t CentralFreeList<Forwarder>::IndexFor(uint16_t allocated,
+inline uint8_t CentralFreeList<Forwarder>::IndexFor(const Span* span,
+                                                    uint16_t allocated,
                                                     uint8_t bitwidth) {
-  // We would like to index into the nonempty_ list based on the number of
-  // allocated objects from the span. Given a span with fewer allocated objects
-  // (i.e. when it is more likely to be freed), we would like to map it to a
-  // higher index in the nonempty_ list.
+  if (cfl_hugepage_occupancy_prioritization_ ==
+      CflHugepageOccupancyPrioritization::kDisabled) {
+    return SpanUtilBucketFor(allocated, bitwidth);
+  }
+  const uint8_t index =
+      HugepageOccupancyTierFor(span) + SpanUtilGradeFor(allocated, bitwidth);
+  ASSUME(index < kNumLists);
+  return index;
+}
+
+template <class Forwarder>
+inline uint8_t CentralFreeList<Forwarder>::SpanUtilBucketFor(uint16_t allocated,
+                                                             uint8_t bitwidth) {
+  // We would like to bucket spans based on the number of allocated objects
+  // from the span. Given a span with fewer allocated objects (i.e. when it is
+  // more likely to be freed), we would like to map it to a higher bucket.
   //
-  // The number of objects per span is less than or equal to 2 * kNumlists.
-  // We index such spans by just the number of allocated objects.  When the
-  // allocated objects are in the range [1, 8], then we map the spans to buckets
-  // 7, 6, ... 0 respectively.  When the allocated objects are more than
-  // kNumlists, then we map the span to bucket 0.
+  // The number of objects per span is less than or equal to
+  // 2 * kSpanUtilBuckets. We bucket such spans by just the number of allocated
+  // objects.  When the allocated objects are in the range [1, 8], then we map
+  // the spans to buckets 7, 6, ... 0 respectively.  When the allocated objects
+  // are more than kSpanUtilBuckets, then we map the span to bucket 0.
   //
   // Note: This means that we may have empty, low-indexed lists.  Since our
   // hinted list bitmap fits into a single word (`kNumLists<=64`), we do not
@@ -424,27 +527,40 @@ inline uint8_t CentralFreeList<Forwarder>::IndexFor(uint16_t allocated,
                 "tracking the first non-empty list on lookups.");
   ASSUME(allocated > 0);
   if (use_all_buckets_for_few_object_spans_) {
-    if (allocated <= kNumLists) {
-      return kNumLists - allocated;
+    if (allocated <= kSpanUtilBuckets) {
+      return kSpanUtilBuckets - allocated;
     }
     return 0;
   }
-  // Depending on the number of kNumLists and the number of objects per span, we
-  // may have to clamp multiple buckets in index 0. It should be ok to do that
-  // because it is less beneficial to differentiate between spans that have 128
-  // vs 256 allocated objects, compared to those that have 16 vs 32 allocated
-  // objects.
+  // Depending on the number of kSpanUtilBuckets and the number of objects per
+  // span, we may have to clamp multiple buckets in index 0. It should be ok to
+  // do that because it is less beneficial to differentiate between spans that
+  // have 128 vs 256 allocated objects, compared to those that have 16 vs 32
+  // allocated objects.
   //
-  // Consider objects_per_span = 1024 and kNumLists = 8. The following examples
-  // show spans with allocated objects in the range [a, b) indexed to the
-  // nonempty_[idx] list using a notation [a, b) -> idx.
+  // Consider objects_per_span = 1024 and kSpanUtilBuckets = 8. The following
+  // examples show spans with allocated objects in the range [a, b) mapped to
+  // bucket idx using a notation [a, b) -> idx.
   // [1, 2) -> 7, [2, 4) -> 6, [4, 8) -> 5, [8, 16) -> 4, [16, 32) -> 3, [32,
   // 64) -> 2, [64, 128) -> 1, [128, 1024) -> 0.
   ASSUME(bitwidth > 0);
-  const uint8_t offset = std::min<size_t>(bitwidth, kNumLists);
-  const uint8_t index = kNumLists - offset;
-  ASSUME(index < kNumLists);
-  return index;
+  const uint8_t offset = std::min<size_t>(bitwidth, kSpanUtilBuckets);
+  const uint8_t bucket = kSpanUtilBuckets - offset;
+  ASSUME(bucket < kSpanUtilBuckets);
+  return bucket;
+}
+
+template <class Forwarder>
+inline uint8_t CentralFreeList<Forwarder>::HugepageOccupancyTierFor(
+    const Span* span) {
+  // A span covering whole hugepages is their only occupant.
+  if (ABSL_PREDICT_FALSE(pages_per_span_ >= kPagesPerHugePage)) {
+    return 0;
+  }
+  // The forwarder returns Length(0) for unknown occupancy, which maps to the
+  // last tier.
+  return HugepageOccupancyTier(
+      forwarder_.HugepageUsedPages(span->first_page()));
 }
 
 template <class Forwarder>
@@ -603,10 +719,10 @@ inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
         if (ABSL_PREDICT_FALSE(is_empty)) {
           nonempty_.Remove(span, prev_index);
         } else {
-          // If span allocation changes so that it must be moved to a different
-          // nonempty_ list, we remove it from the previous list and add it to
-          // the desired list indexed by cur_index.
-          const uint8_t cur_index = IndexFor(cur_allocated, cur_bitwidth);
+          // With hugepage occupancy prioritization, this refreshes the
+          // span's tier.  If its index changed, move it to the list indexed
+          // by cur_index.
+          const uint8_t cur_index = IndexFor(span, cur_allocated, cur_bitwidth);
           if (ABSL_PREDICT_FALSE(cur_index != prev_index)) {
             nonempty_.Move(span, prev_index, cur_index, /*prepend=*/true);
             span->set_nonempty_index(cur_index);
@@ -663,7 +779,8 @@ inline int CentralFreeList<Forwarder>::Populate(absl::Span<void*> batch) {
   const uint8_t bitwidth = absl::bit_width(static_cast<uint32_t>(allocated));
   uint8_t index = 0;
   if (!span_empty) {
-    index = IndexFor(allocated, bitwidth);
+    // May look up the hugepage occupancy; lock_ is not held here.
+    index = IndexFor(span, allocated, bitwidth);
     span->set_nonempty_index(index);
   }
 
