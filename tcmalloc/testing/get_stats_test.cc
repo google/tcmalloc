@@ -45,6 +45,7 @@ namespace {
 
 using tcmalloc_internal::MadviseSampledAllocations;
 using tcmalloc_internal::Parameters;
+using tcmalloc_internal::ReobserveHugepageBacked;
 using ::testing::AnyOf;
 using ::testing::ContainsRegex;
 using ::testing::HasSubstr;
@@ -198,6 +199,7 @@ TEST_F(GetStatsTest, Pbtxt) {
                        "tcmalloc_release_drained_slab_metadata: ",
                        Parameters::release_drained_slab_metadata() ? "true"
                                                                    : "false")));
+  EXPECT_THAT(buf, HasSubstr("tcmalloc_reobserve_hugepage_backed: false"));
 
   EXPECT_THAT(buf, HasSubstr(absl::StrCat(
                        "tcmalloc_cfl_subbucket_prioritization: ",
@@ -276,6 +278,7 @@ TEST_F(GetStatsTest, Parameters) {
   const size_t old_min_free_bytes_to_break_sparse_hugepage =
       Parameters::min_free_bytes_to_break_sparse_hugepage();
   Parameters::set_min_free_bytes_to_break_sparse_hugepage(0);
+  ScopedReobserveHugepageBacked reobserve_hugepage_backed(false);
   const hot_cold_t old_min_hot_access_hint = Parameters::min_hot_access_hint();
   ScopedMadviseSampledAllocations s(MadviseSampledAllocations::kDisabled);
   ASSERT_NE(&TCMalloc_Internal_GetBackSmallAllocations, nullptr);
@@ -426,6 +429,8 @@ TEST_F(GetStatsTest, Parameters) {
                                  tcmalloc_internal::ReleaseStalePages::kEnabled
                              ? 1
                              : 0)));
+    EXPECT_THAT(buf,
+                HasSubstr(R"(PARAMETER tcmalloc_reobserve_hugepage_backed 0)"));
 
     EXPECT_THAT(buf, HasSubstr(absl::StrCat(
                          "PARAMETER tcmalloc_release_drained_slab_metadata ",
@@ -465,6 +470,7 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_filler_append_on_free(true);
   Parameters::set_min_free_bytes_to_break_dense_hugepage(131072);
   Parameters::set_min_free_bytes_to_break_sparse_hugepage(65536);
+  Parameters::set_reobserve_hugepage_backed(ReobserveHugepageBacked::kEnabled);
   Parameters::set_min_hot_access_hint(hot_cold_t{3});
   Parameters::set_madvise_sampled_allocations(
       MadviseSampledAllocations::kEnabled);
@@ -515,6 +521,8 @@ TEST_F(GetStatsTest, Parameters) {
         buf, HasSubstr(R"(PARAMETER tcmalloc_prefer_backed_filler_pages 1)"));
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_filler_append_on_free 1)"));
+    EXPECT_THAT(buf,
+                HasSubstr(R"(PARAMETER tcmalloc_reobserve_hugepage_backed 1)"));
     EXPECT_THAT(
         buf,
         HasSubstr(
@@ -569,6 +577,8 @@ TEST_F(GetStatsTest, Parameters) {
         pbtxt,
         HasSubstr(
             R"(tcmalloc_min_free_bytes_to_break_sparse_hugepage: 65536)"));
+    EXPECT_THAT(pbtxt,
+                HasSubstr(R"(tcmalloc_reobserve_hugepage_backed: true)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 3)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_madvise_sampled_allocations: true)"));
