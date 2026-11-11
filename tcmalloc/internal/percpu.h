@@ -388,6 +388,15 @@ class VirtualCpu {
   return ABSL_PREDICT_TRUE(cpu >= kCpuIdInitialized);
 }
 
+[[nodiscard]] inline size_t GetNumaNode() {
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  if (ABSL_PREDICT_TRUE(IsFast())) {
+    return __rseq_abi.node_id;
+  }
+#endif
+  return 0;
+}
+
 // A barrier that prevents compiler reordering.
 inline void CompilerBarrier() {
 #if defined(__GNUC__)
