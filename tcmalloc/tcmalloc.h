@@ -202,57 +202,70 @@ TCMallocInternalSizeReturningNewAligned(size_t size, std::align_val_t alignment)
 // Partitioned Variants for Clang's -fsanitize=alloc-token.
 //
 
-#define DECLARE_ALLOC_TOKEN_NEW(id)                                          \
-  void* __alloc_token_##id##__Znwm(size_t);                                  \
-  void* __alloc_token_##id##__Znam(size_t);                                  \
-  void* __alloc_token_##id##__ZnwmRKSt9nothrow_t(                            \
-      size_t size, const std::nothrow_t&) noexcept;                          \
-  void* __alloc_token_##id##__ZnamRKSt9nothrow_t(                            \
-      size_t size, const std::nothrow_t&) noexcept;                          \
-  void* __alloc_token_##id##__ZnwmSt11align_val_t(size_t, std::align_val_t); \
-  void* __alloc_token_##id##__ZnamSt11align_val_t(size_t, std::align_val_t); \
-  void* __alloc_token_##id##__ZnwmSt11align_val_tRKSt9nothrow_t(             \
-      size_t, std::align_val_t, const std::nothrow_t&) noexcept;             \
-  void* __alloc_token_##id##__ZnamSt11align_val_tRKSt9nothrow_t(             \
+#define DECLARE_ALLOC_TOKEN_NEW(id)                                       \
+  void* TCMallocInternal_alloc_token_##id##__Znwm(size_t);                \
+  void* TCMallocInternal_alloc_token_##id##__Znam(size_t);                \
+  void* TCMallocInternal_alloc_token_##id##__ZnwmRKSt9nothrow_t(          \
+      size_t size, const std::nothrow_t&) noexcept;                       \
+  void* TCMallocInternal_alloc_token_##id##__ZnamRKSt9nothrow_t(          \
+      size_t size, const std::nothrow_t&) noexcept;                       \
+  void* TCMallocInternal_alloc_token_##id##__ZnwmSt11align_val_t(         \
+      size_t, std::align_val_t);                                          \
+  void* TCMallocInternal_alloc_token_##id##__ZnamSt11align_val_t(         \
+      size_t, std::align_val_t);                                          \
+  void*                                                                   \
+  TCMallocInternal_alloc_token_##id##__ZnwmSt11align_val_tRKSt9nothrow_t( \
+      size_t, std::align_val_t, const std::nothrow_t&) noexcept;          \
+  void*                                                                   \
+  TCMallocInternal_alloc_token_##id##__ZnamSt11align_val_tRKSt9nothrow_t( \
       size_t, std::align_val_t, const std::nothrow_t&) noexcept;
 
-#ifndef TCMALLOC_INTERNAL_METHODS_ONLY
-#define DECLARE_ALLOC_TOKEN_NEW_EXTENSION(id)                                  \
-  void* __alloc_token_##id##__Znwm12__hot_cold_t(size_t, __hot_cold_t);        \
-  void* __alloc_token_##id##__ZnwmRKSt9nothrow_t12__hot_cold_t(                \
-      size_t, const std::nothrow_t&, __hot_cold_t) noexcept;                   \
-  void* __alloc_token_##id##__ZnwmSt11align_val_t12__hot_cold_t(               \
-      size_t, std::align_val_t, __hot_cold_t);                                 \
-  void* __alloc_token_##id##__ZnwmSt11align_val_tRKSt9nothrow_t12__hot_cold_t( \
-      size_t, std::align_val_t, const std::nothrow_t&, __hot_cold_t) noexcept; \
-  void* __alloc_token_##id##__Znam12__hot_cold_t(size_t, __hot_cold_t);        \
-  void* __alloc_token_##id##__ZnamRKSt9nothrow_t12__hot_cold_t(                \
-      size_t, const std::nothrow_t&, __hot_cold_t) noexcept;                   \
-  void* __alloc_token_##id##__ZnamSt11align_val_t12__hot_cold_t(               \
-      size_t, std::align_val_t, __hot_cold_t);                                 \
-  void* __alloc_token_##id##__ZnamSt11align_val_tRKSt9nothrow_t12__hot_cold_t( \
-      size_t, std::align_val_t, const std::nothrow_t&, __hot_cold_t) noexcept; \
-  __sized_ptr_t __alloc_token_##id##___size_returning_new(size_t);             \
-  __sized_ptr_t __alloc_token_##id##___size_returning_new_aligned(             \
-      size_t, std::align_val_t);                                               \
-  __sized_ptr_t __alloc_token_##id##___size_returning_new_hot_cold(            \
-      size_t, __hot_cold_t);                                                   \
-  __sized_ptr_t __alloc_token_##id##___size_returning_new_aligned_hot_cold(    \
+#define DECLARE_ALLOC_TOKEN_NEW_EXTENSION(id)                                           \
+  void* TCMallocInternal_alloc_token_##id##__Znwm12__hot_cold_t(size_t,                 \
+                                                                __hot_cold_t);          \
+  void* TCMallocInternal_alloc_token_##id##__ZnwmRKSt9nothrow_t12__hot_cold_t(          \
+      size_t, const std::nothrow_t&, __hot_cold_t) noexcept;                            \
+  void*                                                                                 \
+  TCMallocInternal_alloc_token_##id##__ZnwmSt11align_val_t12__hot_cold_t(               \
+      size_t, std::align_val_t, __hot_cold_t);                                          \
+  void*                                                                                 \
+  TCMallocInternal_alloc_token_##id##__ZnwmSt11align_val_tRKSt9nothrow_t12__hot_cold_t( \
+      size_t, std::align_val_t, const std::nothrow_t&, __hot_cold_t) noexcept;          \
+  void* TCMallocInternal_alloc_token_##id##__Znam12__hot_cold_t(size_t,                 \
+                                                                __hot_cold_t);          \
+  void* TCMallocInternal_alloc_token_##id##__ZnamRKSt9nothrow_t12__hot_cold_t(          \
+      size_t, const std::nothrow_t&, __hot_cold_t) noexcept;                            \
+  void*                                                                                 \
+  TCMallocInternal_alloc_token_##id##__ZnamSt11align_val_t12__hot_cold_t(               \
+      size_t, std::align_val_t, __hot_cold_t);                                          \
+  void*                                                                                 \
+  TCMallocInternal_alloc_token_##id##__ZnamSt11align_val_tRKSt9nothrow_t12__hot_cold_t( \
+      size_t, std::align_val_t, const std::nothrow_t&, __hot_cold_t) noexcept;          \
+  __sized_ptr_t TCMallocInternal_alloc_token_##id##___size_returning_new(               \
+      size_t);                                                                          \
+  __sized_ptr_t                                                                         \
+  TCMallocInternal_alloc_token_##id##___size_returning_new_aligned(                     \
+      size_t, std::align_val_t);                                                        \
+  __sized_ptr_t                                                                         \
+  TCMallocInternal_alloc_token_##id##___size_returning_new_hot_cold(                    \
+      size_t, __hot_cold_t);                                                            \
+  __sized_ptr_t                                                                         \
+  TCMallocInternal_alloc_token_##id##___size_returning_new_aligned_hot_cold(            \
       size_t, std::align_val_t, __hot_cold_t);
-#else
-#define DECLARE_ALLOC_TOKEN_NEW_EXTENSION(id)
-#endif  // TCMALLOC_INTERNAL_METHODS_ONLY
 
-#define DECLARE_ALLOC_TOKEN_STDLIB(id)                                     \
-  void* __alloc_token_##id##_malloc(size_t) noexcept;                      \
-  void* __alloc_token_##id##_realloc(void*, size_t) noexcept;              \
-  void* __alloc_token_##id##_reallocarray(void*, size_t, size_t) noexcept; \
-  void* __alloc_token_##id##_calloc(size_t, size_t) noexcept;              \
-  void* __alloc_token_##id##_memalign(size_t, size_t) noexcept;            \
-  void* __alloc_token_##id##_aligned_alloc(size_t, size_t) noexcept;       \
-  void* __alloc_token_##id##_valloc(size_t) noexcept;                      \
-  void* __alloc_token_##id##_pvalloc(size_t) noexcept;                     \
-  int __alloc_token_##id##_posix_memalign(void**, size_t, size_t) noexcept;
+#define DECLARE_ALLOC_TOKEN_STDLIB(id)                                         \
+  void* TCMallocInternal_alloc_token_##id##_malloc(size_t) noexcept;           \
+  void* TCMallocInternal_alloc_token_##id##_realloc(void*, size_t) noexcept;   \
+  void* TCMallocInternal_alloc_token_##id##_reallocarray(void*, size_t,        \
+                                                         size_t) noexcept;     \
+  void* TCMallocInternal_alloc_token_##id##_calloc(size_t, size_t) noexcept;   \
+  void* TCMallocInternal_alloc_token_##id##_memalign(size_t, size_t) noexcept; \
+  void* TCMallocInternal_alloc_token_##id##_aligned_alloc(size_t,              \
+                                                          size_t) noexcept;    \
+  void* TCMallocInternal_alloc_token_##id##_valloc(size_t) noexcept;           \
+  void* TCMallocInternal_alloc_token_##id##_pvalloc(size_t) noexcept;          \
+  int TCMallocInternal_alloc_token_##id##_posix_memalign(void**, size_t,       \
+                                                         size_t) noexcept;
 
 #define DECLARE_ALLOC_TOKEN_VARIANTS(id) \
   DECLARE_ALLOC_TOKEN_NEW(id)            \

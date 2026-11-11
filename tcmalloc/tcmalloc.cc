@@ -2162,43 +2162,45 @@ TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new[](
 // Partitioned Variants for Clang's -fsanitize=alloc-token.
 //
 #define DEFINE_ALLOC_TOKEN_NEW(id)                                             \
-  void* __alloc_token_##id##__Znwm(size_t size) {                              \
+  void* TCMallocInternal_alloc_token_##id##__Znwm(size_t size) {               \
     return fast_alloc(size, CppPolicy().WithSecurityToken<TokenId{id}>());     \
   }                                                                            \
-  void* __alloc_token_##id##__Znam(size_t size) {                              \
+  void* TCMallocInternal_alloc_token_##id##__Znam(size_t size) {               \
     return fast_alloc(size,                                                    \
                       CppArrayPolicy().WithSecurityToken<TokenId{id}>());      \
   }                                                                            \
-  void* __alloc_token_##id##__ZnwmRKSt9nothrow_t(                              \
+  void* TCMallocInternal_alloc_token_##id##__ZnwmRKSt9nothrow_t(               \
       size_t size, const std::nothrow_t&) noexcept {                           \
     return fast_alloc(size,                                                    \
                       CppPolicy().WithSecurityToken<TokenId{id}>().Nothrow()); \
   }                                                                            \
-  void* __alloc_token_##id##__ZnamRKSt9nothrow_t(                              \
+  void* TCMallocInternal_alloc_token_##id##__ZnamRKSt9nothrow_t(               \
       size_t size, const std::nothrow_t&) noexcept {                           \
     return fast_alloc(                                                         \
         size, CppArrayPolicy().WithSecurityToken<TokenId{id}>().Nothrow());    \
   }                                                                            \
-  void* __alloc_token_##id##__ZnwmSt11align_val_t(                             \
+  void* TCMallocInternal_alloc_token_##id##__ZnwmSt11align_val_t(              \
       size_t size, std::align_val_t alignment) {                               \
     return fast_alloc(                                                         \
         size,                                                                  \
         CppPolicy().WithSecurityToken<TokenId{id}>().AlignAs(alignment));      \
   }                                                                            \
-  void* __alloc_token_##id##__ZnamSt11align_val_t(                             \
+  void* TCMallocInternal_alloc_token_##id##__ZnamSt11align_val_t(              \
       size_t size, std::align_val_t alignment) {                               \
     return fast_alloc(                                                         \
         size,                                                                  \
         CppArrayPolicy().WithSecurityToken<TokenId{id}>().AlignAs(alignment)); \
   }                                                                            \
-  void* __alloc_token_##id##__ZnwmSt11align_val_tRKSt9nothrow_t(               \
+  void*                                                                        \
+  TCMallocInternal_alloc_token_##id##__ZnwmSt11align_val_tRKSt9nothrow_t(      \
       size_t size, std::align_val_t alignment,                                 \
       const std::nothrow_t&) noexcept {                                        \
     return fast_alloc(                                                         \
         size, CppPolicy().WithSecurityToken<TokenId{id}>().Nothrow().AlignAs(  \
                   alignment));                                                 \
   }                                                                            \
-  void* __alloc_token_##id##__ZnamSt11align_val_tRKSt9nothrow_t(               \
+  void*                                                                        \
+  TCMallocInternal_alloc_token_##id##__ZnamSt11align_val_tRKSt9nothrow_t(      \
       size_t size, std::align_val_t alignment,                                 \
       const std::nothrow_t&) noexcept {                                        \
     return fast_alloc(                                                         \
@@ -2207,97 +2209,105 @@ TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new[](
             alignment));                                                       \
   }
 
-#ifndef TCMALLOC_INTERNAL_METHODS_ONLY
-#define DEFINE_ALLOC_TOKEN_NEW_EXTENSION(id)                                   \
-  void* __alloc_token_##id##__Znwm12__hot_cold_t(size_t size,                  \
-                                                 __hot_cold_t hot_cold) {      \
-    return fast_alloc(                                                         \
-        size,                                                                  \
-        CppPolicy().WithSecurityToken<TokenId{id}>().AccessAs(hot_cold));      \
-  }                                                                            \
-  void* __alloc_token_##id##__ZnwmRKSt9nothrow_t12__hot_cold_t(                \
-      size_t size, const std::nothrow_t&, __hot_cold_t hot_cold) noexcept {    \
-    return fast_alloc(                                                         \
-        size, CppPolicy().WithSecurityToken<TokenId{id}>().Nothrow().AccessAs( \
-                  hot_cold));                                                  \
-  }                                                                            \
-  void* __alloc_token_##id##__ZnwmSt11align_val_t12__hot_cold_t(               \
-      size_t size, std::align_val_t align, __hot_cold_t hot_cold) {            \
-    return fast_alloc(                                                         \
-        size,                                                                  \
-        CppPolicy().WithSecurityToken<TokenId{id}>().AlignAs(align).AccessAs(  \
-            hot_cold));                                                        \
-  }                                                                            \
-  void* __alloc_token_##id##__ZnwmSt11align_val_tRKSt9nothrow_t12__hot_cold_t( \
-      size_t size, std::align_val_t align, const std::nothrow_t&,              \
-      __hot_cold_t hot_cold) noexcept {                                        \
-    return fast_alloc(size, CppPolicy()                                        \
-                                .WithSecurityToken<TokenId{id}>()              \
-                                .Nothrow()                                     \
-                                .AlignAs(align)                                \
-                                .AccessAs(hot_cold));                          \
-  }                                                                            \
-  void* __alloc_token_##id##__Znam12__hot_cold_t(size_t size,                  \
-                                                 __hot_cold_t hot_cold) {      \
-    return fast_alloc(                                                         \
-        size,                                                                  \
-        CppArrayPolicy().WithSecurityToken<TokenId{id}>().AccessAs(hot_cold)); \
-  }                                                                            \
-  void* __alloc_token_##id##__ZnamRKSt9nothrow_t12__hot_cold_t(                \
-      size_t size, const std::nothrow_t&, __hot_cold_t hot_cold) noexcept {    \
-    return fast_alloc(                                                         \
-        size,                                                                  \
-        CppArrayPolicy().WithSecurityToken<TokenId{id}>().Nothrow().AccessAs(  \
-            hot_cold));                                                        \
-  }                                                                            \
-  void* __alloc_token_##id##__ZnamSt11align_val_t12__hot_cold_t(               \
-      size_t size, std::align_val_t align, __hot_cold_t hot_cold) {            \
-    return fast_alloc(size, CppArrayPolicy()                                   \
-                                .WithSecurityToken<TokenId{id}>()              \
-                                .AlignAs(align)                                \
-                                .AccessAs(hot_cold));                          \
-  }                                                                            \
-  void* __alloc_token_##id##__ZnamSt11align_val_tRKSt9nothrow_t12__hot_cold_t( \
-      size_t size, std::align_val_t align, const std::nothrow_t&,              \
-      __hot_cold_t hot_cold) noexcept {                                        \
-    return fast_alloc(size, CppArrayPolicy()                                   \
-                                .WithSecurityToken<TokenId{id}>()              \
-                                .Nothrow()                                     \
-                                .AlignAs(align)                                \
-                                .AccessAs(hot_cold));                          \
-  }                                                                            \
-  __sized_ptr_t __alloc_token_##id##___size_returning_new(size_t size) {       \
-    return fast_alloc(                                                         \
-        size, CppPolicy().WithSecurityToken<TokenId{id}>().SizeReturning());   \
-  }                                                                            \
-  __sized_ptr_t __alloc_token_##id##___size_returning_new_aligned(             \
-      size_t size, std::align_val_t alignment) {                               \
-    return fast_alloc(size, CppPolicy()                                        \
-                                .WithSecurityToken<TokenId{id}>()              \
-                                .AlignAs(alignment)                            \
-                                .SizeReturning());                             \
-  }                                                                            \
-  __sized_ptr_t __alloc_token_##id##___size_returning_new_hot_cold(            \
-      size_t size, __hot_cold_t hot_cold) {                                    \
-    return fast_alloc(size, CppPolicy()                                        \
-                                .WithSecurityToken<TokenId{id}>()              \
-                                .AccessAs(hot_cold)                            \
-                                .SizeReturning());                             \
-  }                                                                            \
-  __sized_ptr_t __alloc_token_##id##___size_returning_new_aligned_hot_cold(    \
-      size_t size, std::align_val_t alignment, __hot_cold_t hot_cold) {        \
-    return fast_alloc(size, CppPolicy()                                        \
-                                .WithSecurityToken<TokenId{id}>()              \
-                                .AlignAs(alignment)                            \
-                                .AccessAs(hot_cold)                            \
-                                .SizeReturning());                             \
+#define DEFINE_ALLOC_TOKEN_NEW_EXTENSION(id)                                            \
+  void* TCMallocInternal_alloc_token_##id##__Znwm12__hot_cold_t(                        \
+      size_t size, __hot_cold_t hot_cold) {                                             \
+    return fast_alloc(                                                                  \
+        size,                                                                           \
+        CppPolicy().WithSecurityToken<TokenId{id}>().AccessAs(hot_cold));               \
+  }                                                                                     \
+  void* TCMallocInternal_alloc_token_##id##__ZnwmRKSt9nothrow_t12__hot_cold_t(          \
+      size_t size, const std::nothrow_t&, __hot_cold_t hot_cold) noexcept {             \
+    return fast_alloc(                                                                  \
+        size, CppPolicy().WithSecurityToken<TokenId{id}>().Nothrow().AccessAs(          \
+                  hot_cold));                                                           \
+  }                                                                                     \
+  void*                                                                                 \
+  TCMallocInternal_alloc_token_##id##__ZnwmSt11align_val_t12__hot_cold_t(               \
+      size_t size, std::align_val_t align, __hot_cold_t hot_cold) {                     \
+    return fast_alloc(                                                                  \
+        size,                                                                           \
+        CppPolicy().WithSecurityToken<TokenId{id}>().AlignAs(align).AccessAs(           \
+            hot_cold));                                                                 \
+  }                                                                                     \
+  void*                                                                                 \
+  TCMallocInternal_alloc_token_##id##__ZnwmSt11align_val_tRKSt9nothrow_t12__hot_cold_t( \
+      size_t size, std::align_val_t align, const std::nothrow_t&,                       \
+      __hot_cold_t hot_cold) noexcept {                                                 \
+    return fast_alloc(size, CppPolicy()                                                 \
+                                .WithSecurityToken<TokenId{id}>()                       \
+                                .Nothrow()                                              \
+                                .AlignAs(align)                                         \
+                                .AccessAs(hot_cold));                                   \
+  }                                                                                     \
+  void* TCMallocInternal_alloc_token_##id##__Znam12__hot_cold_t(                        \
+      size_t size, __hot_cold_t hot_cold) {                                             \
+    return fast_alloc(                                                                  \
+        size,                                                                           \
+        CppArrayPolicy().WithSecurityToken<TokenId{id}>().AccessAs(hot_cold));          \
+  }                                                                                     \
+  void* TCMallocInternal_alloc_token_##id##__ZnamRKSt9nothrow_t12__hot_cold_t(          \
+      size_t size, const std::nothrow_t&, __hot_cold_t hot_cold) noexcept {             \
+    return fast_alloc(                                                                  \
+        size,                                                                           \
+        CppArrayPolicy().WithSecurityToken<TokenId{id}>().Nothrow().AccessAs(           \
+            hot_cold));                                                                 \
+  }                                                                                     \
+  void*                                                                                 \
+  TCMallocInternal_alloc_token_##id##__ZnamSt11align_val_t12__hot_cold_t(               \
+      size_t size, std::align_val_t align, __hot_cold_t hot_cold) {                     \
+    return fast_alloc(size, CppArrayPolicy()                                            \
+                                .WithSecurityToken<TokenId{id}>()                       \
+                                .AlignAs(align)                                         \
+                                .AccessAs(hot_cold));                                   \
+  }                                                                                     \
+  void*                                                                                 \
+  TCMallocInternal_alloc_token_##id##__ZnamSt11align_val_tRKSt9nothrow_t12__hot_cold_t( \
+      size_t size, std::align_val_t align, const std::nothrow_t&,                       \
+      __hot_cold_t hot_cold) noexcept {                                                 \
+    return fast_alloc(size, CppArrayPolicy()                                            \
+                                .WithSecurityToken<TokenId{id}>()                       \
+                                .Nothrow()                                              \
+                                .AlignAs(align)                                         \
+                                .AccessAs(hot_cold));                                   \
+  }                                                                                     \
+  __sized_ptr_t TCMallocInternal_alloc_token_##id##___size_returning_new(               \
+      size_t size) {                                                                    \
+    return fast_alloc(                                                                  \
+        size, CppPolicy().WithSecurityToken<TokenId{id}>().SizeReturning());            \
+  }                                                                                     \
+  __sized_ptr_t                                                                         \
+  TCMallocInternal_alloc_token_##id##___size_returning_new_aligned(                     \
+      size_t size, std::align_val_t alignment) {                                        \
+    return fast_alloc(size, CppPolicy()                                                 \
+                                .WithSecurityToken<TokenId{id}>()                       \
+                                .AlignAs(alignment)                                     \
+                                .SizeReturning());                                      \
+  }                                                                                     \
+  __sized_ptr_t                                                                         \
+  TCMallocInternal_alloc_token_##id##___size_returning_new_hot_cold(                    \
+      size_t size, __hot_cold_t hot_cold) {                                             \
+    return fast_alloc(size, CppPolicy()                                                 \
+                                .WithSecurityToken<TokenId{id}>()                       \
+                                .AccessAs(hot_cold)                                     \
+                                .SizeReturning());                                      \
+  }                                                                                     \
+  __sized_ptr_t                                                                         \
+  TCMallocInternal_alloc_token_##id##___size_returning_new_aligned_hot_cold(            \
+      size_t size, std::align_val_t alignment, __hot_cold_t hot_cold) {                 \
+    return fast_alloc(size, CppPolicy()                                                 \
+                                .WithSecurityToken<TokenId{id}>()                       \
+                                .AlignAs(alignment)                                     \
+                                .AccessAs(hot_cold)                                     \
+                                .SizeReturning());                                      \
   }
 
 #define DEFINE_ALLOC_TOKEN_STDLIB(id)                                          \
-  void* __alloc_token_##id##_malloc(size_t size) noexcept {                    \
+  void* TCMallocInternal_alloc_token_##id##_malloc(size_t size) noexcept {     \
     return fast_alloc(size, MallocPolicy().WithSecurityToken<TokenId{id}>());  \
   }                                                                            \
-  void* __alloc_token_##id##_realloc(void* ptr, size_t size) noexcept {        \
+  void* TCMallocInternal_alloc_token_##id##_realloc(void* ptr,                 \
+                                                    size_t size) noexcept {    \
     if (ptr == nullptr) {                                                      \
       return fast_alloc(size,                                                  \
                         MallocPolicy().WithSecurityToken<TokenId{id}>());      \
@@ -2308,8 +2318,8 @@ TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new[](
     }                                                                          \
     return do_realloc(ptr, size, TokenId{id});                                 \
   }                                                                            \
-  void* __alloc_token_##id##_reallocarray(void* ptr, size_t n,                 \
-                                          size_t elem_size) noexcept {         \
+  void* TCMallocInternal_alloc_token_##id##_reallocarray(                      \
+      void* ptr, size_t n, size_t elem_size) noexcept {                        \
     size_t size;                                                               \
     if (ABSL_PREDICT_FALSE(MultiplyOverflow(n, elem_size, &size))) {           \
       return MallocPolicy::handle_oom(std::numeric_limits<size_t>::max());     \
@@ -2324,7 +2334,8 @@ TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new[](
     }                                                                          \
     return do_realloc(ptr, size, TokenId{id});                                 \
   }                                                                            \
-  void* __alloc_token_##id##_calloc(size_t n, size_t elem_size) noexcept {     \
+  void* TCMallocInternal_alloc_token_##id##_calloc(                            \
+      size_t n, size_t elem_size) noexcept {                                   \
     size_t size;                                                               \
     if (ABSL_PREDICT_FALSE(MultiplyOverflow(n, elem_size, &size))) {           \
       return MallocPolicy::handle_oom(std::numeric_limits<size_t>::max());     \
@@ -2336,12 +2347,13 @@ TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new[](
     }                                                                          \
     return result;                                                             \
   }                                                                            \
-  void* __alloc_token_##id##_memalign(size_t align, size_t size) noexcept {    \
+  void* TCMallocInternal_alloc_token_##id##_memalign(size_t align,             \
+                                                     size_t size) noexcept {   \
     return fast_alloc(                                                         \
         size, MallocPolicy().WithSecurityToken<TokenId{id}>().AlignAs(align)); \
   }                                                                            \
-  void* __alloc_token_##id##_aligned_alloc(size_t align,                       \
-                                           size_t size) noexcept {             \
+  void* TCMallocInternal_alloc_token_##id##_aligned_alloc(                     \
+      size_t align, size_t size) noexcept {                                    \
     if (ABSL_PREDICT_FALSE(!absl::has_single_bit(align))) {                    \
       errno = EINVAL;                                                          \
       return nullptr;                                                          \
@@ -2349,12 +2361,12 @@ TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new[](
     return fast_alloc(                                                         \
         size, MallocPolicy().WithSecurityToken<TokenId{id}>().AlignAs(align)); \
   }                                                                            \
-  void* __alloc_token_##id##_valloc(size_t size) noexcept {                    \
+  void* TCMallocInternal_alloc_token_##id##_valloc(size_t size) noexcept {     \
     return fast_alloc(size,                                                    \
                       MallocPolicy().WithSecurityToken<TokenId{id}>().AlignAs( \
                           GetPageSize()));                                     \
   }                                                                            \
-  void* __alloc_token_##id##_pvalloc(size_t size) noexcept {                   \
+  void* TCMallocInternal_alloc_token_##id##_pvalloc(size_t size) noexcept {    \
     size_t page_size = GetPageSize();                                          \
     if (size == 0) {                                                           \
       size = page_size;                                                        \
@@ -2364,8 +2376,8 @@ TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new[](
         size,                                                                  \
         MallocPolicy().WithSecurityToken<TokenId{id}>().AlignAs(page_size));   \
   }                                                                            \
-  int __alloc_token_##id##_posix_memalign(void** result_ptr, size_t align,     \
-                                          size_t size) noexcept {              \
+  int TCMallocInternal_alloc_token_##id##_posix_memalign(                      \
+      void** result_ptr, size_t align, size_t size) noexcept {                 \
     TC_ASSERT_NE(result_ptr, nullptr);                                         \
     if (ABSL_PREDICT_FALSE(((align % sizeof(void*)) != 0) ||                   \
                            !absl::has_single_bit(align))) {                    \
@@ -2385,6 +2397,67 @@ TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new[](
   DEFINE_ALLOC_TOKEN_NEW_EXTENSION(id)  \
   DEFINE_ALLOC_TOKEN_STDLIB(id)
 
+#ifndef TCMALLOC_INTERNAL_METHODS_ONLY
+#define ALIAS_ALLOC_TOKEN(id, fn)                          \
+  TCMALLOC_ALIAS(TCMallocInternal_alloc_token_##id##_##fn) \
+  __alloc_token_##id##_##fn
+
+#define ALIAS_ALLOC_TOKEN_NEW(id)                                              \
+  void* ALIAS_ALLOC_TOKEN(id, _Znwm)(size_t);                                  \
+  void* ALIAS_ALLOC_TOKEN(id, _Znam)(size_t);                                  \
+  void* ALIAS_ALLOC_TOKEN(id, _ZnwmRKSt9nothrow_t)(                            \
+      size_t, const std::nothrow_t&) noexcept;                                 \
+  void* ALIAS_ALLOC_TOKEN(id, _ZnamRKSt9nothrow_t)(                            \
+      size_t, const std::nothrow_t&) noexcept;                                 \
+  void* ALIAS_ALLOC_TOKEN(id, _ZnwmSt11align_val_t)(size_t, std::align_val_t); \
+  void* ALIAS_ALLOC_TOKEN(id, _ZnamSt11align_val_t)(size_t, std::align_val_t); \
+  void* ALIAS_ALLOC_TOKEN(id, _ZnwmSt11align_val_tRKSt9nothrow_t)(             \
+      size_t, std::align_val_t, const std::nothrow_t&) noexcept;               \
+  void* ALIAS_ALLOC_TOKEN(id, _ZnamSt11align_val_tRKSt9nothrow_t)(             \
+      size_t, std::align_val_t, const std::nothrow_t&) noexcept;
+
+#define ALIAS_ALLOC_TOKEN_NEW_EXTENSION(id)                                    \
+  void* ALIAS_ALLOC_TOKEN(id, _Znwm12__hot_cold_t)(size_t, __hot_cold_t);      \
+  void* ALIAS_ALLOC_TOKEN(id, _ZnwmRKSt9nothrow_t12__hot_cold_t)(              \
+      size_t, const std::nothrow_t&, __hot_cold_t) noexcept;                   \
+  void* ALIAS_ALLOC_TOKEN(id, _ZnwmSt11align_val_t12__hot_cold_t)(             \
+      size_t, std::align_val_t, __hot_cold_t);                                 \
+  void* ALIAS_ALLOC_TOKEN(id,                                                  \
+                          _ZnwmSt11align_val_tRKSt9nothrow_t12__hot_cold_t)(   \
+      size_t, std::align_val_t, const std::nothrow_t&, __hot_cold_t) noexcept; \
+  void* ALIAS_ALLOC_TOKEN(id, _Znam12__hot_cold_t)(size_t, __hot_cold_t);      \
+  void* ALIAS_ALLOC_TOKEN(id, _ZnamRKSt9nothrow_t12__hot_cold_t)(              \
+      size_t, const std::nothrow_t&, __hot_cold_t) noexcept;                   \
+  void* ALIAS_ALLOC_TOKEN(id, _ZnamSt11align_val_t12__hot_cold_t)(             \
+      size_t, std::align_val_t, __hot_cold_t);                                 \
+  void* ALIAS_ALLOC_TOKEN(id,                                                  \
+                          _ZnamSt11align_val_tRKSt9nothrow_t12__hot_cold_t)(   \
+      size_t, std::align_val_t, const std::nothrow_t&, __hot_cold_t) noexcept; \
+  __sized_ptr_t ALIAS_ALLOC_TOKEN(id, __size_returning_new)(size_t);           \
+  __sized_ptr_t ALIAS_ALLOC_TOKEN(id, __size_returning_new_aligned)(           \
+      size_t, std::align_val_t);                                               \
+  __sized_ptr_t ALIAS_ALLOC_TOKEN(id, __size_returning_new_hot_cold)(          \
+      size_t, __hot_cold_t);                                                   \
+  __sized_ptr_t ALIAS_ALLOC_TOKEN(id, __size_returning_new_aligned_hot_cold)(  \
+      size_t, std::align_val_t, __hot_cold_t);
+
+#define ALIAS_ALLOC_TOKEN_STDLIB(id)                                         \
+  void* ALIAS_ALLOC_TOKEN(id, malloc)(size_t) noexcept;                      \
+  void* ALIAS_ALLOC_TOKEN(id, realloc)(void*, size_t) noexcept;              \
+  void* ALIAS_ALLOC_TOKEN(id, reallocarray)(void*, size_t, size_t) noexcept; \
+  void* ALIAS_ALLOC_TOKEN(id, calloc)(size_t, size_t) noexcept;              \
+  void* ALIAS_ALLOC_TOKEN(id, memalign)(size_t, size_t) noexcept;            \
+  void* ALIAS_ALLOC_TOKEN(id, aligned_alloc)(size_t, size_t) noexcept;       \
+  void* ALIAS_ALLOC_TOKEN(id, valloc)(size_t) noexcept;                      \
+  void* ALIAS_ALLOC_TOKEN(id, pvalloc)(size_t) noexcept;                     \
+  int ALIAS_ALLOC_TOKEN(id, posix_memalign)(void**, size_t, size_t) noexcept;
+
+#define ALIAS_ALLOC_TOKEN_VARIANTS(id) \
+  ALIAS_ALLOC_TOKEN_NEW(id)            \
+  ALIAS_ALLOC_TOKEN_NEW_EXTENSION(id)  \
+  ALIAS_ALLOC_TOKEN_STDLIB(id)
+#endif  // !TCMALLOC_INTERNAL_METHODS_ONLY
+
 #ifdef __SANITIZE_ALLOC_TOKEN__
 #ifndef ALLOC_TOKEN_MAX
 #error "Define ALLOC_TOKEN_MAX to match -falloc-token-max=<max number of IDs>"
@@ -2401,7 +2474,13 @@ DEFINE_ALLOC_TOKEN_VARIANTS(1)
 static_assert(ALLOC_TOKEN_FALLBACK >= ALLOC_TOKEN_MAX);
 DEFINE_ALLOC_TOKEN_VARIANTS(ALLOC_TOKEN_FALLBACK)
 #endif
+#ifndef TCMALLOC_INTERNAL_METHODS_ONLY
+ALIAS_ALLOC_TOKEN_VARIANTS(0)
+ALIAS_ALLOC_TOKEN_VARIANTS(1)
+#ifdef ALLOC_TOKEN_FALLBACK
+ALIAS_ALLOC_TOKEN_VARIANTS(ALLOC_TOKEN_FALLBACK)
+#endif
+#endif  // !TCMALLOC_INTERNAL_METHODS_ONLY
 }  // extern "C"
-#endif  // TCMALLOC_INTERNAL_METHODS_ONLY
 
 GOOGLE_MALLOC_SECTION_END
