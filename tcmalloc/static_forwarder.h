@@ -304,9 +304,15 @@ class StaticForwarder : private Parameters {
       void* pt = state.pagemap().GetHugepage(p);
       // Prefetch for writing, as we will issue stores to the PageTracker
       // instance.
+#if defined(__aarch64__)
+      PrefetchPstL2Keep(pt);
+      PrefetchPstL2Keep(reinterpret_cast<void*>(
+          reinterpret_cast<uintptr_t>(pt) + ABSL_CACHELINE_SIZE));
+#else
       PrefetchW(pt);
       PrefetchW(reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(pt) +
                                         ABSL_CACHELINE_SIZE));
+#endif
 
       allocs[i].r = Range(p, pages_per_span);
       allocs[i].donated = donated;

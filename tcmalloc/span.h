@@ -335,7 +335,12 @@ inline void Span::ObjectsToIdx(absl::Span<void* const> batch, Span** spans,
     for (int i = 0; i < batch.size(); ++i) {
       idx[i] = spans[i]->BitmapPtrToIdx(batch[i], size, reciprocal);
       if (mode >= BitmapMode::kOutlineL2_1) {
+#if defined(__aarch64__)
+        PrefetchPstL2Keep(spans[i]->DynamicBitmap(mode) -
+                          idx[i] / kBitsPerWord);
+#else
         PrefetchW(spans[i]->DynamicBitmap(mode) - idx[i] / kBitsPerWord);
+#endif
       }
     }
   } else {
@@ -503,7 +508,13 @@ inline bool Span::FreelistEmpty(uint32_t objects_per_span) const {
   return allocated_ == objects_per_span;
 }
 
-inline void Span::Prefetch() { PrefetchW(this); }
+inline void Span::Prefetch() {
+#if defined(__aarch64__)
+  PrefetchPstL2Keep(this);
+#else
+  PrefetchW(this);
+#endif
+}
 
 inline bool Span::IsValidSizeClass(size_t size, Length pages) {
   // Note: we don't have any specific requirements for the use_bitmap_for_small
