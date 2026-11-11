@@ -251,7 +251,10 @@ int Span::DynamicBitmapBuild(size_t size, size_t count, absl::Span<void*> batch,
       break;
     case BitmapMode::kInline256:
       TC_ASSERT_LE(l1_words, kRawBitmapSize);
-      level2_bitmap_ = result == count ? 0 : BitmapWordInit(l1_start, l1_words);
+      level2_bitmap_ =
+          result == count
+              ? 0
+              : static_cast<uint8_t>(BitmapWordInit(l1_start, l1_words));
       break;
     case BitmapMode::kOutlineL2_1:
       TC_ASSERT_LE(l1_words, kBitsPerWord);
