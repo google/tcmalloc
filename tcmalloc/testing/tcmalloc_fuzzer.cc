@@ -369,13 +369,15 @@ void OverHugePageAlignment(size_t alignment_log2, size_t size,
   const auto align = static_cast<std::align_val_t>(alignment);
   const auto access = static_cast<hot_cold_t>(hot_cold);
 
-  errno = 0;
-  ASSERT_EQ(TCMallocInternalMemalign(alignment, size), nullptr);
-  ASSERT_EQ(errno, ENOMEM);
-
-  errno = 0;
-  ASSERT_EQ(TCMallocInternalAlignedAlloc(alignment, size), nullptr);
-  ASSERT_EQ(errno, ENOMEM);
+  for (auto fn :
+       {TCMallocInternalMemalign, TCMallocInternal_alloc_token_0_memalign,
+        TCMallocInternal_alloc_token_1_memalign, TCMallocInternalAlignedAlloc,
+        TCMallocInternal_alloc_token_0_aligned_alloc,
+        TCMallocInternal_alloc_token_1_aligned_alloc}) {
+    errno = 0;
+    ASSERT_EQ(fn(alignment, size), nullptr);
+    ASSERT_EQ(errno, ENOMEM);
+  }
 
   errno = 0;
   const auto at_least = TCMallocInternalAlignedAllocAtLeast(alignment, size);
@@ -383,21 +385,34 @@ void OverHugePageAlignment(size_t alignment_log2, size_t size,
   ASSERT_EQ(at_least.size, 0);
   ASSERT_EQ(errno, ENOMEM);
 
-  char sentinel;
-  void* ptr = &sentinel;
-  ASSERT_EQ(TCMallocInternalPosixMemalign(&ptr, alignment, size), ENOMEM);
-  ASSERT_EQ(ptr, &sentinel);
+  for (auto fn : {TCMallocInternalPosixMemalign,
+                  TCMallocInternal_alloc_token_0_posix_memalign,
+                  TCMallocInternal_alloc_token_1_posix_memalign}) {
+    char sentinel;
+    void* ptr = &sentinel;
+    ASSERT_EQ(fn(&ptr, alignment, size), ENOMEM);
+    ASSERT_EQ(ptr, &sentinel);
+  }
 
-  ASSERT_EQ(TCMallocInternalNewAlignedNothrow(size, align, std::nothrow),
-            nullptr);
-  ASSERT_EQ(TCMallocInternalNewAlignedHotColdNothrow(size, align, std::nothrow,
-                                                     access),
-            nullptr);
-  ASSERT_EQ(TCMallocInternalNewArrayAlignedNothrow(size, align, std::nothrow),
-            nullptr);
-  ASSERT_EQ(TCMallocInternalNewArrayAlignedHotColdNothrow(size, align,
-                                                          std::nothrow, access),
-            nullptr);
+  for (auto fn :
+       {TCMallocInternalNewAlignedNothrow,
+        TCMallocInternal_alloc_token_0__ZnwmSt11align_val_tRKSt9nothrow_t,
+        TCMallocInternal_alloc_token_1__ZnwmSt11align_val_tRKSt9nothrow_t,
+        TCMallocInternalNewArrayAlignedNothrow,
+        TCMallocInternal_alloc_token_0__ZnamSt11align_val_tRKSt9nothrow_t,
+        TCMallocInternal_alloc_token_1__ZnamSt11align_val_tRKSt9nothrow_t}) {
+    ASSERT_EQ(fn(size, align, std::nothrow), nullptr);
+  }
+  for (
+      auto fn :
+      {TCMallocInternalNewAlignedHotColdNothrow,
+       TCMallocInternal_alloc_token_0__ZnwmSt11align_val_tRKSt9nothrow_t12__hot_cold_t,
+       TCMallocInternal_alloc_token_1__ZnwmSt11align_val_tRKSt9nothrow_t12__hot_cold_t,
+       TCMallocInternalNewArrayAlignedHotColdNothrow,
+       TCMallocInternal_alloc_token_0__ZnamSt11align_val_tRKSt9nothrow_t12__hot_cold_t,
+       TCMallocInternal_alloc_token_1__ZnamSt11align_val_tRKSt9nothrow_t12__hot_cold_t}) {
+    ASSERT_EQ(fn(size, align, std::nothrow, access), nullptr);
+  }
 }
 
 FUZZ_TEST(TCMalloc, OverHugePageAlignment)
@@ -450,9 +465,29 @@ void PvallocFree(size_t size) {
 FUZZ_TEST(TCMalloc, PvallocFree)
     .WithDomains(fuzztest::InRange(size_t{0}, kFuzzingMaxSize));
 
-void EnormousAllocationsFail(size_t size) {
+void FillPattern(void* ptr, size_t size) {
+  auto* bytes = static_cast<unsigned char*>(ptr);
+  for (size_t i = 0; i < size; ++i) {
+    bytes[i] = static_cast<unsigned char>(i);
+  }
+}
+
+bool MatchesPattern(const void* ptr, size_t size) {
+  const auto* bytes = static_cast<const unsigned char*>(ptr);
+  for (size_t i = 0; i < size; ++i) {
+    if (bytes[i] != static_cast<unsigned char>(i)) return false;
+  }
+  return true;
+}
+
+void EnormousAllocationsFail(size_t size, size_t old_size,
+                             size_t alignment_log2, uint8_t hot_cold) {
   for (auto fn :
-       {TCMallocInternalPvalloc, TCMallocInternal_alloc_token_0_pvalloc,
+       {TCMallocInternalMalloc, TCMallocInternal_alloc_token_0_malloc,
+        TCMallocInternal_alloc_token_1_malloc, TCMallocInternalValloc,
+        TCMallocInternal_alloc_token_0_valloc,
+        TCMallocInternal_alloc_token_1_valloc, TCMallocInternalPvalloc,
+        TCMallocInternal_alloc_token_0_pvalloc,
         TCMallocInternal_alloc_token_1_pvalloc}) {
     errno = 0;
     void* ptr = fn(size);
@@ -460,11 +495,136 @@ void EnormousAllocationsFail(size_t size) {
     EXPECT_EQ(errno, ENOMEM);
     TCMallocInternalFree(ptr);
   }
+
+  for (auto fn : {TCMallocInternalCalloc, TCMallocInternal_alloc_token_0_calloc,
+                  TCMallocInternal_alloc_token_1_calloc}) {
+    errno = 0;
+    EXPECT_EQ(fn(1, size), nullptr);
+    EXPECT_EQ(errno, ENOMEM);
+
+    errno = 0;
+    EXPECT_EQ(fn(size, 1), nullptr);
+    EXPECT_EQ(errno, ENOMEM);
+  }
+
+  const size_t alignment = size_t{1} << alignment_log2;
+  for (auto fn :
+       {TCMallocInternalMemalign, TCMallocInternal_alloc_token_0_memalign,
+        TCMallocInternal_alloc_token_1_memalign, TCMallocInternalAlignedAlloc,
+        TCMallocInternal_alloc_token_0_aligned_alloc,
+        TCMallocInternal_alloc_token_1_aligned_alloc}) {
+    errno = 0;
+    EXPECT_EQ(fn(alignment, size), nullptr);
+    EXPECT_EQ(errno, ENOMEM);
+  }
+
+  for (auto fn : {TCMallocInternalPosixMemalign,
+                  TCMallocInternal_alloc_token_0_posix_memalign,
+                  TCMallocInternal_alloc_token_1_posix_memalign}) {
+    char sentinel;
+    void* ptr = &sentinel;
+    const int result = fn(&ptr, alignment, size);
+    EXPECT_EQ(result, alignment < sizeof(void*) ? EINVAL : ENOMEM);
+    EXPECT_EQ(ptr, &sentinel);
+  }
+
+  errno = 0;
+  const auto at_least = TCMallocInternalAllocAtLeast(size);
+  EXPECT_EQ(at_least.ptr, nullptr);
+  EXPECT_EQ(at_least.size, 0);
+  EXPECT_EQ(errno, ENOMEM);
+
+  errno = 0;
+  const auto aligned_at_least =
+      TCMallocInternalAlignedAllocAtLeast(alignment, size);
+  EXPECT_EQ(aligned_at_least.ptr, nullptr);
+  EXPECT_EQ(aligned_at_least.size, 0);
+  EXPECT_EQ(errno, ENOMEM);
+
+  void* old_ptr = TCMallocInternalMalloc(old_size);
+  ASSERT_NE(old_ptr, nullptr);
+  FillPattern(old_ptr, old_size);
+  for (auto fn :
+       {TCMallocInternalRealloc, TCMallocInternal_alloc_token_0_realloc,
+        TCMallocInternal_alloc_token_1_realloc}) {
+    errno = 0;
+    EXPECT_EQ(fn(nullptr, size), nullptr);
+    EXPECT_EQ(errno, ENOMEM);
+
+    errno = 0;
+    EXPECT_EQ(fn(old_ptr, size), nullptr);
+    EXPECT_EQ(errno, ENOMEM);
+    ASSERT_TRUE(MatchesPattern(old_ptr, old_size));
+  }
+  for (auto fn : {TCMallocInternalReallocArray,
+                  TCMallocInternal_alloc_token_0_reallocarray,
+                  TCMallocInternal_alloc_token_1_reallocarray}) {
+    errno = 0;
+    EXPECT_EQ(fn(nullptr, 1, size), nullptr);
+    EXPECT_EQ(errno, ENOMEM);
+
+    errno = 0;
+    EXPECT_EQ(fn(nullptr, size, 1), nullptr);
+    EXPECT_EQ(errno, ENOMEM);
+
+    errno = 0;
+    EXPECT_EQ(fn(old_ptr, 1, size), nullptr);
+    EXPECT_EQ(errno, ENOMEM);
+    ASSERT_TRUE(MatchesPattern(old_ptr, old_size));
+
+    errno = 0;
+    EXPECT_EQ(fn(old_ptr, size, 1), nullptr);
+    EXPECT_EQ(errno, ENOMEM);
+    ASSERT_TRUE(MatchesPattern(old_ptr, old_size));
+  }
+  TCMallocInternalFreeSized(old_ptr, old_size);
+
+  const auto align = static_cast<std::align_val_t>(alignment);
+  const auto access = static_cast<hot_cold_t>(hot_cold);
+  for (auto fn : {TCMallocInternalNewNothrow,
+                  TCMallocInternal_alloc_token_0__ZnwmRKSt9nothrow_t,
+                  TCMallocInternal_alloc_token_1__ZnwmRKSt9nothrow_t,
+                  TCMallocInternalNewArrayNothrow,
+                  TCMallocInternal_alloc_token_0__ZnamRKSt9nothrow_t,
+                  TCMallocInternal_alloc_token_1__ZnamRKSt9nothrow_t}) {
+    EXPECT_EQ(fn(size, std::nothrow), nullptr);
+  }
+  for (auto fn :
+       {TCMallocInternalNewAlignedNothrow,
+        TCMallocInternal_alloc_token_0__ZnwmSt11align_val_tRKSt9nothrow_t,
+        TCMallocInternal_alloc_token_1__ZnwmSt11align_val_tRKSt9nothrow_t,
+        TCMallocInternalNewArrayAlignedNothrow,
+        TCMallocInternal_alloc_token_0__ZnamSt11align_val_tRKSt9nothrow_t,
+        TCMallocInternal_alloc_token_1__ZnamSt11align_val_tRKSt9nothrow_t}) {
+    EXPECT_EQ(fn(size, align, std::nothrow), nullptr);
+  }
+  for (auto fn :
+       {TCMallocInternalNewHotColdNothrow,
+        TCMallocInternal_alloc_token_0__ZnwmRKSt9nothrow_t12__hot_cold_t,
+        TCMallocInternal_alloc_token_1__ZnwmRKSt9nothrow_t12__hot_cold_t,
+        TCMallocInternalNewArrayHotColdNothrow,
+        TCMallocInternal_alloc_token_0__ZnamRKSt9nothrow_t12__hot_cold_t,
+        TCMallocInternal_alloc_token_1__ZnamRKSt9nothrow_t12__hot_cold_t}) {
+    EXPECT_EQ(fn(size, std::nothrow, access), nullptr);
+  }
+  for (
+      auto fn :
+      {TCMallocInternalNewAlignedHotColdNothrow,
+       TCMallocInternal_alloc_token_0__ZnwmSt11align_val_tRKSt9nothrow_t12__hot_cold_t,
+       TCMallocInternal_alloc_token_1__ZnwmSt11align_val_tRKSt9nothrow_t12__hot_cold_t,
+       TCMallocInternalNewArrayAlignedHotColdNothrow,
+       TCMallocInternal_alloc_token_0__ZnamSt11align_val_tRKSt9nothrow_t12__hot_cold_t,
+       TCMallocInternal_alloc_token_1__ZnamSt11align_val_tRKSt9nothrow_t12__hot_cold_t}) {
+    EXPECT_EQ(fn(size, align, std::nothrow, access), nullptr);
+  }
 }
 
 FUZZ_TEST(TCMalloc, EnormousAllocationsFail)
     .WithDomains(fuzztest::InRange<size_t>(std::numeric_limits<ssize_t>::max(),
-                                           std::numeric_limits<size_t>::max()));
+                                           std::numeric_limits<size_t>::max()),
+                 fuzztest::InRange<size_t>(0, kFuzzingMaxSize),
+                 fuzztest::InRange<size_t>(0, GetPageSizeLog2()),
+                 fuzztest::Arbitrary<uint8_t>());
 
 void CallocCfree(size_t n, size_t elem_size) {
   void* ptr = TCMallocInternalCalloc(n, elem_size);
@@ -482,30 +642,18 @@ FUZZ_TEST(TCMalloc, CallocCfree)
                  fuzztest::InRange(size_t{0}, size_t{512}));
 
 void CallocOverflow(size_t n) {
-  errno = 0;
-  void* ptr = TCMallocInternalCalloc(n, OverflowingElementSize(n));
-  ASSERT_TRUE(ptr == nullptr);
-  ASSERT_EQ(errno, ENOMEM);
+  for (auto fn : {TCMallocInternalCalloc, TCMallocInternal_alloc_token_0_calloc,
+                  TCMallocInternal_alloc_token_1_calloc}) {
+    errno = 0;
+    void* ptr = fn(n, OverflowingElementSize(n));
+    ASSERT_TRUE(ptr == nullptr);
+    ASSERT_EQ(errno, ENOMEM);
+  }
 }
 
 FUZZ_TEST(TCMalloc, CallocOverflow)
     .WithDomains(fuzztest::InRange(size_t{2},
                                    std::numeric_limits<size_t>::max()));
-
-void FillPattern(void* ptr, size_t size) {
-  auto* bytes = static_cast<unsigned char*>(ptr);
-  for (size_t i = 0; i < size; ++i) {
-    bytes[i] = static_cast<unsigned char>(i);
-  }
-}
-
-bool MatchesPattern(const void* ptr, size_t size) {
-  const auto* bytes = static_cast<const unsigned char*>(ptr);
-  for (size_t i = 0; i < size; ++i) {
-    if (bytes[i] != static_cast<unsigned char>(i)) return false;
-  }
-  return true;
-}
 
 void MallocReallocArrayFree(size_t old_size, size_t n, size_t elem_size) {
   void* ptr = TCMallocInternalMalloc(old_size);
@@ -532,11 +680,14 @@ void ReallocArrayOverflowKeepsOriginal(size_t old_size, size_t n) {
   void* ptr = TCMallocInternalMalloc(old_size);
   ASSERT_TRUE(ptr != nullptr);
   FillPattern(ptr, old_size);
-  errno = 0;
-  ASSERT_TRUE(TCMallocInternalReallocArray(ptr, n, OverflowingElementSize(n)) ==
-              nullptr);
-  ASSERT_EQ(errno, ENOMEM);
-  ASSERT_TRUE(MatchesPattern(ptr, old_size));
+  for (auto fn : {TCMallocInternalReallocArray,
+                  TCMallocInternal_alloc_token_0_reallocarray,
+                  TCMallocInternal_alloc_token_1_reallocarray}) {
+    errno = 0;
+    ASSERT_TRUE(fn(ptr, n, OverflowingElementSize(n)) == nullptr);
+    ASSERT_EQ(errno, ENOMEM);
+    ASSERT_TRUE(MatchesPattern(ptr, old_size));
+  }
   TCMallocInternalFreeSized(ptr, old_size);
 }
 
