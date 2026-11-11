@@ -161,8 +161,10 @@ SampleifyAllocation(Static& state, DynamicPolicy policy, size_t requested_size,
     // the current assumption is that only class sized allocs are sampled
     // for gwp-asan.
     stack_trace.allocated_size = r.in_bytes();
+    // Large sampled allocations keep the span do_malloc_pages allocated, so
+    // the tag says whether the allocation was cold (in either partition).
     stack_trace.cold_allocated =
-        GetMemoryTag(r.start_addr()) == MemoryTag::kSampledOrCold;
+        IsSampledOrColdMemory(GetMemoryTag(r.start_addr()));
     capacity = stack_trace.allocated_size;
   }
 

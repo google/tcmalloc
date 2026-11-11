@@ -665,10 +665,19 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t do_malloc_pages(size_t size, ssize_t weight,
   Length num_pages = std::max<Length>(BytesToLengthCeil(size), Length(1));
 
   MemoryTag tag = MemoryTag::kNormal;
-  if (ColdFeatureActive() && policy.is_cold() &&
-      (Parameters::heap_partitioning_mode() != HeapPartitioningMode::kFull ||
-       policy.security_partition() == 0)) {
-    tag = MemoryTag::kSampledOrCold;
+  if (ColdFeatureActive() && policy.is_cold()) {
+    // Page-level allocations have no size class, so cold allocations in either
+    // security partition can keep their cold hint: under full heap
+    // partitioning, partition 1 has its own sampled/cold page heap
+    // (kSampledOrColdP1), which keeps the P0/P1 isolation intact. (Small cold
+    // allocations in partition 1 are routed to kNormalP1 by SizeMap::Init,
+    // since there is only one block of cold size classes.)
+    tag =
+        (kSecurityPartitions > 1 &&
+         Parameters::heap_partitioning_mode() == HeapPartitioningMode::kFull &&
+         policy.security_partition() != 0)
+            ? MemoryTag::kSampledOrColdP1
+            : MemoryTag::kSampledOrCold;
   } else if (tc_globals.active_partitions() > 1) {
     if (kSecurityPartitions > 1 && IsNew(policy.allocation_type()) &&
         Parameters::heap_partitioning_mode() == HeapPartitioningMode::kLight) {
@@ -850,9 +859,9 @@ ABSL_ATTRIBUTE_NOINLINE static void do_unsized_free_irregular(
   const uintptr_t uptr = absl::bit_cast<uintptr_t>(ptr);
   // Only aligned kSampledOrCold pointers can belong to small cold spans.
   // GWP-ASan guarded allocations (which may be right-aligned and tagged
-  // kGuarded), sampled allocations in kSampledOrColdP1, and ill-formed
-  // pointers (misaligned, bad high bits, or other tags) have sizeclass == 0
-  // and are handled or rejected by InvokeHooksAndFreePages().
+  // kGuarded), sampled and large cold allocations in kSampledOrColdP1, and
+  // ill-formed pointers (misaligned, bad high bits, or other tags) have
+  // sizeclass == 0 and are handled or rejected by InvokeHooksAndFreePages().
   if (ABSL_PREDICT_FALSE((uptr & kTagOrBadDeallocationMask) !=
                          kSampledOrColdMask)) {
     SLOW_PATH_BARRIER();
@@ -914,12 +923,12 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr, Policy policy) {
 // `ptr` is non-null and is one of:
 //
 //   Valid:
-//   - Sampled allocation (any size, either partition): kSampledOrCold tag,
-//     span-aligned, size class 0; must be unsampled.
+//   - Sampled allocation (any size, either partition): kSampledOrCold or
+//     kSampledOrColdP1 tag, span-aligned, size class 0; must be unsampled.
 //   - GWP-ASan guarded allocation: kGuarded tag, and may be right-aligned
 //     (low bits set).
-//   - Large cold allocation (> kMaxSize): kSampledOrCold tag, span-aligned,
-//     size class 0.
+//   - Large cold allocation (> kMaxSize): kSampledOrCold or kSampledOrColdP1
+//     tag, span-aligned, size class 0.
 //   (Small cold objects never get here.  If not page aligned, they pass
 //   the address check; if page aligned, the pagemap gives a cold size class.)
 //
