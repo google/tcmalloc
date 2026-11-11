@@ -94,6 +94,8 @@
 const int kLogMaxMemalign = 18;
 
 extern "C" void* reallocarray(void* ptr, size_t nmemb, size_t size);
+extern "C" void* __alloc_token_0_pvalloc(size_t size) noexcept;
+extern "C" void* __alloc_token_1_pvalloc(size_t size) noexcept;
 
 #if !defined(__GLIBC__)
 extern "C" int malloc_trim(size_t pad);
@@ -398,6 +400,24 @@ TEST(TCMallocTest, EnormousAllocations) {
     ASSERT_EQ(nullptr, p);
     EXPECT_EQ(ENOMEM, errno);
 
+    errno = 0;
+    p = pvalloc(size);
+    EXPECT_EQ(nullptr, p);
+    EXPECT_EQ(ENOMEM, errno);
+    free(p);
+
+    errno = 0;
+    p = __alloc_token_0_pvalloc(size);
+    EXPECT_EQ(nullptr, p);
+    EXPECT_EQ(ENOMEM, errno);
+    free(p);
+
+    errno = 0;
+    p = __alloc_token_1_pvalloc(size);
+    EXPECT_EQ(nullptr, p);
+    EXPECT_EQ(ENOMEM, errno);
+    free(p);
+
     p = ::operator new(size, std::nothrow);
     ASSERT_EQ(nullptr, p);
     p = ::operator new(size, static_cast<std::align_val_t>(16), std::nothrow);
@@ -418,6 +438,18 @@ TEST(TCMallocTest, EnormousAllocations) {
     p = malloc(kMaxSignedSize + i);
     free(p);
     p = malloc(kMaxSignedSize - i);
+    free(p);
+    p = pvalloc(kMaxSignedSize + i);
+    free(p);
+    p = pvalloc(kMaxSignedSize - i);
+    free(p);
+    p = __alloc_token_0_pvalloc(kMaxSignedSize + i);
+    free(p);
+    p = __alloc_token_0_pvalloc(kMaxSignedSize - i);
+    free(p);
+    p = __alloc_token_1_pvalloc(kMaxSignedSize + i);
+    free(p);
+    p = __alloc_token_1_pvalloc(kMaxSignedSize - i);
     free(p);
   }
 

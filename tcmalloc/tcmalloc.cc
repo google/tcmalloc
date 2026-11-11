@@ -2014,6 +2014,9 @@ extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* TCMallocInternalPvalloc(
     size = page_size;  // http://man.free4web.biz/man3/libmpatrol.3.html
   }
   size = (size + page_size - 1) & ~(page_size - 1);
+  if (ABSL_PREDICT_FALSE(size == 0)) {
+    return MallocPolicy::handle_oom(std::numeric_limits<size_t>::max());
+  }
   return fast_alloc(size, MallocPolicy().AlignAs(page_size));
 }
 
@@ -2372,6 +2375,9 @@ TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new[](
       size = page_size;                                                        \
     }                                                                          \
     size = (size + page_size - 1) & ~(page_size - 1);                          \
+    if (ABSL_PREDICT_FALSE(size == 0)) {                                       \
+      return MallocPolicy::handle_oom(std::numeric_limits<size_t>::max());     \
+    }                                                                          \
     return fast_alloc(                                                         \
         size,                                                                  \
         MallocPolicy().WithSecurityToken<TokenId{id}>().AlignAs(page_size));   \

@@ -433,18 +433,38 @@ FUZZ_TEST(TCMalloc, VallocFree)
 
 void PvallocFree(size_t size) {
   const size_t page_size = GetSystemPageSize();
-  void* ptr = TCMallocInternalPvalloc(size);
-  ASSERT_TRUE(ptr != nullptr);
-  ASSERT_TRUE(IsAligned(ptr, page_size));
   // pvalloc rounds the request up to a whole page, and pvalloc(0) is one page.
   const size_t rounded =
       std::max(size + page_size - 1, page_size) & ~(page_size - 1);
-  ASSERT_GE(TCMallocInternalMallocSize(ptr), rounded);
-  TCMallocInternalFree(ptr);
+  for (auto fn :
+       {TCMallocInternalPvalloc, TCMallocInternal_alloc_token_0_pvalloc,
+        TCMallocInternal_alloc_token_1_pvalloc}) {
+    void* ptr = fn(size);
+    ASSERT_TRUE(ptr != nullptr);
+    ASSERT_TRUE(IsAligned(ptr, page_size));
+    ASSERT_GE(TCMallocInternalMallocSize(ptr), rounded);
+    TCMallocInternalFree(ptr);
+  }
 }
 
 FUZZ_TEST(TCMalloc, PvallocFree)
     .WithDomains(fuzztest::InRange(size_t{0}, kFuzzingMaxSize));
+
+void EnormousAllocationsFail(size_t size) {
+  for (auto fn :
+       {TCMallocInternalPvalloc, TCMallocInternal_alloc_token_0_pvalloc,
+        TCMallocInternal_alloc_token_1_pvalloc}) {
+    errno = 0;
+    void* ptr = fn(size);
+    EXPECT_EQ(ptr, nullptr);
+    EXPECT_EQ(errno, ENOMEM);
+    TCMallocInternalFree(ptr);
+  }
+}
+
+FUZZ_TEST(TCMalloc, EnormousAllocationsFail)
+    .WithDomains(fuzztest::InRange<size_t>(std::numeric_limits<ssize_t>::max(),
+                                           std::numeric_limits<size_t>::max()));
 
 void CallocCfree(size_t n, size_t elem_size) {
   void* ptr = TCMallocInternalCalloc(n, elem_size);
