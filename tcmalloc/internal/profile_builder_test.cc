@@ -22,6 +22,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
@@ -40,6 +41,7 @@
 #include "absl/base/casts.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/functional/function_ref.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -48,11 +50,14 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "re2/re2.h"
+#include "tcmalloc/internal/affinity.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/fake_profile.h"
 #include "tcmalloc/internal/fake_residency.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/pageflags.h"
+#include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/internal/proc_maps.h"
 #include "tcmalloc/internal/residency.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
@@ -144,13 +149,29 @@ class StubResidency final : public NoopResidency {
     return std::nullopt;
   }
 
+  void ReadNumaMaps(
+      absl::FunctionRef<void(const NumaMapEntry& entry)> callback) override {
+    for (const auto& entry : numa_maps_) {
+      callback(entry);
+    }
+  }
+
   void SetInfo(const void* addr, Info info) {
     uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
     infos_[uaddr] = info;
   }
 
+  void AddNumaMap(const NumaMapEntry& entry) {
+    numa_maps_.push_back(entry);
+    std::sort(numa_maps_.begin(), numa_maps_.end(),
+              [](const NumaMapEntry& a, const NumaMapEntry& b) {
+                return a.start_addr < b.start_addr;
+              });
+  }
+
  private:
   absl::flat_hash_map<uintptr_t, Info> infos_;
+  std::vector<NumaMapEntry> numa_maps_;
 };
 
 // Returns the fully resolved path of this program.
@@ -617,7 +638,7 @@ TEST(ProfileConverterTest, HeapProfile) {
   // Require that the default_sample_type appeared in sample_type.
   EXPECT_THAT(sample_types, testing::Contains(converted.default_sample_type()));
 
-  constexpr int kNumSampleTypes = 7
+  constexpr int kNumSampleTypes = 8
       ;
   // This is slightly redundant with the next line, but we need to loop over
   // each of the samples later.
@@ -629,7 +650,8 @@ TEST(ProfileConverterTest, HeapProfile) {
           Pair("objects", "count"), Pair("space", "bytes"),
           Pair("resident_space", "bytes"), Pair("stale_space", "bytes"),
           Pair("locked_space", "bytes"), Pair("incompressible_space", "bytes"),
-          Pair("swapped_space", "bytes")
+          Pair("swapped_space", "bytes"),
+          Pair("remote_numa_space", "bytes")
           ));
 
   SampleLabels extracted_labels;
@@ -1669,6 +1691,100 @@ TEST(ProfileBuilderTest, DisabledSamplingReturnsNotFound) {
   EXPECT_EQ(alloc_profile.Type(), ProfileType::kDoNotUse);
   EXPECT_EQ(MakeProfileProto(alloc_profile).status().code(),
             absl::StatusCode::kNotFound);
+}
+
+TEST(ProfileConverterTest, HeapProfileRemoteNumaSpace) {
+  ScopedAffinityMask mask(AllowedCpus()[0]);
+  const size_t local_bucket = std::min<size_t>(
+      subtle::percpu::GetNumaNode(), NumaMapEntry::kNumaNodeBuckets - 1);
+  const size_t remote_bucket =
+      (local_bucket + 1) % NumaMapEntry::kNumaNodeBuckets;
+
+  std::vector<char> buf_local(64, 'a');
+  std::vector<char> buf_remote(64, 'b');
+  std::vector<char> buf_mixed(64, 'm');
+  std::vector<char> buf_unbacked(64, 'c');
+
+  Profile::Sample sample_local = {};
+  sample_local.sum = 64;
+  sample_local.count = 1;
+  sample_local.requested_size = 64;
+  sample_local.allocated_size = 64;
+  sample_local.span_start_address = buf_local.data();
+  sample_local.depth = 2;
+  sample_local.stack[0] =
+      reinterpret_cast<void*>(&ProfileAccessor::MakeProfile);
+  sample_local.stack[1] = reinterpret_cast<void*>(&RealPath);
+  sample_local.guarded_status = Profile::Sample::GuardedStatus::NotAttempted;
+  sample_local.type = AllocationType::Malloc;
+
+  Profile::Sample sample_remote = sample_local;
+  sample_remote.sum = 128;
+  sample_remote.count = 2;
+  sample_remote.span_start_address = buf_remote.data();
+
+  Profile::Sample sample_mixed = sample_local;
+  sample_mixed.sum = 128;
+  sample_mixed.count = 2;
+  sample_mixed.span_start_address = buf_mixed.data();
+
+  Profile::Sample sample_unbacked = sample_local;
+  sample_unbacked.sum = 256;
+  sample_unbacked.count = 4;
+  sample_unbacked.span_start_address = buf_unbacked.data();
+
+  StubPageFlags pageflags;
+  StubResidency residency;
+  Residency::Info info;
+  info.bytes_resident = 64;
+  info.page_is_resident.SetBit(0);
+  residency.SetInfo(buf_local.data(), info);
+  residency.SetInfo(buf_remote.data(), info);
+  residency.SetInfo(buf_mixed.data(), info);
+  Residency::Info unbacked_info;
+  unbacked_info.bytes_resident = 0;
+  residency.SetInfo(buf_unbacked.data(), unbacked_info);
+
+  NumaMapEntry local_entry;
+  local_entry.start_addr = reinterpret_cast<uintptr_t>(buf_local.data());
+  local_entry.node_pages[local_bucket] = 1;
+  residency.AddNumaMap(local_entry);
+
+  NumaMapEntry remote_entry;
+  remote_entry.start_addr = reinterpret_cast<uintptr_t>(buf_remote.data());
+  remote_entry.node_pages[remote_bucket] = 1;
+  residency.AddNumaMap(remote_entry);
+
+  NumaMapEntry mixed_entry;
+  mixed_entry.start_addr = reinterpret_cast<uintptr_t>(buf_mixed.data());
+  mixed_entry.node_pages[local_bucket] = 1;
+  mixed_entry.node_pages[remote_bucket] = 3;
+  residency.AddNumaMap(mixed_entry);
+
+  auto fake_profile = std::make_unique<FakeProfile>();
+  fake_profile->SetType(ProfileType::kHeap);
+  fake_profile->SetDuration(absl::Milliseconds(100));
+  fake_profile->SetSamples(
+      {sample_unbacked, sample_local, sample_remote, sample_mixed});
+  Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
+
+  auto converted_or = MakeProfileProto(profile, &pageflags, &residency);
+  ASSERT_OK(converted_or.status());
+  const auto& converted = **converted_or;
+
+  // All four samples share identical labels and stack, so they merge into one
+  // sample: resident_space = 1 * 64 + 2 * 64 + 2 * 64 = 320, while
+  // remote_numa_space = 2 * 64 + (2 * 64) * 3 / 4 = 224.
+  ASSERT_EQ(converted.sample_size(), 1);
+  absl::flat_hash_map<std::string, int64_t> values;
+  for (int i = 0; i < converted.sample(0).value_size(); ++i) {
+    values.emplace(converted.string_table(converted.sample_type(i).type()),
+                   converted.sample(0).value(i));
+  }
+  EXPECT_EQ(values["objects"], 9);
+  EXPECT_EQ(values["space"], 576);
+  EXPECT_EQ(values["resident_space"], 320);
+  EXPECT_EQ(values["remote_numa_space"], 224);
 }
 
 }  // namespace

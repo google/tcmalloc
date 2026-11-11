@@ -21,9 +21,12 @@
 
 #include <optional>
 #include <ostream>
+
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/page_size.h"
+#include "tcmalloc/internal/proc_maps.h"
 #include "tcmalloc/internal/range_tracker.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -49,6 +52,8 @@ class Residency {
   [[nodiscard]] virtual std::optional<Info> Get(const void* addr,
                                                 size_t size) = 0;
   [[nodiscard]] virtual inline size_t GetHardwarePagesInHugePage() const = 0;
+  virtual void ReadNumaMaps(
+      absl::FunctionRef<void(const NumaMapEntry& entry)> callback) = 0;
 
   // Struct is ordered with bitmaps first to optimize cacheline usage.
   struct SinglePageBitmaps {
@@ -93,6 +98,11 @@ class ResidencyPageMap : public Residency {
   // Getter method for kHardwarePagesInHugePage.
   [[nodiscard]] size_t GetHardwarePagesInHugePage() const override {
     return kHardwarePagesInHugePage;
+  }
+
+  void ReadNumaMaps(
+      absl::FunctionRef<void(const NumaMapEntry& entry)> callback) override {
+    ReadProcNumaMaps(callback);
   }
 
   // Using a hugepage-aligned address, parse through /proc/self/pagemap

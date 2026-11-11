@@ -19,6 +19,7 @@
 #include <cstring>
 #include <iterator>
 
+#include "absl/algorithm/container.h"
 #include "absl/base/casts.h"
 #include "absl/base/optimization.h"
 #include "absl/container/flat_hash_map.h"
@@ -54,6 +55,8 @@
 #include "absl/strings/escaping.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/internal/proc_maps.h"
 #include "tcmalloc/internal/residency.h"
 
 namespace tcmalloc {
@@ -113,6 +116,7 @@ struct SampleMergedData {
   std::optional<size_t> stale_size;
   std::optional<size_t> locked_size;
   std::optional<size_t> incompressible_size;
+  std::optional<size_t> remote_numa_size;
   std::optional<uint64_t> stale_scan_period;
   size_t compressed_size = 0;
   size_t zero_size = 0;
@@ -164,6 +168,13 @@ SampleMergeResult MergeProfileSamplesAndMaybeGetResidencyInfo(
   if (collecting_compressibility) {
     compression_analyzer.emplace();
   }
+  const size_t local_numa_bucket = std::min<size_t>(
+      subtle::percpu::GetNumaNode(), NumaMapEntry::kNumaNodeBuckets - 1);
+  std::vector<NumaMapEntry> numa_vmas;
+  if (residency != nullptr) {
+    residency->ReadNumaMaps(
+        [&](const NumaMapEntry& entry) { numa_vmas.push_back(entry); });
+  }
 
   profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
     SampleMergedData& data = map[entry];
@@ -186,12 +197,38 @@ SampleMergeResult MergeProfileSamplesAndMaybeGetResidencyInfo(
       if (residency_info.has_value()) {
         size_t resident_size = entry.count * residency_info->bytes_resident;
         size_t swapped_size = entry.count * residency_info->bytes_swapped;
+        size_t remote_numa_size = 0;
+        if (resident_size > 0 && entry.span_start_address != nullptr) {
+          const uintptr_t uaddr =
+              reinterpret_cast<uintptr_t>(entry.span_start_address);
+          auto it = absl::c_upper_bound(
+              numa_vmas, uaddr, [](uintptr_t addr, const NumaMapEntry& vma) {
+                return addr < vma.start_addr;
+              });
+          if (it != numa_vmas.begin()) {
+            const NumaMapEntry& vma = *std::prev(it);
+            const uint64_t total_numa_pages =
+                vma.node_pages[0] + vma.node_pages[1] + vma.node_pages[2];
+            if (total_numa_pages > 0) {
+              const uint64_t remote_pages =
+                  total_numa_pages - vma.node_pages[local_numa_bucket];
+              // /proc/self/numa_maps reports page counts across the entire VMA;
+              // scale this sample's resident bytes by the VMA's remote-NUMA
+              // page fraction.
+              remote_numa_size =
+                  static_cast<size_t>(static_cast<double>(resident_size) *
+                                      remote_pages / total_numa_pages);
+            }
+          }
+        }
         if (!data.resident_size.has_value()) {
           data.resident_size = resident_size;
           data.swapped_size = swapped_size;
+          data.remote_numa_size = remote_numa_size;
         } else {
           data.resident_size.value() += resident_size;
           data.swapped_size.value() += swapped_size;
+          data.remote_numa_size.value() += remote_numa_size;
         }
       }
     }
@@ -923,6 +960,7 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   const int locked_space_id = builder.InternString("locked_space");
   const int incompressible_space_id =
       builder.InternString("incompressible_space");
+  const int remote_numa_space_id = builder.InternString("remote_numa_space");
   const int space_compressed_id = builder.InternString("space_compressed");
   const int zero_space_id = builder.InternString("zero_space");
 
@@ -972,6 +1010,10 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
 
     sample_type = converted.add_sample_type();
     sample_type->set_type(incompressible_space_id);
+    sample_type->set_unit(bytes_id);
+
+    sample_type = converted.add_sample_type();
+    sample_type->set_type(remote_numa_space_id);
     sample_type->set_unit(bytes_id);
   }
 
@@ -1023,6 +1065,7 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
       sample.add_value(data.stale_size.value_or(0));
       sample.add_value(data.locked_size.value_or(0));
       sample.add_value(data.incompressible_size.value_or(0));
+      sample.add_value(data.remote_numa_size.value_or(0));
     }
     if (exporting_compressibility) {
       sample.add_value(data.zero_size);

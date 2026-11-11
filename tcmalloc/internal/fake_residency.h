@@ -19,9 +19,11 @@
 
 #include <optional>
 
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/page_size.h"
+#include "tcmalloc/internal/proc_maps.h"
 #include "tcmalloc/internal/residency.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -38,6 +40,9 @@ class NoopResidency : public Residency {
   [[nodiscard]] size_t GetHardwarePagesInHugePage() const override {
     return kHugePageSize / GetPageSize();
   }
+
+  void ReadNumaMaps(
+      absl::FunctionRef<void(const NumaMapEntry& entry)> callback) override {}
 
   [[nodiscard]] SinglePageBitmaps GetUnbackedAndSwappedBitmaps(
       const void* addr) override {

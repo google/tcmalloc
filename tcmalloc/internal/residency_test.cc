@@ -39,6 +39,7 @@
 #include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/functional/function_ref.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
@@ -47,6 +48,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/is_aligned_to.h"
 #include "tcmalloc/internal/page_size.h"
+#include "tcmalloc/internal/proc_maps.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/util.h"
 #include "tcmalloc/testing/smaps.h"
@@ -69,6 +71,12 @@ class ResidencySpouse {
   decltype(auto) GetUnbackedAndSwappedBitmaps(const void* const addr) {
     AllocationGuard g;
     return r_.GetUnbackedAndSwappedBitmaps(addr);
+  }
+
+  void ReadNumaMaps(
+      absl::FunctionRef<void(const NumaMapEntry& entry)> callback) {
+    AllocationGuard g;
+    r_.ReadNumaMaps(callback);
   }
 
  private:
@@ -632,6 +640,32 @@ TEST(PageMapIntegrationTest, GuardPages) {
   EXPECT_TRUE(res.swapped.IsZero());
 
   ASSERT_EQ(munmap(raw, 2 * kHugePageSize), 0) << errno;
+}
+
+TEST(ResidenceTest, ReadNumaMaps) {
+  const size_t kHardwarePageSize = GetPageSize();
+  void* ptr = mmap(nullptr, kHardwarePageSize, PROT_READ | PROT_WRITE,
+                   MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+  ASSERT_NE(ptr, MAP_FAILED) << errno;
+  memset(ptr, 1, kHardwarePageSize);
+  const uintptr_t target = reinterpret_cast<uintptr_t>(ptr);
+
+  bool found = false;
+  uint64_t total_pages = 0;
+  {
+    AllocationGuard g;
+    ResidencySpouse r;
+    r.ReadNumaMaps([&](const NumaMapEntry& entry) {
+      if (entry.start_addr <= target) {
+        found = true;
+        total_pages =
+            entry.node_pages[0] + entry.node_pages[1] + entry.node_pages[2];
+      }
+    });
+  }
+  EXPECT_TRUE(found);
+  EXPECT_GT(total_pages, 0);
+  ASSERT_EQ(munmap(ptr, kHardwarePageSize), 0) << errno;
 }
 
 }  // namespace
