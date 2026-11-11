@@ -24,6 +24,15 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+[[nodiscard]] inline bool AddOverflow(size_t a, size_t b, size_t* out) {
+#if ABSL_HAVE_BUILTIN(__builtin_add_overflow)
+  return __builtin_add_overflow(a, b, out);
+#else
+  *out = a + b;
+  return *out < a;
+#endif
+}
+
 [[nodiscard]] inline bool MultiplyOverflow(size_t a, size_t b, size_t* out) {
 #if ABSL_HAVE_BUILTIN(__builtin_mul_overflow)
   return __builtin_mul_overflow(a, b, out);
