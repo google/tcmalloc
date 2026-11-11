@@ -195,7 +195,9 @@ class BenchmarkEnv {
                             kPageSize);
     cache_.Init(
         kSizeClass,
-        central_freelist_internal::CflSubbucketPrioritization::kDisabled);
+        central_freelist_internal::CflSubbucketPrioritization::kDisabled,
+        central_freelist_internal::CflHugepageOccupancyPrioritization::
+            kDisabled);
   }
 
   CentralFreeList& central_freelist() { return cache_; }
