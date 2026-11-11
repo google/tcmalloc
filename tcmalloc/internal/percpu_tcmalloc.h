@@ -147,43 +147,26 @@ class TcmallocSlab {
   // other than Push/Pop/PushBatch/PopBatch are invalid.
   void InitCpu(int cpu, absl::FunctionRef<size_t(size_t)> capacity);
 
-  // Update maximum capacities allocated to each size class.
-  // Build and initialize <new_slabs> so as to use new maximum capacities
-  // provided by <capacity> callback for the <size_class>.
-  // <capacity> should return the new maximum capacity for the given size
-  // class, regardless of whether <update_capacity> has been called or not.
-  // <update_capacity> updates capacities for the <size_class> with the new
-  // <cap> once the slabs are initialized.
-  // <populated> returns whether the given cpu's slab is populated. The
-  // return value should remain constant for the duration of the call.
-  // <new_max_capacity> provides an array of new maximum capacities to be
-  // updated for size classes.
-  // <drain_handler> callback drains the old slab.
-  [[nodiscard]] ResizeSlabsInfo UpdateMaxCapacities(
-      void* new_slabs, absl::FunctionRef<size_t(size_t)> max_capacity,
-      absl::FunctionRef<void(int, uint16_t)> update_max_capacity,
-      absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler,
-      std::atomic<uint16_t>* new_max_capacity);
-
-  // Grows or shrinks the size of the slabs to use the <new_shift> value. First
-  // we initialize <new_slabs>, then lock all headers on the old slabs,
-  // atomically update to use the new slabs, and teardown the old slabs. Returns
-  // a pointer to old slabs to be madvised away along with the size of the old
-  // slabs and the number of bytes that were reused.
+  // Creates new slabs, either to grow/shrink them, change max capacities,
+  // or both. Returns a pointer to old slabs to be madvised away along with
+  // the size of the old slabs and the number of bytes that were reused.
+  // The old data and capacities are moved to the new slab, to the extent
+  // allowed by the new max capacities.
   //
-  // <alloc> is memory allocation callback (e.g. malloc).
-  // <capacity> callback returns max capacity for size class <cl>.
+  // <max_capacity> should return the new maximum capacity for the given size
+  //   class, regardless of whether <commit_new_capacities> has been called
+  //   or not.
   // <commit_new_capacities> callback is called with the CPUs stopped,
   //   allowing the caller to persist the new max capacities without
-  //   other CPUs interfering. (<capacity> must return the right value
-  //   even if commit_new_capacities() has not been called yet.)
-  // <populated> returns whether the corresponding cpu has been populated.
+  //   other CPUs interfering.
+  // <populated> returns whether the corresponding CPU has been populated.
+  // <drain_handler> callback drains the old slab.
   //
   // Caller must ensure that there are no concurrent calls to InitCpu,
   // ShrinkOtherCache, or Drain.
-  [[nodiscard]] ResizeSlabsInfo ResizeSlabs(
+  [[nodiscard]] ResizeSlabsInfo CreateNewSlabs(
       Shift new_shift, void* new_slabs,
-      absl::FunctionRef<size_t(size_t)> capacity,
+      absl::FunctionRef<size_t(size_t)> max_capacity,
       absl::FunctionRef<void()> commit_new_capacities,
       absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler);
 
@@ -323,7 +306,7 @@ class TcmallocSlab {
       absl::FunctionRef<size_t(size_t)> capacity);
 
   // Gets the current shift of the slabs. Intended for use by the thread that
-  // calls ResizeSlabs().
+  // calls CreateNewSlabs().
   [[nodiscard]] uint8_t GetShift() const {
     return ToUint8(GetSlabsAndShift(std::memory_order_relaxed).second);
   }
@@ -462,7 +445,7 @@ class TcmallocSlab {
       Shift new_shift, absl::FunctionRef<size_t(size_t)> max_capacity,
       absl::FunctionRef<bool(size_t)> populated);
 
-  // Implementation of InitCpu() allowing for reuse in ResizeSlabs().
+  // Implementation of InitCpu() allowing for reuse in CreateNewSlabs().
   void InitCpuImpl(void* slabs, Shift shift, int cpu,
                    absl::FunctionRef<size_t(size_t)> capacity);
 
@@ -1244,11 +1227,11 @@ std::pair<int, bool> TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
     if (!StoreCurrentCpu(&tcmalloc_slabs, new_val)) {
       continue;
     }
-    // If ResizeSlabs is concurrently modifying slabs_and_shift_, we may
+    // If CreateNewSlabs is concurrently modifying slabs_and_shift_, we may
     // cache the offset with the shift that won't match slabs pointer used
     // by Push/Pop operations later. To avoid this, we check
     // state_[vcpu].stopped after the calculation. Coupled with setting of
-    // stopped_ and a Fence in ResizeSlabs, this prevents possibility of
+    // stopped_ and a Fence in CreateNewSlabs, this prevents possibility of
     // mismatching shift/slabs.
     CompilerBarrier();
     if (state_[vcpu].stopped.load(std::memory_order_acquire)) {
@@ -1258,7 +1241,7 @@ std::pair<int, bool> TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
     // Ensure that we've cached the current slabs pointer.
     // Without this check the following bad interleaving is possible.
     //
-    // Thread 1: Executes ResizeSlabs, stops all CPUs and executes Fence.
+    // Thread 1: Executes CreateNewSlabs, stops all CPUs and executes Fence.
     //
     // Thread 2: Executes CacheCpuSlabSlow, reads old slabs and caches
     //           the pointer.
@@ -1413,72 +1396,11 @@ void TcmallocSlab<NumClasses>::TransferFreelistsToNewSlabs(
 }
 
 template <size_t NumClasses>
-ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
-    void* new_slabs, absl::FunctionRef<size_t(size_t)> max_capacity,
-    absl::FunctionRef<void(int, uint16_t)> update_max_capacity,
-    absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler,
-    std::atomic<uint16_t>* new_max_capacity) {
-  const int n_cpus = num_cpus();
-  const auto [old_slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-
-  // Phase 0: Initialize slabs for populated CPUs BEFORE stopping CPUs.
-  // This prefaults pages while all CPUs continue running undisturbed.
-  for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
-    // populated should not change while this function runs because the caller
-    // should be holding all the CPU resize locks.
-    if (!populated(cpu)) continue;
-    InitCpuImpl(new_slabs, shift, cpu, max_capacity);
-  }
-
-  // Phase 1: Stop all CPUs and initialize any CPUs in the new slab that have
-  // already been populated in the old slab.
-  std::array<uint16_t, NumClasses> old_begins;
-  for (int size_class = 1; size_class < NumClasses; ++size_class) {
-    old_begins[size_class] =
-        begins_[size_class].load(std::memory_order_relaxed);
-  }
-
-  StopAllCpus();
-
-#ifdef TCMALLOC_INTERNAL_LATENCY_INJECTION
-  // TODO(b/29448043): Remove latency injection.
-  ScopedDelay delay(ScopedDelay::update_max_capacities_delay);
-#endif
-
-  // Phase 2: Update max capacity of the size classes.
-  for (int size_class = 1; size_class < NumClasses; ++size_class) {
-    update_max_capacity(size_class, new_max_capacity[size_class].load(
-                                        std::memory_order_relaxed));
-  }
-
-  // Phase 3: Initialize slabs.
-  InitSlabs(new_slabs, shift, max_capacity);
-
-  // Phase 4: Copy the old capacities and pointers to the new slabs,
-  // subject to possibly reduced new limits.
-  TransferFreelistsToNewSlabs(old_slabs, new_slabs, old_begins, shift, shift,
-                              max_capacity, populated);
-
-  // Phase 5: Re-start all CPUs.
-  StartAllCpus();
-
-  // Phase 6: Return remaining pointers from the old slab to the TransferCache,
-  // and release any remaining capacity back to cpu.available so that it can be
-  // used by Grow() later.
-  for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
-    if (!populated(cpu)) continue;
-    DrainOldSlabs(old_slabs, shift, cpu, old_begins, drain_handler);
-  }
-  return {old_slabs, GetSlabsAllocSize(shift, n_cpus)};
-}
-
-template <size_t NumClasses>
-auto TcmallocSlab<NumClasses>::ResizeSlabs(
+ResizeSlabsInfo TcmallocSlab<NumClasses>::CreateNewSlabs(
     Shift new_shift, void* new_slabs,
     absl::FunctionRef<size_t(size_t)> max_capacity,
     absl::FunctionRef<void()> commit_new_capacities,
-    absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler)
-    -> ResizeSlabsInfo {
+    absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler) {
   // Phase 1: Collect begins, initialize any CPUs in the new
   // slab that have already been populated in the old slab,
   // then stop all CPUs.
@@ -1490,7 +1412,7 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
         begins_[size_class].load(std::memory_order_relaxed);
   }
 
-  TC_ASSERT_NE(new_shift, old_shift);
+  TC_ASSERT_NE(new_slabs, old_slabs);
   const int n_cpus = num_cpus();
   for (size_t cpu = 0; cpu < n_cpus; ++cpu) {
     if (populated(cpu)) {
@@ -1502,7 +1424,9 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
 
 #ifdef TCMALLOC_INTERNAL_LATENCY_INJECTION
   // TODO(b/29448043): Remove latency injection.
-  ScopedDelay delay(ScopedDelay::resize_slabs_delay);
+  ScopedDelay delay(new_shift == old_shift
+                        ? ScopedDelay::update_max_capacities_delay
+                        : ScopedDelay::resize_slabs_delay);
 #endif
 
   // Phase 2: Atomically update slabs and shift.

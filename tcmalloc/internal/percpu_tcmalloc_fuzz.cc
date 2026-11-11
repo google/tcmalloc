@@ -565,7 +565,7 @@ struct ResizeSlabs {
       new_max_capacity[sc] = max_capacities[sc - 1] % (kMaxCapacity + 1);
     }
 
-    const auto [old_slabs, old_slabs_size] = state.slab.ResizeSlabs(
+    const auto [old_slabs, old_slabs_size] = state.slab.CreateNewSlabs(
         new_shift, new_slabs,
         [&new_max_capacity](size_t sc) { return new_max_capacity[sc]; },
         [&] { state.max_capacity = new_max_capacity; },
@@ -612,26 +612,22 @@ struct UpdateMaxCapacities {
     }
     const size_t sc = 1 + (size_class % (kNumClasses - 1));
     const size_t target_cap = new_max_capacity % (kMaxCapacity + 1);
-    std::array<std::atomic<uint16_t>, kNumClasses> new_caps;
-    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
-      new_caps[size_class].store(state.max_capacity[size_class],
-                                 std::memory_order_relaxed);
-    }
-    new_caps[sc].store(target_cap, std::memory_order_relaxed);
     const Shift shift = ToShiftType(state.slab.GetShift());
     const size_t slabs_size = GetSlabsAllocSize(shift, state.num_cpus);
     void* new_slabs = Malloc(slabs_size, SlabAlignment(shift));
-    const auto [old_slabs, old_slabs_size] = state.slab.UpdateMaxCapacities(
-        new_slabs,
-        [&state, sc, target_cap](size_t size_class) {
-          // Return the new max capacity for the size class we want to grow.
-          if (size_class == sc) return target_cap;
-          // Since other size classes' max capacities are not changed, we can
-          // just return their current max capacities.
-          return state.MaxCapacity(size_class);
-        },
-        [&state](int size_class, uint16_t cap) {
-          state.max_capacity[size_class] = cap;
+    auto get_new_max_capacity = [&state, sc, target_cap](size_t size_class) {
+      // Return the new max capacity for the size class we want to grow.
+      if (size_class == sc) return target_cap;
+      // Since other size classes' max capacities are not changed, we can
+      // just return their current max capacities.
+      return state.MaxCapacity(size_class);
+    };
+    const auto [old_slabs, old_slabs_size] = state.slab.CreateNewSlabs(
+        shift, new_slabs, get_new_max_capacity,
+        [&state, &get_new_max_capacity] {
+          for (int sc = 0; sc < kNumClasses; ++sc) {
+            state.max_capacity[sc] = get_new_max_capacity(sc);
+          }
         },
         [&state](size_t cpu) { return state.cpu_initialized[cpu]; },
         [&state](int cpu, size_t size_class, void** batch, size_t size,
@@ -640,8 +636,7 @@ struct UpdateMaxCapacities {
           const size_t kept =
               std::min<size_t>(old_cap, state.max_capacity[size_class]);
           state.HandleDrain(cpu, size_class, batch, size, cap, old_cap - kept);
-        },
-        new_caps.data());
+        });
     TC_CHECK_EQ(state.max_capacity[sc], target_cap);
     sized_aligned_delete(old_slabs, old_slabs_size, SlabAlignment(shift));
     // UpdateMaxCapacities transfers existing pointers and capacities up to the

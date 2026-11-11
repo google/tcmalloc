@@ -483,20 +483,23 @@ TEST_F(TcmallocSlabTest, ResizeMaxCapacities) {
     updated_max_capacity[kSizeClassToGrow] += 1;
     updated_max_capacity[kSizeClassToShrink] -= 1;
     void* slabs = AllocSlabs(allocator, kShift);
-    const auto [old_slabs, old_slabs_size] = slab_.UpdateMaxCapacities(
-        slabs,
+    const auto [old_slabs, old_slabs_size] = slab_.CreateNewSlabs(
+        ToShiftType(kShift), slabs,
         [&](size_t size_class) {
           return updated_max_capacity[size_class].load(
               std::memory_order_relaxed);
         },
-        [&](int size, uint16_t cap) { max_capacity[size] = cap; },
+        [&] {
+          for (int sc = 0; sc < kStressSlabs; ++sc) {
+            max_capacity[sc] = updated_max_capacity[sc];
+          }
+        },
         [](int cpu) { return cpu == kCpu; },
         [&](int cpu, size_t size_class, void** batch, size_t size, size_t cap) {
           EXPECT_EQ(size, 0);
-        },
-        updated_max_capacity.data());
+        });
 
-    // UpdateMaxCapacities() zeroes out our thread's slabs pointer,
+    // CreateNewSlabs() zeroes out our thread's slabs pointer,
     // which Grow() expects to be there. Normally, any other caller
     // of Grow() would be from deallocation, which updates the slab
     // pointer before doing anything, so explicitly put it back here.
@@ -566,7 +569,7 @@ TEST_F(TcmallocSlabTest, GrowDeclinesReservedIndex) {
   EXPECT_EQ(slab_.Capacity(cpu, kSizeClass), kBigCapacity - 1);
 }
 
-// Unlocked Grow() racing UpdateMaxCapacities() between two legal 2^19-byte
+// Unlocked Grow() racing CreateNewSlabs() between two legal 2^19-byte
 // layouts that both end at 0xfffe can pair a full header from one with <begin>
 // or <max_capacity> from the other and reach 0xffff; it must decline, not
 // assert.
@@ -628,18 +631,22 @@ TEST_F(TcmallocSlabTest, GrowRacingResizeDeclinesReservedIndex) {
                                   std::memory_order_relaxed);
     updated_max_capacity[kLastClass].store(last_cap - delta,
                                            std::memory_order_relaxed);
-    const auto [old_slabs, old_size] = slab_.UpdateMaxCapacities(
-        alt_slabs,
+    const auto [old_slabs, old_size] = slab_.CreateNewSlabs(
+        ToShiftType(kBigShift), alt_slabs,
         [&](size_t sc) {
           return sc == 1            ? kStressCapacity + delta
                  : sc == kLastClass ? last_cap - delta
                                     : max_cap_fn(sc);
         },
-        [&](int sc, uint16_t cap) {
-          max_capacity[sc].store(cap, std::memory_order_relaxed);
+        [&] {
+          for (int sc = 0; sc < kStressSlabs; ++sc) {
+            max_capacity[sc].store(
+                updated_max_capacity[sc].load(std::memory_order_relaxed),
+                std::memory_order_relaxed);
+          }
         },
-        [](size_t) { return true; }, [](int, size_t, void**, size_t, size_t) {},
-        updated_max_capacity.data());
+        [](size_t) { return true; },
+        [](int, size_t, void**, size_t, size_t) {});
     alt_slabs = old_slabs;
     alt_slabs_size = old_size;
   }
@@ -710,7 +717,7 @@ TEST_F(TcmallocSlabTest, ResizeSlabKeepsCapacity) {
     return ByteCountingMalloc(size, alignment);
   };
   void* slabs = AllocSlabs(alloc, kShift + 1);
-  (void)slab_.ResizeSlabs(
+  (void)slab_.CreateNewSlabs(
       subtle::percpu::ToShiftType(kShift + 1), slabs,
       [](size_t) { return kCapacity * 2; }, [] { /* Nothing to commit. */ },
       [](int cpu) { return cpu == kCpu; },
@@ -745,7 +752,7 @@ TEST_F(TcmallocSlabTest, SimulatedMadviseFailure) {
       return ByteCountingMalloc(size, alignment);
     };
     void* slabs = AllocSlabs(alloc, shift);
-    (void)slab_.ResizeSlabs(
+    (void)slab_.CreateNewSlabs(
         subtle::percpu::ToShiftType(shift), slabs,
         [](size_t) { return kCapacity / 2; }, [] { /* Nothing to commit. */ },
         [](int cpu) { return cpu == 0; },
@@ -894,7 +901,7 @@ void StressThread(size_t thread_id,
             // A Grow racing a resize can leave capacity above max_capacity.
             // Check now, before Shrink/Drain/resize take the excess back.  The
             // mutex keeps Capacity() and max_capacity consistent across
-            // UpdateMaxCapacities.
+            // CreateNewSlabs.
             absl::MutexLock lock(ctx.mutexes[cpu]);
             EXPECT_LE(
                 ctx.slab->Capacity(cpu, size_class),
@@ -1082,15 +1089,19 @@ void ResizeMaxCapacitiesThread(
 
     uint8_t shift = ctx.slab->GetShift();
     void* slabs = AllocSlabs(allocator, shift);
-    const auto [old_slabs, old_slabs_size] = ctx.slab->UpdateMaxCapacities(
-        slabs, GetMaxCapacity{updated_max_capacity},
-        [&](int size, uint16_t cap) {
-          ctx.max_capacity[size].store(cap, std::memory_order_relaxed);
+    const auto [old_slabs, old_slabs_size] = ctx.slab->CreateNewSlabs(
+        ToShiftType(shift), slabs, GetMaxCapacity{updated_max_capacity},
+        [&] {
+          for (int sc = 0; sc < kStressSlabs; ++sc) {
+            ctx.max_capacity[sc].store(
+                updated_max_capacity[sc].load(std::memory_order_relaxed),
+                std::memory_order_relaxed);
+          }
         },
         [&](size_t cpu) {
           return ctx.has_init[cpu].load(std::memory_order_relaxed);
         },
-        drain_handler, updated_max_capacity);
+        drain_handler);
     for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].unlock();
     ASSERT_NE(old_slabs, nullptr);
     // We sometimes don't madvise away the old slabs in order to simulate
@@ -1182,7 +1193,7 @@ void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
     }
     for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].lock();
     void* slabs = AllocSlabs(allocator, shift);
-    const auto [old_slabs, old_slabs_size] = ctx.slab->ResizeSlabs(
+    const auto [old_slabs, old_slabs_size] = ctx.slab->CreateNewSlabs(
         ToShiftType(shift), slabs, GetMaxCapacity{new_max_capacity},
         [&] {
           for (size_t size_class = 0; size_class < kStressSlabs; ++size_class) {

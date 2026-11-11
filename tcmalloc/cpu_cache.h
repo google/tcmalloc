@@ -1711,17 +1711,16 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
     ABSL_NO_THREAD_SAFETY_ANALYSIS {
   const int num_cpus = NumCPUs();
 
-  std::atomic<uint16_t> new_max_capacities[kNumClasses];
+  std::atomic<uint16_t> new_max_capacity[kNumClasses];
   for (size_t i = 0; i < kNumClasses; ++i) {
-    new_max_capacities[i].store(
-        max_capacity_[i].load(std::memory_order_relaxed),
-        std::memory_order_relaxed);
+    new_max_capacity[i].store(max_capacity_[i].load(std::memory_order_relaxed),
+                              std::memory_order_relaxed);
   }
 
   // Obtain candidates to resize for size classes within each NUMA domain. We do
   // not resize across NUMA domains.
   const int to_update =
-      GetUpdatedMaxCapacities(absl::MakeSpan(new_max_capacities));
+      GetUpdatedMaxCapacities(absl::MakeSpan(new_max_capacity));
 
   // Nothing to update.
   if (to_update == 0) return;
@@ -1760,17 +1759,21 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
   // drains each populated CPU's old slab to the transfer caches and
   // returns the old slabs for ReplaceSlabs to madvise away.
   auto resize_slabs = [&](void* new_slabs) {
-    return freelist_.UpdateMaxCapacities(
-        new_slabs, MaxCapacityFunctor{new_max_capacities},
-        [this](int size_class, uint16_t cap) {
-          UpdateMaxCapacity(size_class, cap);
+    return freelist_.CreateNewSlabs(
+        shift, new_slabs, MaxCapacityFunctor{new_max_capacity},
+        [this, &new_max_capacity] {
+          for (size_t i = 0; i < kNumClasses; ++i) {
+            max_capacity_[i].store(
+                new_max_capacity[i].load(std::memory_order_relaxed),
+                std::memory_order_relaxed);
+          }
         },
         [this](int cpu) {
           // Since this is called while holding all resize_ locks,
           // HasPopulated should not change.
           return HasPopulated(cpu);
         },
-        DrainHandler<CpuCache>{*this, nullptr}, new_max_capacities);
+        DrainHandler<CpuCache>{*this, nullptr});
   };
   ReplaceSlabs(prepare_slabs, resize_slabs);
 }
@@ -2683,11 +2686,11 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
 
   // Since the slab size is changing, the old max capacity won't
   // make sense anymore; calculate new for the new size, so that
-  // the callback in ResizeSlabs() gets the correct new ones.
+  // the callback in CreateNewSlabs() gets the correct new ones.
   // Note that this erases any learned information from the
   // previous size, but we resize slabs so rarely that it shouldn't
   // be a big problem. Also note that we cannot modify max_capacity_
-  // at this point, since the CPUs are only stopped by ResizeSlabs().
+  // at this point, since the CPUs are only stopped by CreateNewSlabs().
   std::atomic<uint16_t> new_max_capacity[kNumClasses] = {0};
   CalculateMaxCapacityForAllClasses(per_cpu_shift, new_max_capacity);
 
@@ -2710,9 +2713,9 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   // old slab to the transfer caches and returns the old slabs for
   // ReplaceSlabs to madvise away.
   auto resize_slabs = [&](void* new_slabs) {
-    return freelist_.ResizeSlabs(
+    return freelist_.CreateNewSlabs(
         new_shift, new_slabs, MaxCapacityFunctor{new_max_capacity},
-        [this, &new_max_capacity]() {
+        [this, &new_max_capacity] {
           for (size_t i = 0; i < kNumClasses; ++i) {
             max_capacity_[i].store(
                 new_max_capacity[i].load(std::memory_order_relaxed),
