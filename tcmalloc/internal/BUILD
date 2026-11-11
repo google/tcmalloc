@@ -394,6 +394,22 @@ cc_library(
 )
 
 cc_library(
+    name = "fake_residency",
+    testonly = 1,
+    hdrs = ["fake_residency.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        ":page_size",
+        ":residency",
+        "@com_google_absl//absl/status",
+    ],
+)
+
+cc_library(
     name = "gwp_asan_state",
     hdrs = ["gwp_asan_state.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
@@ -1249,6 +1265,7 @@ cc_test(
     deps = [
         ":environment",
         ":fake_profile",
+        ":fake_residency",
         ":page_size",
         ":pageflags",
         ":profile_builder",

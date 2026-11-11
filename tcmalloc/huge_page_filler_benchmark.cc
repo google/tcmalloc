@@ -40,6 +40,7 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/fake_residency.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/pageflags.h"
@@ -64,19 +65,6 @@ class BackedPageFlags final : public PageFlagsBase {
   }
   std::optional<bool> IsHugepageBacked(const void* addr) override {
     return true;
-  }
-};
-
-class EmptyResidency final : public Residency {
- public:
-  std::optional<Info> Get(const void* addr, size_t size) override {
-    return std::nullopt;
-  }
-  SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override {
-    return {};
-  }
-  size_t GetHardwarePagesInHugePage() const override {
-    return kHugePageSize / kPageSize;
   }
 };
 
@@ -182,7 +170,7 @@ class FillerHeap {
   NoopModify collapse_;
   NoopTag set_anon_vma_name_;
   BackedPageFlags pageflags_;
-  EmptyResidency residency_;
+  NoopResidency residency_;
   HugePageFiller<PageTracker> filler_;
   std::vector<std::unique_ptr<PageTracker>> trackers_;
 };

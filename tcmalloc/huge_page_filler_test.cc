@@ -58,6 +58,7 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/fake_residency.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/pageflags.h"
@@ -221,12 +222,9 @@ class FakePageFlags : public PageFlagsBase {
   absl::flat_hash_map<const void*, PageFlagsBitmaps> page_flags_bitmaps_;
 };
 
-class FakeResidency : public Residency {
+class FakeResidency : public NoopResidency {
  public:
   FakeResidency() = default;
-  std::optional<Info> Get(const void* addr, size_t size) override {
-    return std::nullopt;
-  };
 
   SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override {
     PageId p = PageIdContaining(addr);
@@ -238,7 +236,7 @@ class FakeResidency : public Residency {
       unlocked_hook_(addr);
     }
     return ret;
-  };
+  }
 
   // Runs during GetUnbackedAndSwappedBitmaps, while pageheap_lock is dropped.
   std::function<void(const void*)> unlocked_hook_;
@@ -251,11 +249,6 @@ class FakeResidency : public Residency {
     residency_bitmaps_[hp.start_addr()] = {unbacked, swapped,
                                            absl::StatusCode::kOk};
   }
-
-  const size_t kHardwarePagesInHugePage = kHugePageSize / kPageSize;
-  size_t GetHardwarePagesInHugePage() const override {
-    return kHardwarePagesInHugePage;
-  };
 
  private:
   absl::flat_hash_map<const void*, SinglePageBitmaps> residency_bitmaps_;

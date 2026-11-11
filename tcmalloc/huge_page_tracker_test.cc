@@ -57,9 +57,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
-#include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/range_tracker.h"
-#include "tcmalloc/internal/residency.h"
 #include "tcmalloc/internal/system_allocator.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
@@ -277,78 +275,6 @@ class PageTrackerTest : public testing::Test {
   size_t marks_[kPagesPerHugePage.raw_num()];
   HugePage huge_;
   PageTracker tracker_;
-};
-
-class FakePageFlags : public PageFlagsBase {
- public:
-  FakePageFlags() = default;
-  std::optional<PageStats> Get(const void* addr, size_t size) override {
-    return PageStats{};
-  }
-
-  PageFlagsBitmaps GetSinglePageBitmaps(const void* addr) override {
-    PageFlagsBitmaps ret;
-    ret.stale.SetBit(0);
-    ret.status = absl::StatusCode::kOk;
-    return ret;
-  }
-
-  void MarkHugePageBacked(void* addr, bool is_hugepage_backed) {
-    PageId p = PageIdContaining(addr);
-    HugePage hp = HugePageContaining(p);
-    is_hugepage_backed_[hp.start_addr()] = is_hugepage_backed;
-  }
-
-  void MarkHugePageBackedUnknown(void* addr) {
-    PageId p = PageIdContaining(addr);
-    HugePage hp = HugePageContaining(p);
-    is_hugepage_backed_[hp.start_addr()] = std::nullopt;
-  }
-
-  std::optional<bool> IsHugepageBacked(const void* addr) override {
-    PageId p = PageIdContaining(addr);
-    HugePage hp = HugePageContaining(p);
-    auto it = is_hugepage_backed_.find(hp.start_addr());
-    if (it == is_hugepage_backed_.end()) {
-      return false;
-    }
-    return it->second;
-  }
-
- private:
-  absl::flat_hash_map<const void*, std::optional<bool>> is_hugepage_backed_;
-};
-
-class FakeResidency : public Residency {
- public:
-  FakeResidency() = default;
-  std::optional<Info> Get(const void* addr, size_t size) override {
-    return std::nullopt;
-  };
-
-  SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override {
-    PageId p = PageIdContaining(addr);
-    HugePage hp = HugePageContaining(p);
-    EXPECT_TRUE(residency_bitmaps_.contains(hp.start_addr()));
-    return residency_bitmaps_[hp.start_addr()];
-  };
-
-  void SetUnbackedAndSwappedBitmaps(const void* addr,
-                                    const Bitmap<kMaxResidencyBits>& unbacked,
-                                    const Bitmap<kMaxResidencyBits>& swapped) {
-    PageId p = PageIdContaining(addr);
-    HugePage hp = HugePageContaining(p);
-    residency_bitmaps_[hp.start_addr()] = {unbacked, swapped,
-                                           absl::StatusCode::kOk};
-  }
-
-  const size_t kHardwarePagesInHugePage = kHugePageSize / kPageSize;
-  size_t GetHardwarePagesInHugePage() const override {
-    return kHardwarePagesInHugePage;
-  };
-
- private:
-  absl::flat_hash_map<const void*, SinglePageBitmaps> residency_bitmaps_;
 };
 
 TEST_F(PageTrackerTest, AllocSane) {

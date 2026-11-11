@@ -61,6 +61,7 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/fake_residency.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/page_size.h"
@@ -2795,22 +2796,10 @@ TEST_P(HugePageAwareAllocatorTest, PreserveDonatedOnCollapse) {
       return false;
     }
   };
-  class StubResidency final : public Residency {
-   public:
-    std::optional<Info> Get(const void* addr, size_t size) override {
-      return std::nullopt;
-    }
-    SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override {
-      return {{}, {}, absl::StatusCode::kOk};
-    }
-    size_t GetHardwarePagesInHugePage() const override {
-      return kHugePageSize / kPageSize;
-    }
-  };
 
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
   StubPageFlags pageflags;
-  StubResidency residency;
+  NoopResidency residency;
   allocator_->forwarder().hpaa_subrelease.set(true);
   allocator_->forwarder().release_partial_alloc_pages.set(
       ReleasePartialAllocPages::kEnabled);

@@ -45,6 +45,7 @@
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/fake_residency.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/scoped_allow_allocation.h"
 #include "tcmalloc/internal/memory_tag.h"
@@ -143,19 +144,11 @@ class FakePageFlags : public PageFlagsBase {
   State& state_;
 };
 
-class FakeResidency : public Residency {
+class FakeResidency : public NoopResidency {
  public:
   explicit FakeResidency(State& state) : state_(state) {}
-  std::optional<Info> Get(const void* addr, size_t size) override {
-    return std::nullopt;
-  }
 
   SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override;
-
-  const size_t kHardwarePagesInHugePage = kHugePageSize / kPageSize;
-  size_t GetHardwarePagesInHugePage() const override {
-    return kHardwarePagesInHugePage;
-  }
 
  private:
   State& state_;

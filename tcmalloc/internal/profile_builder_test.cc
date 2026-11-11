@@ -50,6 +50,7 @@
 #include "re2/re2.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/fake_profile.h"
+#include "tcmalloc/internal/fake_residency.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/residency.h"
@@ -125,7 +126,7 @@ class StubPageFlags final : public PageFlagsBase {
   uint64_t stale_scan_period_ = 0;
 };
 
-class StubResidency final : public Residency {
+class StubResidency final : public NoopResidency {
  public:
   StubResidency() = default;
   ~StubResidency() override = default;
@@ -141,12 +142,6 @@ class StubResidency final : public Residency {
       return result;
     }
     return std::nullopt;
-  }
-
-  size_t GetHardwarePagesInHugePage() const override { return 512; }
-
-  SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override {
-    return {.status = absl::StatusCode::kUnimplemented};
   }
 
   void SetInfo(const void* addr, Info info) {

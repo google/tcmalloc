@@ -408,6 +408,20 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
+    tcmalloc_internal_fake_residency
+  ALIAS
+    tcmalloc::internal_fake_residency
+  HDRS
+    "fake_residency.h"
+  DEPS
+    "absl::status"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_page_size"
+    "tcmalloc::internal_residency"
+)
+
+tcmalloc_cc_library(
+  NAME
     tcmalloc_internal_gwp_asan_state
   ALIAS
     tcmalloc::internal_gwp_asan_state
@@ -1281,6 +1295,7 @@ tcmalloc_cc_test(
     "re2::re2"
     "tcmalloc::internal_environment"
     "tcmalloc::internal_fake_profile"
+    "tcmalloc::internal_fake_residency"
     "tcmalloc::internal_page_size"
     "tcmalloc::internal_pageflags"
     "tcmalloc::internal_profile_builder"

@@ -44,6 +44,7 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/clock.h"
+#include "tcmalloc/internal/fake_residency.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/pageflags.h"
@@ -189,18 +190,11 @@ class FakePageFlags final : public PageFlagsBase {
   State& state_;
 };
 
-class FakeResidency final : public Residency {
+class FakeResidency final : public NoopResidency {
  public:
   explicit FakeResidency(State& state) : state_(state) {}
-  std::optional<Info> Get(const void* addr, size_t size) override {
-    return std::nullopt;
-  }
 
   SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override;
-
-  size_t GetHardwarePagesInHugePage() const override {
-    return kHugePageSize / kPageSize;
-  }
 
  private:
   State& state_;
