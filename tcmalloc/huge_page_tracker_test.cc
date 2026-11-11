@@ -297,6 +297,12 @@ TEST_F(PageTrackerTest, AllocSane) {
   for (auto alloc : allocs) {
     Check(alloc, alloc.n.raw_num());
   }
+
+  for (auto alloc : allocs) {
+    Put(alloc);
+    free += alloc.n;
+    EXPECT_EQ(tracker_.used_pages(), kPagesPerHugePage - free);
+  }
 }
 
 TEST_F(PageTrackerTest, ClearReleasedPages) {

@@ -33,6 +33,7 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/types/span.h"
 #include "tcmalloc/arena.h"
+#include "tcmalloc/central_freelist_options.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
@@ -103,7 +104,9 @@ class ABSL_CACHELINE_ALIGNED TransferCache {
         slots_(nullptr),
         forwarder_(),
         max_capacity_(capacity.max_capacity) {
-    freelist().Init(size_class, Parameters::cfl_subbucket_prioritization());
+    freelist().Init(size_class, Parameters::cfl_subbucket_prioritization(),
+                    central_freelist_internal::
+                        CflHugepageOccupancyPrioritization::kDisabled);
     slots_ = max_capacity_ != 0
                  ? reinterpret_cast<void**>(forwarder_.Alloc(
                        ArenaAlloc::kTransferCache,

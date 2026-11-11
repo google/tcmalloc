@@ -31,6 +31,13 @@ enum class CflSubbucketPrioritization : bool {
   kEnabled = true
 };
 
+// Whether CentralFreeList also prioritizes spans by the occupancy of the
+// hugepage they reside on.
+enum class CflHugepageOccupancyPrioritization : bool {
+  kDisabled = false,
+  kEnabled = true
+};
+
 }  // namespace tcmalloc::tcmalloc_internal::central_freelist_internal
 GOOGLE_MALLOC_SECTION_END
 
