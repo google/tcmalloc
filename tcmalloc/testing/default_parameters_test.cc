@@ -20,7 +20,9 @@
 
 #include "absl/strings/str_format.h"
 #include "absl/time/time.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/thread_cache.h"
 
 namespace tcmalloc {
 namespace {
@@ -146,6 +148,18 @@ bool TestMaxTotalThreadCacheBytes() {
   if (extension_value != kDefaultMaxTotalThreadCacheBytes) {
     absl::FPrintF(stderr, "MaxTotalThreadCacheBytes: got %d, want %d\n",
                   extension_value, kDefaultMaxTotalThreadCacheBytes);
+    return false;
+  }
+
+  MallocExtension::SetMaxTotalThreadCacheBytes(-1);
+  const int64_t negative_limit =
+      tcmalloc_internal::ThreadCache::overall_thread_cache_size();
+  MallocExtension::SetMaxTotalThreadCacheBytes(
+      kDefaultMaxTotalThreadCacheBytes);
+  if (negative_limit != tcmalloc_internal::kMinThreadCacheSize) {
+    absl::FPrintF(stderr,
+                  "overall_thread_cache_size after -1: got %v, want %v\n",
+                  negative_limit, tcmalloc_internal::kMinThreadCacheSize);
     return false;
   }
 
