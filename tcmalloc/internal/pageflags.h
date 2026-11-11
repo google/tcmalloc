@@ -137,10 +137,6 @@ class PageFlags final : public PageFlagsBase {
   // Possibly seeks backwards in an effort to find head hugepages.
   [[nodiscard]] absl::StatusCode MaybeReadOne(uintptr_t vaddr, uint64_t& flags,
                                               bool& is_huge);
-  // This helper reads staleness information for `num_pages` worth of _full_
-  // pages and puts the results into `output`. It continues the read from the
-  // last Seek() or last Read operation.
-  [[nodiscard]] absl::StatusCode ReadMany(int64_t num_pages, PageStats& output);
 
   static constexpr const char* kKstaledScanSeconds =
       "/sys/kernel/mm/kstaled/scan_seconds";
@@ -162,7 +158,6 @@ class PageFlags final : public PageFlagsBase {
   // assume any compound pages are 2 MB.
   static constexpr int kHugePageSize = (2 << 20);
   static constexpr uintptr_t kHugePageMask = ~(kHugePageSize - 1);
-  const size_t kPagesInHugePage = kHugePageSize / kHardwarePageSize;
 
   uint64_t buf_[kEntriesInBuf];
   // Information about the previous head page. For any future-encountered tail
