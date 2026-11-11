@@ -427,7 +427,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
       EnableUnfilteredCollapse enable_unfiltered_collapse,
       ReleaseStalePages release_stale_pages,
       PreserveDonatedOnCollapse preserve_donated_on_collapse,
-      CollapseReleasedHugePages collapse_released)
+      CollapseReleasedHugePages collapse_released,
+      ReobserveHugepageBacked reobserve_hugepage_backed)
       : clock_(clock),
         pageflags_(pageflags),
         residency_(residency),
@@ -439,6 +440,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
         release_stale_pages_(release_stale_pages),
         preserve_donated_on_collapse_(preserve_donated_on_collapse),
         collapse_released_(collapse_released),
+        reobserve_hugepage_backed_(reobserve_hugepage_backed),
         clock_now_(clock.now()),
         record_interval_cycles_(absl::ToDoubleSeconds(kRecordInterval) *
                                 clock.freq()) {}
@@ -451,7 +453,8 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   // 1. Collect up to kTotalTrackersToScan trackers using
   //    SelectEligibleTrackers. Eligible pages here include:
   //   a. The trackers that manage pages that either were hugepage backed or
-  //      were previously successfully collapsed.
+  //      were previously successfully collapsed (unless re-observation is
+  //      disabled, in which case those are skipped once recorded).
   //   b. The trackers that were never scanned before.
   //   c. The trackers that were last scanned more than kRecordInterval ago.
   // 2. Release the pageheap lock and obtain the residency and pageflags
@@ -514,7 +517,10 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     const PageTracker::HugePageResidencyState& state =
         pt.GetHugePageResidencyState();
 #endif
-    if (state.maybe_hugepage_backed) return;
+    if (state.maybe_hugepage_backed &&
+        reobserve_hugepage_backed_ == ReobserveHugepageBacked::kDisabled) {
+      return;
+    }
 
     if (!state.entry_valid) {
       PushCandidate(pt);
@@ -824,7 +830,6 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
     PageTracker* tracker;
     PageTracker::HugePageResidencyState tracker_state;
   };
-  // Filled by Treat() for selected_trackers_.
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   std::array<ResidencyState, kTotalTrackersToScan> residency_states_;
 #else
@@ -841,6 +846,7 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   ReleaseStalePages release_stale_pages_;
   PreserveDonatedOnCollapse preserve_donated_on_collapse_;
   CollapseReleasedHugePages collapse_released_;
+  ReobserveHugepageBacked reobserve_hugepage_backed_;
 
   // Clock state cached at construction time, so that we do not read the
   // hardware clock nor recompute the record interval threshold for every

@@ -153,12 +153,13 @@ class FillerHeap {
     }
   }
 
-  void Treat() ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  void Treat(ReobserveHugepageBacked reobserve) ABSL_NO_THREAD_SAFETY_ANALYSIS {
     pageheap_lock.lock();
     filler_.TreatHugepageTrackers(
         EnableCollapse::kDisabled, EnableUnfilteredCollapse::kDisabled,
         ReleaseStalePages::kDisabled, PreserveDonatedOnCollapse::kDisabled,
-        CollapseReleasedHugePages::kDisabled, &pageflags_, &residency_);
+        CollapseReleasedHugePages::kDisabled, reobserve, &pageflags_,
+        &residency_);
     pageheap_lock.unlock();
   }
 
@@ -181,7 +182,7 @@ void BM_TreatAllFresh(benchmark::State& state) {
   FillerHeap heap(state.range(0));
   heap.RecordBacked([](size_t) { return absl::Seconds(1); });
   for (auto _ : state) {
-    heap.Treat();
+    heap.Treat(ReobserveHugepageBacked::kEnabled);
   }
   state.SetItemsProcessed(state.iterations() * heap.size());
 }
@@ -198,11 +199,24 @@ void BM_TreatAllCandidates(benchmark::State& state) {
     state.PauseTiming();
     heap.ClearRecords();
     state.ResumeTiming();
-    heap.Treat();
+    heap.Treat(ReobserveHugepageBacked::kEnabled);
   }
   state.SetItemsProcessed(state.iterations() * heap.size());
 }
 BENCHMARK(BM_TreatAllCandidates)->Range(1 << 10, 1 << 16);
+
+// Every tracker is stale with re-observation disabled: the pass walks the
+// lists and selects nothing.
+void BM_TreatAllStaleSkipped(benchmark::State& state) {
+  FillerHeap heap(state.range(0));
+  heap.RecordBacked(
+      [](size_t i) { return kRecordInterval + absl::Seconds(i + 1); });
+  for (auto _ : state) {
+    heap.Treat(ReobserveHugepageBacked::kDisabled);
+  }
+  state.SetItemsProcessed(state.iterations() * heap.size());
+}
+BENCHMARK(BM_TreatAllStaleSkipped)->Range(1 << 10, 1 << 16);
 
 }  // namespace
 }  // namespace tcmalloc_internal
