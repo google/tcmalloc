@@ -51,7 +51,14 @@ inline void ABSL_ATTRIBUTE_ALWAYS_INLINE SLL_Push(void** list, void* element) {
   // is not NULL.
 #if defined(__GNUC__)
   if (next) {
+#if defined(__aarch64__) && defined(__clang__)
+    __builtin_arm_prefetch(next, /*rw=*/0, /*locality=*/1, /*stream=*/0,
+                           /*is_data=*/1);
+#elif defined(__aarch64__)
+    asm volatile("prfm pldl2keep, [%0]" : : "r"(next));
+#else
     __builtin_prefetch(next, 0, 3);
+#endif
   }
 #endif
   return result;
@@ -95,7 +102,14 @@ class LinkedList {
 
 #if defined(__GNUC__)
     if (ABSL_PREDICT_TRUE(next)) {
+#if defined(__aarch64__) && defined(__clang__)
+      __builtin_arm_prefetch(next, /*rw=*/0, /*locality=*/1, /*stream=*/0,
+                             /*is_data=*/1);
+#elif defined(__aarch64__)
+      asm volatile("prfm pldl2keep, [%0]" : : "r"(next));
+#else
       __builtin_prefetch(next, 0, 0);
+#endif
     }
 #endif
 
