@@ -2220,9 +2220,9 @@ tcmalloc_cc_test_variants(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_malloc_hook
+    tcmalloc_malloc_hook_internal
   ALIAS
-    tcmalloc::malloc_hook
+    tcmalloc::malloc_hook_internal
   HDRS
     "malloc_hook.h"
   SRCS
@@ -2234,6 +2234,41 @@ tcmalloc_cc_library(
     "absl::time"
     "tcmalloc::internal_config"
     "tcmalloc::internal_hook_list"
+)
+
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_malloc_hook_sanitizer
+  ALIAS
+    tcmalloc::malloc_hook_sanitizer
+  ALWAYSLINK
+  SRCS
+    "malloc_hook_sanitizer.cc"
+  DEPS
+    "absl::config"
+    "absl::core_headers"
+    "absl::span"
+    "absl::time"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_hook_list"
+    "tcmalloc::malloc_hook_internal"
+)
+
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_malloc_hook
+  ALIAS
+    tcmalloc::malloc_hook
+  HDRS
+    "malloc_hook.h"
+  DEPS
+    "absl::core_headers"
+    "absl::span"
+    "absl::time"
+    "tcmalloc::internal_config"
+    "tcmalloc::internal_hook_list"
+    "tcmalloc::malloc_hook_internal"
+    "tcmalloc::malloc_hook_sanitizer"
 )
 
 tcmalloc_cc_library(

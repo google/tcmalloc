@@ -14,8 +14,11 @@
 
 #include "tcmalloc/malloc_hook.h"
 
+#include <atomic>
+
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
+#include "absl/base/const_init.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/hook_list.h"
 #include "tcmalloc/malloc_hook_invoke.h"
@@ -39,14 +42,19 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 static void RemoveInitialHooksAndCallInitializers();
+ABSL_CONST_INIT static std::atomic<bool> initial_new_hook_active{false};
 
 void InitAtFirstAllocation() {
+  initial_new_hook_active.store(true, std::memory_order_relaxed);
   ABSL_CONST_INIT static absl::once_flag once;
   absl::base_internal::LowLevelCallOnce(&once,
                                         RemoveInitialHooksAndCallInitializers);
 }
 
 static void InitialNewHook(const MallocHook::NewInfo& info) {
+  if (initial_new_hook_active.exchange(true, std::memory_order_relaxed)) {
+    return;
+  }
   InitAtFirstAllocation();
   MallocHook::InvokeNewHook(info);
 }
