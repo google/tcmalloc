@@ -1275,6 +1275,11 @@ TEST_P(StressThreadTest, Stress) {
   // slabs a few times while stress threads are running. After that we verify
   // that no objects lost/duplicated and that total capacity is preserved.
 
+  if (MallocExtension::PerCpuCachesActive()) {
+    // This test unregisters rseq temporarily, as to decrease flakiness.
+    GTEST_SKIP() << "per-CPU TCMalloc is incompatible with unregistering rseq";
+  }
+
   if (!IsFast()) {
     GTEST_SKIP() << "Need fast percpu. Skipping.";
     return;
@@ -1509,7 +1514,9 @@ TEST(TcmallocSlab, CriticalSectionMetadata) {
 }
 
 void BM_PushPop(benchmark::State& state) {
-  TC_CHECK(IsFast());
+  if (MallocExtension::PerCpuCachesActive() || !IsFast()) {
+    return;
+  }
   constexpr int kCpu = 0;
   constexpr size_t kSizeClass = 1;
   // Fake being on the given CPU. This allows Grow to succeed for
@@ -1551,11 +1558,14 @@ void BM_PushPop(benchmark::State& state) {
       benchmark::DoNotOptimize(item);
     }
   }
+  slab.Destroy(sized_aligned_delete);
 }
 BENCHMARK(BM_PushPop);
 
 void BM_PushPopBatch(benchmark::State& state) {
-  TC_CHECK(IsFast());
+  if (MallocExtension::PerCpuCachesActive() || !IsFast()) {
+    return;
+  }
   constexpr int kCpu = 0;
   constexpr size_t kSizeClass = 1;
   // Fake being on the given CPU. This allows Grow to succeed for
@@ -1590,6 +1600,7 @@ void BM_PushPopBatch(benchmark::State& state) {
     TC_CHECK_EQ(slab.PopBatch(size_class, batch, kBatchSize), kBatchSize);
     benchmark::DoNotOptimize(batch);
   }
+  slab.Destroy(sized_aligned_delete);
 }
 BENCHMARK(BM_PushPopBatch);
 
