@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <cstddef>
 #include <cstring>
@@ -546,6 +547,44 @@ TEST_P(SampledAllocationWithFilterTest, SizedNewMismatchedSizeDelete) {
   }
 
   GTEST_SKIP() << "can't get a sampled allocation, giving up";
+}
+
+TEST(GuardedPageAllocatorRaceTest, ReallocatedSlotDoesNotReportUseAfterFree) {
+  GuardedPageAllocator gpa;
+  {
+    PageHeapSpinLockHolder l;
+    gpa.Init(/*max_allocated_pages=*/1, /*total_pages=*/1);
+    gpa.AllowAllocations();
+  }
+
+  void* first =
+      gpa.Allocate(PageSize(), std::align_val_t{0}, GetStackTrace()).alloc;
+  ASSERT_NE(first, nullptr);
+  gpa.Deallocate(first);
+
+  absl::base_internal::SpinLock dealloc_lock;
+  std::atomic<bool> stop{false};
+  std::thread reader([&]() {
+    while (!stop.load(std::memory_order_relaxed)) {
+      absl::base_internal::SpinLockHolder l(dealloc_lock);
+      if (gpa.GetNumAvailablePages() == 0) {
+        GuardedAllocationsStackTrace *alloc_trace, *dealloc_trace;
+        EXPECT_NE(gpa.GetStackTraces(first, &alloc_trace, &dealloc_trace),
+                  GuardedAllocationsErrorType::kUseAfterFree);
+      }
+    }
+  });
+
+  for (int i = 0; i < 1000; ++i) {
+    void* p =
+        gpa.Allocate(PageSize(), std::align_val_t{0}, GetStackTrace()).alloc;
+    ASSERT_NE(p, nullptr);
+    absl::base_internal::SpinLockHolder l(dealloc_lock);
+    gpa.Deallocate(p);
+  }
+  stop.store(true, std::memory_order_relaxed);
+  reader.join();
+  gpa.Destroy();
 }
 
 INSTANTIATE_TEST_SUITE_P(
