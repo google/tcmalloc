@@ -3925,6 +3925,63 @@ TEST_F(FillerTestWithSubreleaseUnbacked, SubreleaseUnbackedRecovery) {
   DeleteVector(p1);
 }
 
+// When treatment observes a hugepage that is no longer hugepage-backed while
+// its pages remain backed:
+// 1. We touch/allocate a piece of memory and get a hugepage, so everything is
+//    backed.
+// 2. We treat the tracker and observe that the memory is still backed (empty
+//    unbacked bitmap), but it is no longer a hugepage (e.g., the kernel
+//    swapped/unswapped or split it) and collapse fails. Because it is no longer
+//    a hugepage, MarkSubreleased puts the broken tracker on the released list
+//    (regular_alloc_partial_released_) even though zero pages were released.
+// 3. When we allocate the remaining page from that tracker, TryGet pulls it
+//    from the released (non-hugepage) list, but because zero pages were
+//    released (and nothing needs to be backed), it must not report
+//    was_released or increment previously_released_huge_pages().
+TEST_F(FillerTestWithSubreleaseUnbacked,
+       BrokenTrackerWithZeroReleasedPagesDoesNotIncrementPreviouslyReleased) {
+  randomize_density_ = false;
+  SpanAllocInfo info = {.objects_per_span = 1,
+                        .density = AccessDensityPrediction::kSparse};
+
+  // 1. Allocate kPagesPerHugePage - 1 pages on a single tracker.
+  PAlloc a1 = AllocateWithSpanAllocInfo(kPagesPerHugePage - Length(1), info);
+  PageTracker* pt = a1.pt;
+  ASSERT_NE(pt, nullptr);
+
+  // 2. Mark the tracker as non-hugepage-backed with 0 unbacked pages and run
+  // treatment with collapse failing so the tracker becomes broken
+  // (unbroken() == false) with 0 released pages (released() == false) on
+  // regular_alloc_partial_released_.
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(a1.p.start_addr(), /*is_hugepage_backed=*/false);
+  Bitmap<kMaxResidencyBits> empty_unbacked, empty_swapped;
+  residency.SetUnbackedAndSwappedBitmaps(a1.p.start_addr(), empty_unbacked,
+                                         empty_swapped);
+  pageflags.SetStaleBitmap(a1.p.start_addr(), {});
+  collapse_.SetSuccess(/*success=*/false);
+  collapse_.SetErrorNumber(EINVAL);
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_FALSE(pt->unbroken());
+  EXPECT_FALSE(pt->released());
+  EXPECT_EQ(pt->released_pages(), Length(0));
+
+  // 3. Allocate the remaining free page; because zero pages were ever released
+  // from this tracker, was_released() must remain false and
+  // previously_released_huge_pages() must remain 0.
+  PAlloc a2 = AllocateWithSpanAllocInfo(Length(1), info);
+  ASSERT_EQ(a2.pt, pt);
+  EXPECT_FALSE(pt->released());
+  EXPECT_FALSE(pt->was_released());
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
+
+  DeleteRaw(a2);
+  DeleteRaw(a1);
+}
+
 // This test confirms that when a tracker is hugepage backed, unbacked
 // subrelease is skipped.
 TEST_F(FillerTestWithSubreleaseUnbacked,
