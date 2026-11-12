@@ -17,6 +17,7 @@
 #include <fcntl.h>
 #include <linux/kernel-page-flags.h>
 #include <stddef.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -136,28 +137,17 @@ PageFlags::~PageFlags() {
   }
 }
 
-size_t PageFlags::GetOffset(const uintptr_t vaddr) {
+off_t PageFlags::GetOffset(const uintptr_t vaddr) const {
   TC_ASSERT_EQ(vaddr % kHardwarePageSize, 0);
-  return vaddr / kHardwarePageSize * kPagemapEntrySize;
-}
-
-absl::StatusCode PageFlags::Seek(const uintptr_t vaddr) {
-  size_t offset = GetOffset(vaddr);
-  // Note: lseek can't be interrupted.
-  off_t status = ::lseek(fd_, offset, SEEK_SET);
-  if (status != offset) {
-    return absl::StatusCode::kUnavailable;
-  }
-  return absl::StatusCode::kOk;
+  return static_cast<off_t>(vaddr / kHardwarePageSize * kPagemapEntrySize);
 }
 
 absl::StatusCode PageFlags::MaybeReadOne(uintptr_t vaddr, uint64_t& flags,
                                          bool& is_huge) {
-  if (auto res = Seek(vaddr); res != absl::StatusCode::kOk) return res;
   static_assert(sizeof(flags) == kPagemapEntrySize);
-  auto status = signal_safe_read(fd_, reinterpret_cast<char*>(&flags),
-                                 kPagemapEntrySize, nullptr);
-  if (status != kPagemapEntrySize) {
+  if (signal_safe_pread(fd_, reinterpret_cast<char*>(&flags), kPagemapEntrySize,
+                        GetOffset(vaddr),
+                        /*bytes_read=*/nullptr) != kPagemapEntrySize) {
     return absl::StatusCode::kUnavailable;
   }
 
@@ -168,12 +158,9 @@ absl::StatusCode PageFlags::MaybeReadOne(uintptr_t vaddr, uint64_t& flags,
   }
 
   if (PageTail(flags)) {
-    if (auto res = Seek(vaddr & kHugePageMask); res != absl::StatusCode::kOk) {
-      return res;
-    }
-    auto status = signal_safe_read(fd_, reinterpret_cast<char*>(&flags),
-                                   kPagemapEntrySize, nullptr);
-    if (status != kPagemapEntrySize) {
+    if (signal_safe_pread(fd_, reinterpret_cast<char*>(&flags),
+                          kPagemapEntrySize, GetOffset(vaddr & kHugePageMask),
+                          /*bytes_read=*/nullptr) != kPagemapEntrySize) {
       return absl::StatusCode::kUnavailable;
     }
     if (ABSL_PREDICT_FALSE(PageTail(flags))) {
@@ -203,15 +190,11 @@ std::optional<bool> PageFlags::IsHugepageBacked(const void* const addr) {
   // Round address down to get the start of the first page that has any bytes
   // corresponding to the span [addr, addr+size).
   uintptr_t basePage = uaddr & ~(kHardwarePageSize - 1);
-  // Seek into fd.
-  if (auto res = Seek(basePage); res != absl::StatusCode::kOk) {
-    return std::nullopt;
-  }
   // Read entry
   static_assert(sizeof(flags) == kPagemapEntrySize);
-  auto status = signal_safe_read(fd_, reinterpret_cast<char*>(&flags),
-                                 kPagemapEntrySize, nullptr);
-  if (status != kPagemapEntrySize) {
+  if (signal_safe_pread(fd_, reinterpret_cast<char*>(&flags), kPagemapEntrySize,
+                        GetOffset(basePage),
+                        /*bytes_read=*/nullptr) != kPagemapEntrySize) {
     return std::nullopt;
   }
   // pass entry to check if its hugepage backed.
@@ -240,19 +223,13 @@ std::optional<PageStats> PageFlags::Get(const void* const addr,
       (uend + kHardwarePageSize - 1) & ~(kHardwarePageSize - 1);
 
   const uintptr_t basePage = vaddr;
-  // TODO(patrickx): Refactor PageFlags to use pread instead of Seek +
-  // signal_safe_read so we don't have to track and re-seek fd_'s offset.
-  bool need_seek = true;
   int64_t remainingPages = (endPage - vaddr) / kHardwarePageSize;
   while (remainingPages > 0) {
-    if (need_seek && Seek(vaddr) != absl::StatusCode::kOk) {
-      return std::nullopt;
-    }
-    need_seek = false;
     const size_t batch_size = std::min<int64_t>(kEntriesInBuf, remainingPages);
     const size_t to_read = kPagemapEntrySize * batch_size;
-    if (signal_safe_read(fd_, reinterpret_cast<char*>(buf_), to_read,
-                         nullptr) != to_read) {
+    if (signal_safe_pread(fd_, reinterpret_cast<char*>(buf_), to_read,
+                          GetOffset(vaddr),
+                          /*bytes_read=*/nullptr) != to_read) {
       return std::nullopt;
     }
     for (size_t i = 0; i < batch_size; ++i, vaddr += kHardwarePageSize) {
@@ -282,7 +259,6 @@ std::optional<PageStats> PageFlags::Get(const void* const addr,
               absl::StatusCode::kOk) {
             return std::nullopt;
           }
-          need_seek = true;
         } else if (ABSL_PREDICT_FALSE(last_head_read_ == -1)) {
           TC_LOG("Did not see head page before tail page (i=%v, buf=%v)", i,
                  buf_[i]);
@@ -325,19 +301,14 @@ PageFlagsBase::PageFlagsBitmaps PageFlags::GetSinglePageBitmaps(
     return ret;
   }
 
-  auto res = Seek(currPage);
-  if (res != absl::StatusCode::kOk) {
-    ret.status = res;
-    return ret;
-  }
-
   const size_t kHardwarePagesInHugePage = kHugePageSize / GetPageSize();
   const size_t kPagemapEntrySize = 8;
   const size_t kSizeOfHugepageInPagemap =
       kPagemapEntrySize * kHardwarePagesInHugePage;
 
-  auto status = signal_safe_read(fd_, reinterpret_cast<char*>(buf_),
-                                 kSizeOfHugepageInPagemap, nullptr);
+  auto status = signal_safe_pread(fd_, reinterpret_cast<char*>(buf_),
+                                  kSizeOfHugepageInPagemap, GetOffset(currPage),
+                                  /*bytes_read=*/nullptr);
   if (status != kSizeOfHugepageInPagemap) {
     TC_LOG("Could not read from pageflags file");
     ret.status = absl::StatusCode::kUnavailable;

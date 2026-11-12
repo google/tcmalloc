@@ -24,6 +24,7 @@
 #include <sys/types.h>
 #include <time.h>
 
+#include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
@@ -84,6 +85,20 @@ ssize_t signal_safe_write(int fd, const char* buf, size_t count,
 // read before any error.
 [[nodiscard]] ssize_t signal_safe_read(int fd, char* buf, size_t count,
                                        size_t* bytes_read);
+
+// signal_safe_pread() - a wrapper for pread(2) which ignores signals
+// Semantics equivalent to pread(2):
+//   returns number of bytes read, -1 on failure, error in errno
+//   additionally, (if not nullptr) total bytes read in *bytes_read
+//
+// In the interrupted (EINTR) or partial-read case, signal_safe_pread will
+// continue attempting to read into buf from offset + total_bytes without
+// modifying fd's file offset.  If an error occurs after a partial read,
+// signal_safe_pread returns -1 and (when bytes_read is non-null) stores the
+// total bytes read before the error in *bytes_read.
+[[nodiscard]] ssize_t signal_safe_pread(int fd, char* absl_nonnull buf,
+                                        size_t count, off_t offset,
+                                        size_t* absl_nullable bytes_read);
 
 // signal_safe_poll() - a wrapper for poll(2) which ignores signals
 // Semantics equivalent to poll(2):
