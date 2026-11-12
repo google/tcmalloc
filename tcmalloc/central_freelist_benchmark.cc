@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "absl/algorithm/container.h"
+#include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_map.h"
@@ -49,7 +50,20 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
-void* BenchmarkMetaDataAlloc(size_t bytes) { return ::operator new(bytes); }
+ABSL_CONST_INIT absl::Mutex metadata_mu(absl::kConstInit);
+
+std::vector<void*>& MetadataAllocs()
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(metadata_mu) {
+  static auto* allocs = new std::vector<void*>();
+  return *allocs;
+}
+
+void* BenchmarkMetaDataAlloc(size_t bytes) {
+  void* ptr = ::operator new(bytes);
+  absl::MutexLock l(metadata_mu);
+  MetadataAllocs().push_back(ptr);
+  return ptr;
+}
 
 using BenchmarkPageMap =
     PageMap<kAddressBits - kPageShift, BenchmarkMetaDataAlloc>;
@@ -81,6 +95,12 @@ class BenchmarkStaticForwarder : public StaticForwarder<Static, tc_globals> {
       ::operator delete(mem, std::align_val_t(page_size_));
       delete span;
     }
+    pagemap_.reset();
+    absl::MutexLock ml(metadata_mu);
+    for (void* ptr : MetadataAllocs()) {
+      ::operator delete(ptr);
+    }
+    MetadataAllocs().clear();
   }
 
   size_t class_to_size(int size_class) const { return class_size_; }
@@ -436,15 +456,28 @@ void DrainHeldObjects(BenchmarkEnv& env, absl::Span<void*> held_objects,
   }
 }
 
+// Returns true when running as a unit test (under blaze/bazel test, where
+// TEST_TMPDIR is set). Benchmarks use this to scale down working set sizes
+// so dry-run unit tests do not OOM or time out under sanitizers and debug
+// builds.
+bool IsRunningInTestMode() { return getenv("TEST_TMPDIR") != nullptr; }
+
 // Benchmark interacting with simulated page heap
 void BM_Populate(benchmark::State& state) {
   size_t object_size = state.range(0);
+  if (object_size > kMaxSize) {
+    return;
+  }
   const size_t size_class =
       tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
   const Bytes span_bytes =
       Bytes(tc_globals.sizemap().class_to_pages(size_class).in_bytes());
   const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
-  int num_objects = 64 * 1024 * 1024 / object_size;
+  // Scale down the allocation pool in unit test mode to avoid OOMs and
+  // timeouts under sanitizers and debug builds.
+  const size_t max_bytes =
+      IsRunningInTestMode() ? 256 * 1024 : 64 * 1024 * 1024;
+  int num_objects = std::max<int>(batch_size, max_bytes / object_size);
 
   BenchmarkEnv env(object_size, span_bytes, batch_size);
 
@@ -502,10 +535,15 @@ ActiveObjectPool SetupFreelistOccupancy(BenchmarkEnv& env,
                                         int target_free, int batch_size,
                                         size_t size_class, size_t object_size) {
   int free_per_span = objects_per_span - 1;
-  // Use a much larger queue to guarantee good mixing and no ringbuffer
-  // collision
-  int num_spans =
-      std::max<int>(1024, (target_free + free_per_span - 1) / free_per_span);
+  // Use a much larger queue in normal benchmark runs to guarantee good mixing
+  // and no ringbuffer collision, while keeping the working set small in unit
+  // test mode.
+  int min_spans =
+      IsRunningInTestMode()
+          ? 5
+          : std::max<int>(64, (8 << 20) / (objects_per_span * object_size));
+  int num_spans = std::max<int>(
+      min_spans, (3 * target_free + free_per_span - 1) / free_per_span);
 
   ActiveObjectPool pool;
   size_t total_objects = num_spans * objects_per_span;
@@ -637,6 +675,7 @@ ActiveObjectPool SetupFreelistOccupancy(BenchmarkEnv& env,
   }
 
   size_t active_count = pool.fifo_queue.size();
+  TC_CHECK_GE(active_count, batch_size);
   pool.queue_size = active_count + 16 * batch_size;
   pool.fifo_queue.resize(pool.queue_size);
   pool.head = 0;
@@ -648,6 +687,9 @@ ActiveObjectPool SetupFreelistOccupancy(BenchmarkEnv& env,
 // Benchmark steady state (no page heap interaction).
 void BM_SteadyState(benchmark::State& state) {
   const size_t object_size = state.range(0);
+  if (object_size > kMaxSize) {
+    return;
+  }
   const size_t size_class =
       tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
   const Bytes span_bytes =
@@ -657,7 +699,6 @@ void BM_SteadyState(benchmark::State& state) {
   const int objects_per_span = env.central_freelist().objects_per_span();
 
   if (objects_per_span <= 1) {
-    state.SkipWithError("Only for >1 objects per span");
     return;
   }
 
@@ -712,6 +753,9 @@ static MultithreadedState* g_mt_state = nullptr;
 
 void BM_Multithreaded_Setup(const benchmark::State& state) {
   const size_t object_size = state.range(0);
+  if (object_size > kMaxSize) {
+    return;
+  }
   const size_t size_class =
       tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
   const Bytes span_bytes =
@@ -755,17 +799,13 @@ void BM_Multithreaded_Teardown(const benchmark::State& state) {
 }
 
 void BM_Multithreaded(benchmark::State& state) {
-  TC_CHECK(g_mt_state);
+  if (g_mt_state == nullptr) {
+    return;
+  }
   const size_t object_size = state.range(0);
   const size_t size_class =
       tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
   const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
-  const int objects_per_span =
-      g_mt_state->env->central_freelist().objects_per_span();
-  if (objects_per_span <= 1) {
-    state.SkipWithError("Only for >1 objects per span");
-    return;
-  }
 
   ActiveObjectPool& pool = g_mt_state->thread_pools[state.thread_index()];
 

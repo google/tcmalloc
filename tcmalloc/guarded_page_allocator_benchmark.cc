@@ -46,10 +46,10 @@ size_t GetGpaPageSize() {
 }
 
 inline auto& GetStackTrace(size_t first_frame) {
-  thread_local StackTrace* s = new StackTrace;
-  s->stack[0] = reinterpret_cast<void*>(first_frame + 42);
-  s->depth = 1;
-  return *s;
+  thread_local StackTrace s;
+  s.stack[0] = reinterpret_cast<void*>(first_frame + 42);
+  s.depth = 1;
+  return s;
 }
 
 std::unique_ptr<GuardedPageAllocator, void (*)(GuardedPageAllocator*)>
