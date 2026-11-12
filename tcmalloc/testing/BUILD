@@ -317,6 +317,37 @@ cc_library(
     alwayslink = 1,
 )
 
+# Links a gtest TEST(Benchmarks, RunAll) into gunit_main-based *_test targets
+# (which use testing/base/public/benchmark.h) so their embedded BENCHMARKs run
+# in dry mode (10 iterations) during unit testing and do not bitrot.
+cc_library(
+    name = "run_benchmarks",
+    testonly = 1,
+    srcs = ["run_benchmarks.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:tcmalloc_tests"],
+    deps = [
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_googletest//:gtest_for_library",
+    ],
+    alwayslink = 1,
+)
+
+# Provides main() for standalone *_benchmark targets (which use
+# third_party/benchmark without gunit_main), defaulting --benchmark_min_time=10x
+# when running under blaze/bazel test or ctest (TEST_TMPDIR is set).
+cc_library(
+    name = "benchmark_main",
+    testonly = 1,
+    srcs = ["benchmark_main.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:tcmalloc_tests"],
+    deps = [
+        "@com_github_google_benchmark//:benchmark",
+    ],
+    alwayslink = 1,
+)
+
 cc_library(
     name = "smaps",
     testonly = 1,

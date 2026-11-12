@@ -85,7 +85,7 @@ tcmalloc_cc_test_variants(
     900
 )
 
-tcmalloc_cc_binary_variants(
+tcmalloc_cc_test_variants(
   NAME
     tcmalloc_testing_tcmalloc_benchmark
   SRCS
@@ -97,9 +97,9 @@ tcmalloc_cc_binary_variants(
     "absl::synchronization"
     "absl::time"
     "benchmark::benchmark"
-    "benchmark::benchmark_main"
     "tcmalloc::malloc_extension"
     "tcmalloc::malloc_hook"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -279,6 +279,32 @@ tcmalloc_cc_library(
     "tcmalloc::internal_environment"
     "tcmalloc::internal_percpu"
     "tcmalloc::testing_testutil"
+)
+
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_testing_run_benchmarks
+  ALIAS
+    tcmalloc::testing_run_benchmarks
+  ALWAYSLINK
+  SRCS
+    "run_benchmarks.cc"
+  DEPS
+    "GTest::gtest"
+    "GTest::gmock"
+    "benchmark::benchmark"
+)
+
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_testing_benchmark_main
+  ALIAS
+    tcmalloc::testing_benchmark_main
+  ALWAYSLINK
+  SRCS
+    "benchmark_main.cc"
+  DEPS
+    "benchmark::benchmark"
 )
 
 tcmalloc_cc_library(

@@ -478,7 +478,7 @@ tcmalloc_cc_library(
     "tcmalloc::internal_logging"
 )
 
-tcmalloc_cc_binary(
+tcmalloc_cc_test(
   NAME
     tcmalloc_internal_linked_list_benchmark
   SRCS
@@ -486,12 +486,12 @@ tcmalloc_cc_binary(
   DEPS
     "absl::random_random"
     "benchmark::benchmark"
-    "benchmark::benchmark_main"
     "tcmalloc::internal_config"
     "tcmalloc::internal_linked_list"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_mock_span"
     "tcmalloc::tcmalloc"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -732,18 +732,18 @@ tcmalloc_cc_library(
     "tcmalloc::internal_metadata_allocator"
 )
 
-tcmalloc_cc_binary(
+tcmalloc_cc_test(
   NAME
     tcmalloc_internal_mincore_benchmark
   SRCS
     "mincore_benchmark.cc"
   DEPS
     "benchmark::benchmark"
-    "benchmark::benchmark_main"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_page_size"
     "tcmalloc::tcmalloc"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -1106,6 +1106,7 @@ create_percpu_tcmalloc_testsuite(
     "tcmalloc::internal_sysinfo"
     "tcmalloc::internal_util"
     "tcmalloc::malloc_extension"
+    "tcmalloc::testing_run_benchmarks"
     "tcmalloc::testing_testutil"
 )
 
@@ -1376,7 +1377,7 @@ tcmalloc_cc_library(
     "tcmalloc::internal_optimization"
 )
 
-tcmalloc_cc_binary(
+tcmalloc_cc_test(
   NAME
     tcmalloc_internal_range_tracker_benchmark
   SRCS
@@ -1386,10 +1387,10 @@ tcmalloc_cc_binary(
     "absl::random_distributions"
     "absl::random_random"
     "benchmark::benchmark"
-    "benchmark::benchmark_main"
     "tcmalloc::internal_config"
     "tcmalloc::internal_range_tracker"
     "tcmalloc::tcmalloc"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -1581,6 +1582,7 @@ tcmalloc_cc_test(
     "tcmalloc::internal_proc_maps"
     "tcmalloc::internal_system_allocator"
     "tcmalloc::tcmalloc"
+    "tcmalloc::testing_run_benchmarks"
     "tcmalloc::testing_testutil"
 )
 
@@ -1605,6 +1607,7 @@ tcmalloc_cc_test(
     "tcmalloc::internal_proc_maps"
     "tcmalloc::internal_system_allocator"
     "tcmalloc::tcmalloc"
+    "tcmalloc::testing_run_benchmarks"
     "tcmalloc::testing_testutil"
   ENV
     "LC_ALL=en_US.UTF-8"

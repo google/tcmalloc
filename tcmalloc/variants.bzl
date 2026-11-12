@@ -14,7 +14,6 @@
 
 """ Helper functions to simplify TCMalloc BUILD files """
 
-load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//tcmalloc:experiment_variants.bzl", "experiment_variants")
@@ -520,15 +519,17 @@ def create_tcmalloc_benchmark(
     Args:
       name: Target name.
       srcs: Source files to be built.
-      **kwargs: Other arguments passed through to cc_binary or _tcmalloc_env_binary.
+      **kwargs: Other arguments passed through to cc_test or _tcmalloc_env_test.
     """
+    env = kwargs.pop("env", {})
     src_binary = kwargs.pop("src_binary", None)
     unset_env = kwargs.pop("unset_env", [])
     if src_binary != None:
         kwargs.pop("linkstatic", None)
-        _tcmalloc_env_binary(
+        _tcmalloc_env_test(
             name = name,
             src = src_binary,
+            env = env,
             testonly = 1,
             unset_env = unset_env,
             **kwargs
@@ -536,13 +537,14 @@ def create_tcmalloc_benchmark(
         return
     deps = kwargs.pop("deps")
     malloc = kwargs.pop("malloc", "//tcmalloc")
-    cc_binary(
+    cc_test(
         name = name,
         srcs = srcs,
+        env = env,
         malloc = malloc,
         testonly = 1,
         linkstatic = 1,
-        deps = deps + ["@com_github_google_benchmark//:benchmark_main"],
+        deps = deps + ["//tcmalloc/testing:benchmark_main"],
         **kwargs
     )
 

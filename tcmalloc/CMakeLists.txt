@@ -1267,7 +1267,7 @@ tcmalloc_cc_test(
     300
 )
 
-tcmalloc_cc_binary(
+tcmalloc_cc_test(
   NAME
     tcmalloc_transfer_cache_benchmark
   SRCS
@@ -1277,12 +1277,12 @@ tcmalloc_cc_binary(
     "absl::random_distributions"
     "absl::random_random"
     "benchmark::benchmark"
-    "benchmark::benchmark_main"
     "tcmalloc::common_8k_pages"
     "tcmalloc::internal_config"
     "tcmalloc::mock_central_freelist"
     "tcmalloc::mock_transfer_cache"
     "tcmalloc::tcmalloc"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -1397,7 +1397,7 @@ tcmalloc_cc_test(
     900
 )
 
-tcmalloc_cc_binary(
+tcmalloc_cc_test(
   NAME
     tcmalloc_huge_page_filler_benchmark
   SRCS
@@ -1407,7 +1407,6 @@ tcmalloc_cc_binary(
     "absl::string_view"
     "absl::time"
     "benchmark::benchmark"
-    "benchmark::benchmark_main"
     "tcmalloc::common_8k_pages"
     "tcmalloc::internal_clock"
     "tcmalloc::internal_config"
@@ -1418,6 +1417,7 @@ tcmalloc_cc_binary(
     "tcmalloc::internal_range_tracker"
     "tcmalloc::internal_residency"
     "tcmalloc::tcmalloc"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -1487,7 +1487,7 @@ tcmalloc_cc_test(
     900
 )
 
-tcmalloc_cc_binary(
+tcmalloc_cc_test(
   NAME
     tcmalloc_huge_page_aware_allocator_benchmark
   SRCS
@@ -1498,7 +1498,6 @@ tcmalloc_cc_binary(
     "absl::random_random"
     "absl::synchronization"
     "benchmark::benchmark"
-    "benchmark::benchmark_main"
     "tcmalloc::common_8k_pages"
     "tcmalloc::internal_allocation_guard"
     "tcmalloc::internal_config"
@@ -1506,6 +1505,7 @@ tcmalloc_cc_binary(
     "tcmalloc::internal_page_size"
     "tcmalloc::internal_sysinfo"
     "tcmalloc::tcmalloc"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -1571,20 +1571,20 @@ tcmalloc_cc_test(
     "tcmalloc::testing_thread_manager"
 )
 
-tcmalloc_cc_binary(
+tcmalloc_cc_test(
   NAME
     tcmalloc_guarded_page_allocator_benchmark
   SRCS
     "guarded_page_allocator_benchmark.cc"
   DEPS
     "benchmark::benchmark"
-    "benchmark::benchmark_main"
     "tcmalloc::common_8k_pages"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::internal_page_size"
     "tcmalloc::malloc_extension"
     "tcmalloc::tcmalloc"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -1807,7 +1807,7 @@ tcmalloc_cc_test_variants(
     900
 )
 
-tcmalloc_cc_binary(
+tcmalloc_cc_test(
   NAME
     tcmalloc_span_benchmark
   SRCS
@@ -1816,12 +1816,12 @@ tcmalloc_cc_binary(
     "absl::random_random"
     "absl::span"
     "benchmark::benchmark"
-    "benchmark::benchmark_main"
     "tcmalloc::common_8k_pages"
     "tcmalloc::internal_allocation_guard"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
     "tcmalloc::tcmalloc"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_test(
@@ -2095,7 +2095,7 @@ tcmalloc_cc_test_variants(
     "tcmalloc::testing_thread_manager"
 )
 
-tcmalloc_cc_binary_variants(
+tcmalloc_cc_test_variants(
   NAME
     tcmalloc_central_freelist_benchmark
   SRCS
@@ -2112,10 +2112,10 @@ tcmalloc_cc_binary_variants(
     "absl::synchronization"
     "absl::time"
     "benchmark::benchmark"
-    "benchmark::benchmark_main"
     "tcmalloc::internal_bytes"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"
+    "tcmalloc::testing_benchmark_main"
 )
 
 tcmalloc_cc_library(
