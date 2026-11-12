@@ -908,6 +908,360 @@ TEST(PageFlagsTest, GetSinglePageBitmapsSuccess) {
   EXPECT_EQ(ret.stale_scan_seconds, kSetScanSeconds);
 }
 
+TEST(PageFlagsTest, DeferredSplitThpFlags) {
+  const size_t kHardwarePageSize = GetPageSize();
+  const size_t kPagesPerHugepage = kHugePageSize / kHardwarePageSize;
+  std::vector<uint64_t> data(4 * kPagesPerHugepage, 0);
+
+  auto set_tails = [&](size_t huge_idx, size_t first_tail) {
+    for (size_t i = first_tail; i < kPagesPerHugepage; ++i) {
+      data[huge_idx * kPagesPerHugepage + i] = kPageTail | kPageThp;
+    }
+  };
+
+  // Hugepage 0: intact mlocked THP.
+  data[0] = kPageHead | kPageThp | kPageMlocked;
+  set_tails(0, 1);
+
+  // Hugepage 1: deferred-split THP with stale+incompressible compound head at
+  // page 0, unbacked page 1 (0), native mlocked order-0 page 2, and tail pages
+  // 3..N-1 inheriting the compound head's stale+incompressible flags.
+  data[kPagesPerHugepage] =
+      kPageHead | kPageThp | kPageStale | kPageIncompressible;
+  data[kPagesPerHugepage + 2] = kPageMlocked;
+  set_tails(1, 3);
+
+  // Hugepages 2 and 3: orphaned tail pages 1..N-1 with unbacked (0) or native
+  // order-0 (kPageMlocked) page 0.
+  set_tails(2, 1);
+  data[3 * kPagesPerHugepage] = kPageMlocked;
+  set_tails(3, 1);
+
+  std::string file_path =
+      absl::StrCat(testing::TempDir(), "/deferred_split_thp_flags");
+  SetContents(file_path,
+              absl::string_view(reinterpret_cast<const char*>(data.data()),
+                                data.size() * sizeof(data[0])));
+
+  PageFlagsFriend s(file_path);
+  constexpr uint64_t kSetScanSeconds = 63;
+  s.SetCachedScanSeconds(kSetScanSeconds);
+
+  const size_t kHeadBytes = (kPagesPerHugepage - 2) * kHardwarePageSize;
+  const size_t kTailBytes = (kPagesPerHugepage - 3) * kHardwarePageSize;
+  struct Case {
+    uintptr_t offset;
+    size_t size;
+    PageStats expected;
+  };
+  for (const Case& tc : {
+           Case{kHugePageSize, kHugePageSize,
+                PageStats{kHeadBytes, kHardwarePageSize, kHeadBytes,
+                          kSetScanSeconds}},
+           Case{kHugePageSize + kHardwarePageSize,
+                kHugePageSize - kHardwarePageSize,
+                PageStats{kTailBytes, kHardwarePageSize, kTailBytes,
+                          kSetScanSeconds}},
+           Case{kHugePageSize + 2 * kHardwarePageSize + 100,
+                kHugePageSize - 2 * kHardwarePageSize - 100,
+                PageStats{kTailBytes, kHardwarePageSize - 100, kTailBytes,
+                          kSetScanSeconds}},
+           Case{kHugePageSize + 3 * kHardwarePageSize,
+                kHugePageSize - 3 * kHardwarePageSize,
+                PageStats{kTailBytes, 0, kTailBytes, kSetScanSeconds}},
+           Case{0, 2 * kHugePageSize,
+                PageStats{kHeadBytes, kHugePageSize + kHardwarePageSize,
+                          kHeadBytes, kSetScanSeconds}},
+       }) {
+    SCOPED_TRACE(absl::StrCat("offset=", tc.offset, " size=", tc.size));
+    EXPECT_THAT(s.Get(reinterpret_cast<const void*>(tc.offset), tc.size),
+                Optional(tc.expected));
+  }
+
+  auto h1_bitmaps =
+      s.GetSinglePageBitmaps(reinterpret_cast<const void*>(kHugePageSize));
+  EXPECT_EQ(h1_bitmaps.status, absl::StatusCode::kOk);
+  EXPECT_EQ(h1_bitmaps.stale.CountBits(), kPagesPerHugepage - 2);
+  EXPECT_EQ(h1_bitmaps.locked.CountBits(), 1);
+  EXPECT_TRUE(h1_bitmaps.locked.GetBit(2));
+  EXPECT_EQ(h1_bitmaps.incompressible.CountBits(), kPagesPerHugepage - 2);
+
+  for (size_t huge_idx : {size_t{2}, size_t{3}}) {
+    const uintptr_t h = huge_idx * kHugePageSize;
+    EXPECT_THAT(
+        s.Get(reinterpret_cast<const void*>(h), kHardwarePageSize),
+        Optional(FieldsAre(0, huge_idx == 3 ? kHardwarePageSize : 0, 0, 0)));
+    EXPECT_EQ(s.Get(reinterpret_cast<const void*>(h), kHugePageSize),
+              std::nullopt);
+    EXPECT_EQ(s.Get(reinterpret_cast<const void*>(h + kHardwarePageSize),
+                    kHardwarePageSize),
+              std::nullopt);
+    EXPECT_EQ(s.GetSinglePageBitmaps(reinterpret_cast<const void*>(h)).status,
+              absl::StatusCode::kFailedPrecondition);
+  }
+  EXPECT_EQ(s.Get(nullptr, 3 * kHugePageSize), std::nullopt);
+}
+
+TEST(PageFlagsTest, DeferredSplitThp) {
+  GTEST_SKIP() << "pageflags not commonly available";
+
+#if ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_MEMORY_SANITIZER || \
+    ABSL_HAVE_THREAD_SANITIZER
+  GTEST_SKIP() << "Skipped under sanitizers.";
+#endif
+
+  const size_t kHardwarePageSize = getpagesize();
+  const size_t kSize = 3 * kHugePageSize;
+  char* p = MmapWithHugepageMisalignment(kSize, /*misalignment=*/0);
+  struct Unmapper {
+    char* ptr;
+    size_t size;
+    ~Unmapper() { CHECK_EQ(munmap(ptr, size), 0) << errno; }
+  } unmap_p{p, kSize};
+  std::memset(p, 0x5a, kSize);
+
+  if (madvise(p, kSize, MADV_COLLAPSE) != 0) {
+    GTEST_SKIP() << "MADV_COLLAPSE unavailable or out of hugepages: " << errno;
+  }
+  ASSERT_EQ(madvise(p, kSize, MADV_NOHUGEPAGE), 0) << errno;
+
+  PageFlags s;
+  char* h0 = p;
+  char* h1 = p + kHugePageSize;
+  char* h2 = p + 2 * kHugePageSize;
+  if (!s.IsHugepageBacked(h0).value_or(false) ||
+      !s.IsHugepageBacked(h1).value_or(false) ||
+      !s.IsHugepageBacked(h2).value_or(false)) {
+    GTEST_SKIP() << "THP collapse did not materialize compound pages.";
+  }
+
+  auto wait_for_locked = [&](const void* addr, size_t len, size_t expected) {
+    absl::Time start = absl::Now();
+    std::optional<PageStats> res;
+    do {
+      res = s.Get(addr, len);
+      ASSERT_TRUE(res.has_value());
+      if (res->bytes_locked == expected) break;
+      absl::SleepFor(absl::Milliseconds(10));
+    } while (absl::Now() - start < absl::Seconds(60));
+    ASSERT_THAT(res, Optional(FieldsAre(0, expected, 0, 0)));
+  };
+
+  // h0: intact mlocked 2 MiB THP (KPF_COMPOUND_HEAD | KPF_THP | KPF_MLOCKED on
+  // page 0, KPF_COMPOUND_TAIL | KPF_THP on pages 1..511).
+  ASSERT_EQ(mlock(h0, kHugePageSize), 0) << errno;
+  wait_for_locked(h0, kHugePageSize, kHugePageSize);
+
+  // h1: deferred-split THP with interior pages 1 and 2 unbacked via
+  // MADV_DONTNEED (splitting the PMD into PTEs while leaving page 0 as
+  // PageHead | PageThp and pages 3..511 as PageTail | PageThp), and page 2
+  // refaulted and mlocked as a native order-0 page. Under memory pressure, the
+  // kernel's deferred_split shrinker may asynchronously split a partially
+  // unmapped THP into order-0 native pages; retry once only if a split occurred
+  // mid-query so tail pages are no longer hugepage-backed.
+  ASSERT_EQ(
+      madvise(h1 + kHardwarePageSize, 2 * kHardwarePageSize, MADV_DONTNEED), 0)
+      << errno;
+  h1[2 * kHardwarePageSize] = 1;
+  ASSERT_EQ(mlock(h1 + 2 * kHardwarePageSize, kHardwarePageSize), 0) << errno;
+  wait_for_locked(h1 + 2 * kHardwarePageSize, kHardwarePageSize,
+                  kHardwarePageSize);
+
+  auto h1_bitmaps = s.GetSinglePageBitmaps(h1);
+  if (h1_bitmaps.status != absl::StatusCode::kOk) {
+    absl::SleepFor(absl::Milliseconds(10));
+    if (!s.IsHugepageBacked(h1 + 3 * kHardwarePageSize).value_or(true)) {
+      h1_bitmaps = s.GetSinglePageBitmaps(h1);
+    }
+  }
+  EXPECT_EQ(h1_bitmaps.status, absl::StatusCode::kOk);
+  EXPECT_EQ(h1_bitmaps.locked.CountBits(), 1);
+  EXPECT_TRUE(h1_bitmaps.locked.GetBit(2));
+
+  // Querying h1 from page 0 (aligned and unaligned), from unbacked page 1,
+  // from refaulted+mlocked page 2, from tail page 3, and across hugepage
+  // boundaries from h0.
+  struct RangeCase {
+    const char* addr;
+    size_t size;
+    size_t expected_locked;
+  };
+  for (const RangeCase& tc : {
+           RangeCase{h1, kHugePageSize, kHardwarePageSize},
+           RangeCase{h1 + 100, kHugePageSize - 200, kHardwarePageSize},
+           RangeCase{h1 + kHardwarePageSize, kHugePageSize - kHardwarePageSize,
+                     kHardwarePageSize},
+           RangeCase{h1 + 2 * kHardwarePageSize + 100,
+                     kHugePageSize - 2 * kHardwarePageSize - 100,
+                     kHardwarePageSize - 100},
+           RangeCase{h1 + 3 * kHardwarePageSize,
+                     kHugePageSize - 3 * kHardwarePageSize, 0},
+           RangeCase{h0, 2 * kHugePageSize, kHugePageSize + kHardwarePageSize},
+           RangeCase{h0 + kHugePageSize / 2, kHugePageSize,
+                     kHugePageSize / 2 + kHardwarePageSize},
+       }) {
+    SCOPED_TRACE(absl::StrCat("offset=", tc.addr - p, " size=", tc.size));
+    auto res = s.Get(tc.addr, tc.size);
+    if (!res.has_value()) {
+      absl::SleepFor(absl::Milliseconds(10));
+      if (!s.IsHugepageBacked(h1 + 3 * kHardwarePageSize).value_or(true)) {
+        res = s.Get(tc.addr, tc.size);
+      }
+    }
+    EXPECT_THAT(res, Optional(FieldsAre(0, tc.expected_locked, 0, 0)));
+  }
+
+  // h2: unbacking page 0 (the compound head) leaves page 0 as KPF_NOPAGE while
+  // pages 1..511 remain orphaned PageTail | PageThp pages; refaulting and
+  // mlocking page 0 then installs a native order-0 page (!PageHead &&
+  // !PageTail) at the 2 MiB base. While the tail pages remain compound THP
+  // tails, any query reaching them fails; if the kernel's deferred_split
+  // shrinker splits h2 into order-0 pages, queries report the order-0 stats.
+  ASSERT_EQ(madvise(h2, kHardwarePageSize, MADV_DONTNEED), 0) << errno;
+  for (bool refault_head : {false, true}) {
+    SCOPED_TRACE(refault_head);
+    const size_t head_locked = refault_head ? kHardwarePageSize : 0;
+    if (refault_head) {
+      h2[0] = 1;
+      ASSERT_EQ(mlock(h2, kHardwarePageSize), 0) << errno;
+    }
+    wait_for_locked(h2, kHardwarePageSize, head_locked);
+    for (const RangeCase& tc : {
+             RangeCase{h2, kHugePageSize, head_locked},
+             RangeCase{h2 + kHardwarePageSize, kHardwarePageSize, 0},
+             RangeCase{h0, 3 * kHugePageSize,
+                       kHugePageSize + kHardwarePageSize + head_locked},
+         }) {
+      SCOPED_TRACE(absl::StrCat("offset=", tc.addr - p, " size=", tc.size));
+      auto res = s.Get(tc.addr, tc.size);
+      if (s.IsHugepageBacked(h2 + kHardwarePageSize).value_or(false)) {
+        EXPECT_EQ(res, std::nullopt);
+      } else if (res.has_value()) {
+        EXPECT_THAT(res, Optional(FieldsAre(0, tc.expected_locked, 0, 0)));
+      }
+    }
+    auto h2_bitmaps = s.GetSinglePageBitmaps(h2);
+    if (s.IsHugepageBacked(h2 + kHardwarePageSize).value_or(false)) {
+      EXPECT_EQ(h2_bitmaps.status, absl::StatusCode::kFailedPrecondition);
+    } else if (h2_bitmaps.status == absl::StatusCode::kOk) {
+      EXPECT_EQ(h2_bitmaps.locked.CountBits(), refault_head ? 1 : 0);
+    }
+  }
+}
+
+TEST(PageFlagsTest, Mthp) {
+  const size_t kHardwarePageSize = GetPageSize();
+  const size_t kPagesPerHugepage = kHugePageSize / kHardwarePageSize;
+  constexpr size_t kMthpPages = 4;
+  ASSERT_GE(kPagesPerHugepage, 5 * kMthpPages);
+  std::vector<uint64_t> data(kPagesPerHugepage, 0);
+
+  auto set_mthp = [&](size_t start_page, uint64_t head_flags) {
+    data[start_page] = kPageHead | kPageThp | head_flags;
+    for (size_t i = 1; i < kMthpPages; ++i) {
+      data[start_page + i] = kPageTail | kPageThp;
+    }
+  };
+
+  // Pages 0..3: intact stale mTHP.
+  set_mthp(0, kPageStale);
+  // Pages 4..7: native order-0 pages (page 4 mlocked, pages 5..7 clean).
+  data[4] = kPageMlocked;
+  // Pages 8..11: intact incompressible mTHP.
+  set_mthp(8, kPageIncompressible);
+  // Pages 12..15: deferred-split mlocked mTHP (page 13 unbacked, page 14
+  // refaulted stale order-0 page, page 15 tail inheriting mlocked from 12).
+  set_mthp(12, kPageMlocked);
+  data[13] = 0;
+  data[14] = kPageStale;
+  // Pages 16..19: intact clean mTHP (resets last_head_read_ to clean flags).
+  set_mthp(16, 0);
+
+  std::string file_path = absl::StrCat(testing::TempDir(), "/mthp_flags");
+  SetContents(file_path,
+              absl::string_view(reinterpret_cast<const char*>(data.data()),
+                                data.size() * sizeof(data[0])));
+
+  PageFlagsFriend s(file_path);
+  constexpr uint64_t kSetScanSeconds = 63;
+  s.SetCachedScanSeconds(kSetScanSeconds);
+
+  const size_t p = kHardwarePageSize;
+  struct Case {
+    uintptr_t offset;
+    size_t size;
+    PageStats expected;
+  };
+  for (const Case& tc : {
+           Case{0, kHugePageSize,
+                PageStats{5 * p, 3 * p, 4 * p, kSetScanSeconds}},
+           Case{0, 8 * p, PageStats{4 * p, p, 0, kSetScanSeconds}},
+           Case{p, 19 * p, PageStats{4 * p, 3 * p, 4 * p, kSetScanSeconds}},
+           Case{4 * p, 16 * p, PageStats{p, 3 * p, 4 * p, kSetScanSeconds}},
+           Case{8 * p + 100, 4 * p - 100, PageStats{0, 0, 4 * p - 100, 0}},
+           Case{12 * p, 8 * p, PageStats{p, 2 * p, 0, kSetScanSeconds}},
+       }) {
+    SCOPED_TRACE(absl::StrCat("offset=", tc.offset, " size=", tc.size));
+    EXPECT_THAT(s.Get(reinterpret_cast<const void*>(tc.offset), tc.size),
+                Optional(tc.expected));
+  }
+
+  auto bitmaps = s.GetSinglePageBitmaps(nullptr);
+  EXPECT_EQ(bitmaps.status, absl::StatusCode::kOk);
+  EXPECT_EQ(bitmaps.stale.CountBits(), 5);
+  EXPECT_EQ(bitmaps.locked.CountBits(), 3);
+  EXPECT_EQ(bitmaps.incompressible.CountBits(), 4);
+}
+
+// Supporting Get() starting mid-mTHP on a tail page of a non-2 MiB-aligned mTHP
+// requires locating that mTHP's head rather than rewinding to
+// vaddr & kHugePageMask (which either reads an unrelated mTHP head at page 0 or
+// fails when page 0 is native/unbacked). Note that /proc/self/pageflags does
+// not expose compound folio order, so if sub-pages are unbacked,
+// [Head@0, Tail@1..3, 0@4, Tail@5..7] is indistinguishable between an 8-page
+// deferred-split mTHP with interior page 4 unbacked and a 4-page mTHP at 0..3
+// followed by a headless deferred-split mTHP at 4..7 with head page 4 unbacked.
+TEST(PageFlagsTest, DISABLED_MthpUnalignedTailStart) {
+  const size_t kHardwarePageSize = GetPageSize();
+  const size_t kPagesPerHugepage = kHugePageSize / kHardwarePageSize;
+  constexpr size_t kMthpPages = 4;
+  ASSERT_GE(kPagesPerHugepage, 2 * kMthpPages);
+  std::vector<uint64_t> data(2 * kPagesPerHugepage, 0);
+
+  auto set_mthp = [&](size_t start_page, uint64_t head_flags) {
+    data[start_page] = kPageHead | kPageThp | head_flags;
+    for (size_t i = 1; i < kMthpPages; ++i) {
+      data[start_page + i] = kPageTail | kPageThp;
+    }
+  };
+
+  // Hugepage 0: stale mTHP at pages 0..3, mlocked mTHP at pages 4..7.
+  // Starting at tail page 5 currently rewinds to page 0 and misattributes stale
+  // instead of mlocked.
+  set_mthp(0, kPageStale);
+  set_mthp(4, kPageMlocked);
+
+  // Hugepage 1: native pages at 0..3, mlocked mTHP at pages 4..7.
+  // Starting at tail page 5 currently rewinds to page 0 (!PageHead) and returns
+  // std::nullopt.
+  set_mthp(kPagesPerHugepage + 4, kPageMlocked);
+
+  std::string file_path =
+      absl::StrCat(testing::TempDir(), "/mthp_unaligned_tail_start");
+  SetContents(file_path,
+              absl::string_view(reinterpret_cast<const char*>(data.data()),
+                                data.size() * sizeof(data[0])));
+
+  PageFlagsFriend s(file_path);
+  s.SetCachedScanSeconds(63);
+  const size_t p = kHardwarePageSize;
+  for (uintptr_t base : {uintptr_t{0}, uintptr_t{kHugePageSize}}) {
+    SCOPED_TRACE(base);
+    EXPECT_THAT(s.Get(reinterpret_cast<const void*>(base + 5 * p), 3 * p),
+                Optional(PageStats{0, 3 * p, 0, 0}));
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

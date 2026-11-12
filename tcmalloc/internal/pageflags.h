@@ -21,6 +21,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include <optional>
@@ -127,14 +128,10 @@ class PageFlags final : public PageFlagsBase {
 
  private:
   // Returns the offset in the pageflags file for the given virtual address.
-  [[nodiscard]] size_t GetOffset(uintptr_t vaddr);
-
-  // This helper seeks the internal file to the correct location for the given
-  // virtual address.
-  [[nodiscard]] absl::StatusCode Seek(uintptr_t vaddr);
+  [[nodiscard]] off_t GetOffset(uintptr_t vaddr) const;
 
   // Tries to read staleness information about the page that contains vaddr.
-  // Possibly seeks backwards in an effort to find head hugepages.
+  // Reads the head page if vaddr is a tail hugepage.
   [[nodiscard]] absl::StatusCode MaybeReadOne(uintptr_t vaddr, uint64_t& flags,
                                               bool& is_huge);
 

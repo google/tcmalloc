@@ -1790,6 +1790,7 @@ tcmalloc_cc_library(
   SRCS
     "util.cc"
   DEPS
+    "absl::nullability"
     "absl::span"
     "absl::strings"
     "absl::time"
