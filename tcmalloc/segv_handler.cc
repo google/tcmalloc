@@ -174,32 +174,32 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
       PrintStackTrace(dealloc_trace->stack, dealloc_trace->depth);
       TC_LOG("Use-after-free %s occurs in thread %v at:",
              WriteFlagToString(write_flag), current_thread);
-      RecordCrash("GWP-ASan", "use-after-free");
+      RecordCrash("GWP-ASan", "use-after-free", {});
       break;
     case GuardedAllocationsErrorType::kBufferUnderflow:
     case GuardedAllocationsErrorType::kBufferUnderflowRead:
     case GuardedAllocationsErrorType::kBufferUnderflowWrite:
       TC_LOG("Buffer underflow %s occurs in thread %v at:",
              WriteFlagToString(write_flag), current_thread);
-      RecordCrash("GWP-ASan", "buffer-underflow");
+      RecordCrash("GWP-ASan", "buffer-underflow", {});
       break;
     case GuardedAllocationsErrorType::kBufferOverflow:
     case GuardedAllocationsErrorType::kBufferOverflowRead:
     case GuardedAllocationsErrorType::kBufferOverflowWrite:
       TC_LOG("Buffer overflow %s occurs in thread %v at:",
              WriteFlagToString(write_flag), current_thread);
-      RecordCrash("GWP-ASan", "buffer-overflow");
+      RecordCrash("GWP-ASan", "buffer-overflow", {});
       break;
     case GuardedAllocationsErrorType::kDoubleFree:
       TC_LOG("The memory was freed in thread %v at:", dealloc_trace->thread_id);
       PrintStackTrace(dealloc_trace->stack, dealloc_trace->depth);
       TC_LOG("Double free occurs in thread %v at:", current_thread);
-      RecordCrash("GWP-ASan", "double-free");
+      RecordCrash("GWP-ASan", "double-free", {});
       break;
     case GuardedAllocationsErrorType::kBufferOverflowOnDealloc:
       TC_LOG("Buffer overflow (write) detected in thread %v at free:",
              current_thread);
-      RecordCrash("GWP-ASan", "buffer-overflow-detected-at-free");
+      RecordCrash("GWP-ASan", "buffer-overflow-detected-at-free", {});
       break;
     case GuardedAllocationsErrorType::kUnknown:
       TC_BUG("Unexpected GuardedAllocationsErrorType::kUnknown");

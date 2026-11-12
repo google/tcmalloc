@@ -36,6 +36,7 @@
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/malloc_extension.h"
@@ -106,7 +107,8 @@ struct StackTrace {
   tcmalloc::tcmalloc_internal::LogImpl("%d %s:%d] " msg "\n", __FILE__, \
                                        __LINE__, ##__VA_ARGS__)
 
-void RecordCrash(absl::string_view detector, absl::string_view error);
+void RecordCrash(absl::string_view detector, absl::string_view error,
+                 absl::Span<void* const> stack);
 [[noreturn]] void CrashWithOOM(size_t alloc_size);
 [[noreturn]] void CheckFailed(const char* file, int line, const char* msg,
                               int msglen);

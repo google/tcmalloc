@@ -58,7 +58,8 @@ ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedDelete(
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
   PrintStackTrace(stack, depth);
 
-  RecordCrash("GWP-ASan", "mismatched-size-delete");
+  RecordCrash("GWP-ASan", "mismatched-size-delete",
+              absl::MakeSpan(stack, depth));
   state.gwp_asan_state().RecordMismatch(
       ptr, size, size, requested_size, maximum_size,
       absl::MakeSpan(alloc.sampled_stack.stack, alloc.sampled_stack.depth),
@@ -91,7 +92,8 @@ ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedDelete(Static& state,
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
   PrintStackTrace(stack, depth);
 
-  RecordCrash("GWP-ASan", "mismatched-size-delete");
+  RecordCrash("GWP-ASan", "mismatched-size-delete",
+              absl::MakeSpan(stack, depth));
   state.gwp_asan_state().RecordMismatch(ptr, /*provided_min=*/size,
                                         /*provided_max=*/size, minimum_size,
                                         maximum_size, std::nullopt,
@@ -121,7 +123,8 @@ ABSL_ATTRIBUTE_NOINLINE void ReportMismatchedSizeClass(Static& state,
   void* stack[kMaxStackDepth];
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
 
-  RecordCrash("GWP-ASan", "mismatched-size-class");
+  RecordCrash("GWP-ASan", "mismatched-size-class",
+              absl::MakeSpan(stack, depth));
 
   state.gwp_asan_state().RecordMismatch(
       object, object_min_size, object_max_size, page_min_size, page_max_size,
@@ -143,7 +146,7 @@ ABSL_ATTRIBUTE_NOINLINE void ReportDoubleFree(Static& state, const void* ptr) {
   void* stack[kMaxStackDepth];
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
 
-  RecordCrash("GWP-ASan", "double-free");
+  RecordCrash("GWP-ASan", "double-free", absl::MakeSpan(stack, depth));
   state.gwp_asan_state().RecordDoubleFree(ptr, absl::MakeSpan(stack, depth));
 
   TC_BUG("Possible double free detected of %p", ptr);
@@ -155,7 +158,7 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(Static& state,
   void* stack[kMaxStackDepth];
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
 
-  RecordCrash("GWP-ASan", "invalid-free");
+  RecordCrash("GWP-ASan", "invalid-free", absl::MakeSpan(stack, depth));
   state.gwp_asan_state().RecordInvalidFree(ptr, absl::MakeSpan(stack, depth));
 
   TC_BUG(
@@ -170,7 +173,7 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
   void* stack[kMaxStackDepth];
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
 
-  RecordCrash("GWP-ASan", "invalid-free");
+  RecordCrash("GWP-ASan", "invalid-free", absl::MakeSpan(stack, depth));
   const uintptr_t addr = absl::bit_cast<uintptr_t>(ptr);
   state.gwp_asan_state().RecordInvalidFree(
       ptr, static_cast<std::align_val_t>(addr & -addr), expected_alignment,
@@ -187,7 +190,7 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
   void* stack[kMaxStackDepth];
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
 
-  RecordCrash("GWP-ASan", "invalid-free");
+  RecordCrash("GWP-ASan", "invalid-free", absl::MakeSpan(stack, depth));
   const uintptr_t addr = absl::bit_cast<uintptr_t>(ptr);
   state.gwp_asan_state().RecordInvalidFree(
       ptr, static_cast<std::align_val_t>(addr & -addr), expected_alignment,
@@ -203,7 +206,7 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
   void* stack[kMaxStackDepth];
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
 
-  RecordCrash("GWP-ASan", "invalid-free");
+  RecordCrash("GWP-ASan", "invalid-free", absl::MakeSpan(stack, depth));
   state.gwp_asan_state().RecordMismatchedFree(ptr, alloc_type, dealloc_type,
                                               allocation_stack,
                                               absl::MakeSpan(stack, depth));
@@ -218,7 +221,7 @@ ABSL_ATTRIBUTE_NOINLINE void ReportCorruptedFree(
   void* stack[kMaxStackDepth];
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
 
-  RecordCrash("GWP-ASan", "invalid-free");
+  RecordCrash("GWP-ASan", "invalid-free", absl::MakeSpan(stack, depth));
   state.gwp_asan_state().RecordInvalidFree(ptr, dealloc_align, alloc_align,
                                            allocation_stack,
                                            absl::MakeSpan(stack, depth));

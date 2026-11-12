@@ -522,12 +522,14 @@ cc_library(
         ":parameter_accessors",
         "//tcmalloc:malloc_extension",
         "//tcmalloc:malloc_hook",
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/debugging:stacktrace",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
     ],
 )
 

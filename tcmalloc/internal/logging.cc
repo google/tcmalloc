@@ -36,6 +36,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "absl/algorithm/container.h"
 #include "absl/base/attributes.h"
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
@@ -140,7 +141,10 @@ static void RecordTestFailure(absl::string_view detector,
 //
 // detector is the bug detector or tools that found the error
 // error contains the type of error to record.
-void RecordCrash(absl::string_view detector, absl::string_view error) {
+// stack is the stack trace to report as the crashing stack.  If it is empty,
+// the crash reporter unwinds the crashing thread itself.
+void RecordCrash(absl::string_view detector, absl::string_view error,
+                 absl::Span<void* const> stack) {
   TC_ASSERT(!detector.empty());
   TC_ASSERT(!error.empty());
 

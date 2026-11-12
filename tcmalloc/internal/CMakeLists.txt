@@ -531,6 +531,10 @@ tcmalloc_cc_library(
   DEPS
     "absl::base"
     "absl::core_headers"
+    "absl::flat_hash_map"
+    "absl::flat_hash_set"
+    "absl::inlined_vector"
+    "absl::span"
     "absl::stacktrace"
     "absl::str_format"
     "absl::strings"
