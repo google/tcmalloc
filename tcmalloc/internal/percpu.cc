@@ -32,13 +32,13 @@
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"  // IWYU pragma: keep
 #include "absl/base/optimization.h"
+#include "third_party/gloop/base/percpu.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/linux_syscall_support.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/internal/util.h"
 
