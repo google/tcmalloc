@@ -3224,6 +3224,117 @@ TEST(HugePageAwareAllocatorDeathTest, DoubleFreeReportsError) {
   delete_allocation(tail_small);
 }
 
+TEST(HugePageAwareAllocatorTest, CacheShrinkUnbackWindowPreservesStats) {
+  class HookedForwarder
+      : public huge_page_allocator_internal::FakeHugePageStaticForwarder {
+   public:
+    [[nodiscard]] MemoryModifyStatus ReleasePages(Range r) {
+      if (release_hook_) {
+        release_hook_(r);
+      }
+      return huge_page_allocator_internal::FakeHugePageStaticForwarder::
+          ReleasePages(r);
+    }
+
+    std::function<void(Range)> release_hook_;
+  };
+
+  huge_page_allocator_internal::HugePageAwareAllocator<HookedForwarder>
+      allocator({.tag = MemoryTag::kNormal});
+  constexpr SpanAllocInfo kSpanInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kSparse,
+  };
+
+  AllocationState s = allocator.New(2 * kPagesPerHugePage, kSpanInfo);
+  ASSERT_TRUE(s);
+  {
+    PageHeapSpinLockHolder l;
+    allocator.Delete(s, kSpanInfo);
+  }
+
+  int hook_calls = 0;
+  BackingStats observed_st;
+  allocator.forwarder().release_hook_ = [&](Range r) {
+    PageHeapSpinLockHolder l;
+    observed_st = allocator.stats();
+    ++hook_calls;
+  };
+
+  Length released;
+  {
+    PageHeapSpinLockHolder l;
+    released = allocator.ReleaseAtLeastNPages(
+        2 * kPagesPerHugePage, PageReleaseReason::kReleaseMemoryToSystem);
+  }
+  EXPECT_EQ(released, 2 * kPagesPerHugePage);
+  ASSERT_GT(hook_calls, 0);
+  EXPECT_EQ(observed_st.system_bytes,
+            observed_st.free_bytes + observed_st.unmapped_bytes);
+}
+
+TEST(HugePageAwareAllocatorTest,
+     CacheShrinkUnbackWindowPreservesPageAllocationStatus) {
+  class HookedForwarder
+      : public huge_page_allocator_internal::FakeHugePageStaticForwarder {
+   public:
+    [[nodiscard]] MemoryModifyStatus ReleasePages(Range r) {
+      if (release_hook_) {
+        release_hook_(r);
+      }
+      return huge_page_allocator_internal::FakeHugePageStaticForwarder::
+          ReleasePages(r);
+    }
+
+    std::function<void(Range)> release_hook_;
+  };
+
+  huge_page_allocator_internal::HugePageAwareAllocator<HookedForwarder>
+      allocator({.tag = MemoryTag::kNormal});
+  constexpr SpanAllocInfo kSpanInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kSparse,
+  };
+
+  AllocationState s = allocator.New(2 * kPagesPerHugePage, kSpanInfo);
+  ASSERT_TRUE(s);
+  const HugePage hp0 = HugePageContaining(s.r.p);
+  const HugePage hp1 = hp0 + NHugePages(1);
+  {
+    PageHeapSpinLockHolder l;
+    allocator.Delete(s, kSpanInfo);
+  }
+
+  int hook_calls = 0;
+  bool observed_ok0 = false;
+  bool observed_ok1 = false;
+  size_t observed_bits0 = 0;
+  size_t observed_bits1 = 0;
+  allocator.forwarder().release_hook_ = [&](Range r) {
+    PageHeapSpinLockHolder l;
+    PageBitmap pages0;
+    observed_ok0 = allocator.GetPageAllocationStatus(hp0, pages0);
+    observed_bits0 = pages0.CountBits();
+    PageBitmap pages1;
+    observed_ok1 = allocator.GetPageAllocationStatus(hp1, pages1);
+    observed_bits1 = pages1.CountBits();
+    ++hook_calls;
+  };
+
+  Length released;
+  {
+    PageHeapSpinLockHolder l;
+    released = allocator.ReleaseAtLeastNPages(
+        2 * kPagesPerHugePage, PageReleaseReason::kReleaseMemoryToSystem);
+  }
+  EXPECT_EQ(released, 2 * kPagesPerHugePage);
+  ASSERT_GT(hook_calls, 0);
+  EXPECT_TRUE(observed_ok0);
+  EXPECT_EQ(observed_bits0, 0);
+  EXPECT_TRUE(observed_ok1);
+  EXPECT_EQ(observed_bits1, 0);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

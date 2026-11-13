@@ -102,6 +102,7 @@ class HugeCache {
             absl::Duration cache_time, Clock clock)
       : allocator_(&allocator),
         cache_(meta_allocate),
+        unbacking_(meta_allocate),
         clock_(clock),
         cache_time_ticks_(clock_.freq() * absl::ToDoubleSeconds(cache_time)),
         nanoseconds_per_tick_(absl::ToInt64Nanoseconds(absl::Seconds(1)) /
@@ -141,15 +142,19 @@ class HugeCache {
 
   [[nodiscard]] BackingStats stats() const {
     BackingStats s;
-    s.system_bytes = (usage() + size()).in_bytes();
-    s.free_bytes = size().in_bytes();
+    s.system_bytes = (usage() + size() + unbacking_size_).in_bytes();
+    s.free_bytes = (size() + unbacking_size_).in_bytes();
     s.unmapped_bytes = 0;
     return s;
   }
 
   [[nodiscard]] bool Contains(HugePage p) const {
     const HugeAddressMap::Node* node = cache_.Predecessor(p);
-    return node != nullptr && node->range().contains(p);
+    if (node != nullptr && node->range().contains(p)) {
+      return true;
+    }
+    const HugeAddressMap::Node* unbacking_node = unbacking_.Predecessor(p);
+    return unbacking_node != nullptr && unbacking_node->range().contains(p);
   }
 
   void Print(Printer& out);
@@ -175,6 +180,9 @@ class HugeCache {
 
   HugeAddressMap cache_;
   HugeLength size_{NHugePages(0)};
+
+  HugeAddressMap unbacking_;
+  HugeLength unbacking_size_{NHugePages(0)};
 
   HugeLength limit_{NHugePages(10)};
 
