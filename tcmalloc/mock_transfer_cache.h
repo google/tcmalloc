@@ -439,7 +439,6 @@ class FakeShardedTransferCacheEnvironment {
 
   void Remove(int cpu, int n) {
     cpu_layout_.SetCurrentCpu(cpu);
-    std::vector<void*> bufs;
     for (int i = 0; i < n; ++i) {
       void* ptr = sharded_manager_.Pop(kSizeClass);
       // Ensure we make progress.

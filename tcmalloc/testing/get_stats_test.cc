@@ -664,7 +664,6 @@ TEST_F(GetStatsTest, RequiredBufferSizes) {
     GTEST_SKIP() << "Not linked against malloc";
   }
 
-  std::string stats;
   const int kLargeBufferSize = 3 << 20;
   const int kSmallBufferSize = 16 << 10;
   std::string buf;

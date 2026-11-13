@@ -325,7 +325,6 @@ TEST(AllocationSampleTest, ProfileDropFrames) {
       tcmalloc::tcmalloc_internal::kProfileDropFrames.end());
   absl::flat_hash_map<void*, std::string> symbol_cache;
   absl::flat_hash_map<std::string, bool> drop_cache;
-  std::vector<char> symbol_name(4 << 10);
   bool failed = false;
   int got_stacks = 0;
   constexpr absl::string_view kOurFunction =

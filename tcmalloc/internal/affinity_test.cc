@@ -77,7 +77,7 @@ restart:
 }
 
 TEST(AffinityInternalTest, ScopedAffinityMask) {
-  auto original_cpus = AllowedCpus();
+  [[maybe_unused]] auto original_cpus = AllowedCpus();
 
 restart:
   std::vector<int> original_affinity = AllowedCpus(), temporary_affinity;
