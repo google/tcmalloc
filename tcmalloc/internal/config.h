@@ -77,6 +77,17 @@
 #define GOOGLE_MALLOC_SECTION
 #endif
 
+// GOOGLE_MALLOC_SECTION_BEGIN places globals in google_malloc_data /
+// google_malloc_bss (normal small sections, not .ldata / .lbss), so
+// RIP-relative small-model addressing is safe even under -mcmodel=medium when
+// the object exceeds -mlarge-data-threshold.
+#if defined(__clang__) && defined(__linux__) && defined(__x86_64__) && \
+    ABSL_HAVE_ATTRIBUTE(model)
+#define TCMALLOC_SMALL_MODEL __attribute__((model("small")))
+#else
+#define TCMALLOC_SMALL_MODEL
+#endif
+
 // TCMALLOC_ATTRIBUTE_NO_DESTROY is defined when clang::no_destroy attribute is
 // present.
 #if ABSL_HAVE_CPP_ATTRIBUTE(clang::no_destroy)

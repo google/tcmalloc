@@ -15,6 +15,6 @@ new(cold)->size            -    1   4     31   -   4   -    7   -   -    -   2  
 new(cold,token_1)->size    -    1   4     31   -   4   -    7   -   -    -   2   -     1
 new(nothrow)               -    -   3     27   -   4   -    5   -   -    -   2   -     1
 new(token_1)               -    -   3     27   -   4   -    5   -   -    -   2   -     1
-new(token_1)->size         -    -   3     27   -   4   -    6   -   -    -   2   -     1
-new->size                  -    -   3     27   -   4   -    6   -   -    -   2   -     1
+new(token_1)->size         -    -   3     25   -   4   -    6   -   -    -   2   -     1
+new->size                  -    -   3     25   -   4   -    6   -   -    -   2   -     1
 posix_memalign             -    -   8     29   -   8   -    6   -   1    1   2   3     2

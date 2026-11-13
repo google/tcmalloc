@@ -67,7 +67,7 @@ using SampledAllocationRecorder = ::tcmalloc::tcmalloc_internal::SampleRecorder<
     MetadataObjectAllocator<SampledAllocation, ArenaAlloc::kSampledAllocation>>;
 
 class Static;
-extern Static tc_globals;
+extern Static tc_globals TCMALLOC_SMALL_MODEL;
 
 class Static final {
  public:

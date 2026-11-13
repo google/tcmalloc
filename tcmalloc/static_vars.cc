@@ -63,7 +63,8 @@ alignas(ABSL_CACHELINE_SIZE)
 // ABSL_ATTRIBUTE_SECTION_VARIABLE(google_malloc_bss). So instead,
 // we check this in arena_test.cc (a random test) by declaring another
 // global Static variable with ABSL_ATTRIBUTE_SECTION_VARIABLE(.bss).
-TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT Static tc_globals;
+TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT Static tc_globals
+    TCMALLOC_SMALL_MODEL;
 
 size_t Static::metadata_bytes() {
   const size_t internal_dependencies_size = sizeof(pageheap_lock) +

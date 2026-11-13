@@ -57,7 +57,7 @@ namespace tcmalloc_internal {
 
 class PageTracker;
 class Static;
-extern Static tc_globals;
+extern Static tc_globals TCMALLOC_SMALL_MODEL;
 
 // StaticForwarder provides the caches and page allocator with access to the
 // global allocator state, `state`.
