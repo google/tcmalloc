@@ -718,7 +718,8 @@ TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
 class SingleInitFreeList : public MinimalFakeCentralFreeList {
  public:
   void Init(size_t size_class,
-            central_freelist_internal::CflSubbucketPrioritization) {
+            central_freelist_internal::CflSubbucketPrioritization,
+            central_freelist_internal::CflHugepageOccupancyPrioritization) {
     TC_CHECK(!initialized_);
     initialized_ = true;
     size_class_ = size_class;

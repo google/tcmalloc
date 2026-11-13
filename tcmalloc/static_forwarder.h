@@ -34,6 +34,7 @@
 #include "tcmalloc/error_reporting.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
+#include "tcmalloc/huge_page_tracker.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/central_freelist_hooks.h"
 #include "tcmalloc/internal/clock.h"
@@ -55,7 +56,6 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-class PageTracker;
 class Static;
 extern Static tc_globals;
 
@@ -252,6 +252,20 @@ class StaticForwarder : private Parameters {
       span->Prefetch();
       spans[i] = span;
     }
+  }
+
+  // Returns the number of pages allocated from the hugepage containing `p`, or
+  // Length(0) if unknown (e.g. the hugepage is not managed by the filler).
+  //
+  // Reads without pageheap_lock, so the result may be stale; CentralFreeList
+  // only uses it as a hint.  `p` must belong to a live span, which keeps the
+  // hugepage's tracker from being freed or replaced.
+  [[nodiscard]] static Length HugepageUsedPages(PageId p) {
+    const PageTracker* tracker = GetHugepage(HugePageContaining(p)).Get();
+    if (ABSL_PREDICT_FALSE(tracker == nullptr)) {
+      return Length(0);
+    }
+    return tracker->used_pages_unlocked();
   }
 
   [[nodiscard]] static Span* absl_nullable AllocateSpan(int size_class,

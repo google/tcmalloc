@@ -36,6 +36,7 @@
 #include "benchmark/benchmark.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/bytes.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
@@ -119,6 +120,10 @@ class BenchmarkStaticForwarder : public StaticForwarder<Static, tc_globals> {
     }
   }
 
+  // Spans are carved out of ordinary memory, so there is no hugepage occupancy
+  // to report.  Pretend the hugepage is full.
+  Length HugepageUsedPages(PageId p) const { return kPagesPerHugePage; }
+
   [[nodiscard]] Span* AllocateSpan(int size_class, size_t objects_per_span,
                                    Length pages_per_span) {
     absl::MutexLock l(mu_);
@@ -195,7 +200,9 @@ class BenchmarkEnv {
                             kPageSize);
     cache_.Init(
         kSizeClass,
-        central_freelist_internal::CflSubbucketPrioritization::kDisabled);
+        central_freelist_internal::CflSubbucketPrioritization::kDisabled,
+        central_freelist_internal::CflHugepageOccupancyPrioritization::
+            kDisabled);
   }
 
   CentralFreeList& central_freelist() { return cache_; }

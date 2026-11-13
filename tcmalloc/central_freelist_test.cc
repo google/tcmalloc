@@ -22,6 +22,7 @@
 #include <array>
 #include <atomic>
 #include <cstring>
+#include <map>
 #include <memory>
 #include <string>
 #include <thread>
@@ -79,11 +80,21 @@ class CentralFreeListTestPeer {
 
 namespace {
 
+using central_freelist_internal::CflHugepageOccupancyPrioritization;
+using central_freelist_internal::HugepageOccupancyTier;
+using central_freelist_internal::kHugepageOccupancyTierMinUsedPages;
+using central_freelist_internal::kHugepageOccupancyTiers;
 using central_freelist_internal::kNumLists;
+using central_freelist_internal::kSpanUtilBuckets;
+using central_freelist_internal::kSpanUtilGradeForBucket;
+using ::testing::ElementsAre;
+using ::testing::IsEmpty;
+using ::testing::Pair;
 using TypeParam = FakeCentralFreeListEnvironment<
     central_freelist_internal::CentralFreeList<MockStaticForwarder>>;
 using CentralFreeListTest = ::testing::TestWithParam<std::tuple<
-    SizeClassInfo, central_freelist_internal::CflSubbucketPrioritization>>;
+    SizeClassInfo, central_freelist_internal::CflSubbucketPrioritization,
+    CflHugepageOccupancyPrioritization>>;
 
 TEST_P(CentralFreeListTest, IsolatedSmoke) {
 #if ABSL_HAVE_HWADDRESS_SANITIZER
@@ -92,7 +103,8 @@ TEST_P(CentralFreeListTest, IsolatedSmoke) {
 #endif
 
   TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
-              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()),
+              std::get<2>(GetParam()));
   EXPECT_CALL(e.forwarder(), AllocateSpan).Times(1);
 
   absl::FixedArray<void*> batch(e.batch_size());
@@ -150,7 +162,8 @@ TEST_P(CentralFreeListTest, SameSpanTracking) {
 #endif
 
   TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
-              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()),
+              std::get<2>(GetParam()));
   if (e.objects_per_span() <= 1) {
     GTEST_SKIP() << "Single-object spans skip CentralFreeList InsertRange";
   }
@@ -180,7 +193,8 @@ TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
 #endif
 
   TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
-              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()),
+              std::get<2>(GetParam()));
   constexpr size_t kNumSpans = 10;
 
   // Request kNumSpans spans.
@@ -288,7 +302,8 @@ TEST_P(CentralFreeListTest, SinglePopulate) {
   // Make sure that we allocate up to kObjectsPerSpan objects in both the span
   // prioritization states.
   TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
-              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()),
+              std::get<2>(GetParam()));
   // Try to fetch sufficiently large number of objects at startup.
   const int num_objects_to_fetch = kMaxObjectsToMove;
   std::vector<void*> objects(num_objects_to_fetch, nullptr);
@@ -305,17 +320,76 @@ TEST_P(CentralFreeListTest, SinglePopulate) {
   }
 }
 
+// Mirrors CentralFreeList::SpanUtilBucketFor().
+size_t SpanUtilBucketFor(size_t objects_per_span, size_t allocated) {
+  if (objects_per_span <= 2 * kSpanUtilBuckets) {
+    if (allocated <= kSpanUtilBuckets) return kSpanUtilBuckets - allocated;
+    return 0;
+  }
+  const size_t bitwidth = absl::bit_width(allocated);
+  return kSpanUtilBuckets - std::min(bitwidth, kSpanUtilBuckets);
+}
+
+// Mirrors CentralFreeList::IndexFor() for a span on a hugepage with
+// `used_pages` pages allocated.
+size_t IndexFor(CflHugepageOccupancyPrioritization prioritization,
+                Length pages_per_span, size_t objects_per_span,
+                size_t allocated, Length used_pages) {
+  const size_t bucket = SpanUtilBucketFor(objects_per_span, allocated);
+  if (prioritization == CflHugepageOccupancyPrioritization::kDisabled) {
+    return bucket;
+  }
+  const size_t tier = pages_per_span >= kPagesPerHugePage
+                          ? 0
+                          : HugepageOccupancyTier(used_pages);
+  return tier + kSpanUtilGradeForBucket[bucket];
+}
+
+// Returns the number of spans in each nonempty_ list that has any, keyed by
+// list index.
+std::map<size_t, size_t> SpansByList(TypeParam& e) {
+  std::map<size_t, size_t> spans;
+  for (size_t i = 0; i < kNumLists; ++i) {
+    if (const size_t n = e.central_freelist().NumSpansInList(i); n > 0) {
+      spans[i] = n;
+    }
+  }
+  return spans;
+}
+
+void* AllocateOne(TypeParam& e) {
+  void* ptr = nullptr;
+  EXPECT_EQ(e.central_freelist().RemoveRange(absl::MakeSpan(&ptr, 1)), 1);
+  return ptr;
+}
+
+// Allocates all objects of a new span.  No other span may have free objects.
+std::vector<void*> AllocateFullSpan(TypeParam& e) {
+  std::vector<void*> objects(e.objects_per_span());
+  for (void*& ptr : objects) ptr = AllocateOne(e);
+  return objects;
+}
+
+// Releases objects until `allocated` of them remain.
+void ReleaseDownTo(TypeParam& e, std::vector<void*>& objects,
+                   size_t allocated) {
+  while (objects.size() > allocated) {
+    e.central_freelist().InsertRange({&objects.back(), 1});
+    objects.pop_back();
+  }
+}
+
 // Tests whether the index generated by the input indexing function matches the
 // index of the span on which allocations and deallocation operations are
 // carried out.  The test first allocates objects and deallocates them.  After
 // each operation, the actual index is matched against the expected one.
 template <typename IndexingFunc>
-void TestIndexing(TypeParam& e, IndexingFunc f) {
+void TestIndexingInTier(TypeParam& e, IndexingFunc f) {
   TC_ASSERT_GT(kNumLists, 0);
   const int num_objects_to_fetch = e.objects_per_span();
   std::vector<void*> objects(num_objects_to_fetch);
   size_t fetched = 0;
-  int expected_idx = kNumLists - 1;
+  int expected_idx = f(1);
 
   // Fetch one object at a time from a span and confirm that the span is moved
   // through the nonempty_ lists as we allocate more objects from it.
@@ -353,9 +427,34 @@ void TestIndexing(TypeParam& e, IndexingFunc f) {
   }
 
   // When the last object is returned, we release the span to the page heap. So,
-  // nonempty_[0] should also be empty.
+  // the last nonempty_ list used should also be empty.
   e.central_freelist().InsertRange({&objects[remaining], 1});
-  EXPECT_EQ(e.central_freelist().NumSpansInList(0), 0);
+  EXPECT_EQ(e.central_freelist().NumSpansInList(expected_idx), 0);
+}
+
+// Runs TestIndexingInTier with spans on hugepages of several occupancies.
+// `bucket_for` maps a number of allocated objects to the expected span
+// utilization bucket.  The expected index is that bucket, or tier + grade with
+// hugepage occupancy prioritization.
+template <typename BucketFunc>
+void TestIndexing(TypeParam& e,
+                  CflHugepageOccupancyPrioritization prioritization,
+                  BucketFunc bucket_for) {
+  const bool whole_hugepages =
+      e.forwarder().class_to_pages(TypeParam::kSizeClass) >= kPagesPerHugePage;
+  for (const Length used_pages :
+       {kPagesPerHugePage, kHugepageOccupancyTierMinUsedPages[2], Length(0)}) {
+    SCOPED_TRACE(used_pages.raw_num());
+    e.forwarder().set_default_hugepage_used_pages(used_pages);
+    const size_t tier = whole_hugepages ? 0 : HugepageOccupancyTier(used_pages);
+    TestIndexingInTier(e, [&](size_t allocated) -> size_t {
+      const size_t bucket = bucket_for(allocated);
+      if (prioritization == CflHugepageOccupancyPrioritization::kDisabled) {
+        return bucket;
+      }
+      return tier + kSpanUtilGradeForBucket[bucket];
+    });
+  }
 }
 
 TEST_P(CentralFreeListTest, BitwidthIndexedNonEmptyLists) {
@@ -365,16 +464,17 @@ TEST_P(CentralFreeListTest, BitwidthIndexedNonEmptyLists) {
 #endif
 
   TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
-              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
-  if (e.objects_per_span() <= 2 * kNumLists) {
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()),
+              std::get<2>(GetParam()));
+  if (e.objects_per_span() <= 2 * kSpanUtilBuckets) {
     GTEST_SKIP()
         << "Skipping test as one hot encoding used for few object spans.";
   }
   auto bitwidth_indexing = [](size_t allocated) {
     size_t bitwidth = absl::bit_width(allocated);
-    return kNumLists - std::min(bitwidth, kNumLists);
+    return kSpanUtilBuckets - std::min(bitwidth, kSpanUtilBuckets);
   };
-  TestIndexing(e, bitwidth_indexing);
+  TestIndexing(e, std::get<2>(GetParam()), bitwidth_indexing);
 }
 
 TEST_P(CentralFreeListTest, DirectIndexedEncodedNonEmptyLists) {
@@ -384,15 +484,16 @@ TEST_P(CentralFreeListTest, DirectIndexedEncodedNonEmptyLists) {
 #endif
 
   TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
-              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
-  if (e.objects_per_span() > 2 * kNumLists) {
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()),
+              std::get<2>(GetParam()));
+  if (e.objects_per_span() > 2 * kSpanUtilBuckets) {
     GTEST_SKIP() << "Skipping test as one hot encoding not required.";
   }
   auto direct_indexing = [](int allocated) -> size_t {
-    if (allocated <= kNumLists) return kNumLists - allocated;
+    if (allocated <= kSpanUtilBuckets) return kSpanUtilBuckets - allocated;
     return 0;
   };
-  TestIndexing(e, direct_indexing);
+  TestIndexing(e, std::get<2>(GetParam()), direct_indexing);
 }
 
 // Checks if we are indexing a span in the nonempty_ lists as expected. We also
@@ -408,13 +509,25 @@ TEST_P(CentralFreeListTest, SpanPriority) {
 #endif
 
   TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
-              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()),
+              std::get<2>(GetParam()));
 
   // If the number of objects per span is less than 2, we do not use more than
   // one nonempty_ lists. So, we can not prioritize the spans based on how many
   // objects were allocated from them.
   const int objects_per_span = e.objects_per_span();
-  if (objects_per_span < 3 || kNumLists < 2) return;
+  if (objects_per_span < 3 || kSpanUtilBuckets < 2) return;
+
+  // nonempty_ lists for spans with one and two allocated objects.
+  const Length pages_per_span =
+      e.forwarder().class_to_pages(TypeParam::kSizeClass);
+  auto index_for = [&](size_t allocated) {
+    return IndexFor(std::get<2>(GetParam()), pages_per_span, objects_per_span,
+                    allocated, kPagesPerHugePage);
+  };
+  const size_t one_idx = index_for(1);
+  const size_t two_idx = index_for(2);
+  ASSERT_LT(two_idx, one_idx);
 
   constexpr int kNumSpans = 2;
   // Track objects allocated per span.
@@ -452,8 +565,8 @@ TEST_P(CentralFreeListTest, SpanPriority) {
                         objects[span].begin() + released);
   }
 
-  // Make sure we have kNumSpans in the expected second-last nonempty_ list.
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 2), kNumSpans);
+  // Make sure we have kNumSpans in the list for spans with two objects.
+  EXPECT_EQ(e.central_freelist().NumSpansInList(two_idx), kNumSpans);
 
   // Check intra-bucket ordering: span 0 entered the bucket first, span 1
   // second. Prepend (LIFO) should draw from span 1, while append (FIFO) should
@@ -492,32 +605,25 @@ TEST_P(CentralFreeListTest, SpanPriority) {
                         objects[span].begin() + released);
   }
 
-  // Make sure we have kNumSpans-1 spans in the last nonempty_ list and just one
-  // span in the second-last list.
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 1), kNumSpans - 1);
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 2), 1);
+  // Make sure we have kNumSpans-1 spans with one object and just one span with
+  // two.
+  EXPECT_EQ(e.central_freelist().NumSpansInList(one_idx), kNumSpans - 1);
+  EXPECT_EQ(e.central_freelist().NumSpansInList(two_idx), 1);
 
   // Allocate one object to ensure that it is being allocated from the span with
   // the highest number of allocated objects.
   int got = e.central_freelist().RemoveRange(absl::MakeSpan(batch, 1));
   EXPECT_EQ(got, 1);
-  // Number of spans in the last nonempty_ list should be unchanged (i.e.
-  // kNumSpans-1).
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 1), kNumSpans - 1);
+  // Number of spans with one object should be unchanged (i.e. kNumSpans-1).
+  EXPECT_EQ(e.central_freelist().NumSpansInList(one_idx), kNumSpans - 1);
   if (e.objects_per_span() == 3) {
     // Since we allocated another object from the span that had two objects
     // allocated from it, so the span would no longer be there in the span list.
-    for (int i = kNumLists - 2; i >= 0; --i) {
-      EXPECT_EQ(e.central_freelist().NumSpansInList(i), 0);
-    }
-  } else if (e.objects_per_span() <= 2 * kNumLists) {
-    // We should have only one span in the third-last nonempty_ list; this is
-    // the span from which we should have allocated the last object.
-    EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 3), 1);
+    EXPECT_THAT(SpansByList(e), ElementsAre(Pair(one_idx, kNumSpans - 1)));
   } else {
-    // We should have only one span in the second-last nonempty_ list; this is
-    // the span from which we should have allocated the last object.
-    EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 2), 1);
+    // We should have only one span in the list for spans with three objects;
+    // this is the span from which we should have allocated the last object.
+    EXPECT_EQ(e.central_freelist().NumSpansInList(index_for(3)), 1);
   }
   // Return previously allocated object.
   e.central_freelist().InsertRange({batch, 1});
@@ -539,18 +645,17 @@ TEST_P(CentralFreeListTest, InsertRangeSameBucketDoesNotChangePriority) {
 #endif
 
   TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
-              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()),
+              std::get<2>(GetParam()));
 
   const int objects_per_span = e.objects_per_span();
-  if (objects_per_span < 3 || kNumLists < 2) return;
+  if (objects_per_span < 3 || kSpanUtilBuckets < 2) return;
 
+  const Length pages_per_span =
+      e.forwarder().class_to_pages(TypeParam::kSizeClass);
   auto index_for = [&](size_t allocated) -> size_t {
-    if (objects_per_span <= 2 * kNumLists) {
-      if (allocated <= kNumLists) return kNumLists - allocated;
-      return 0;
-    }
-    size_t bitwidth = absl::bit_width(allocated);
-    return kNumLists - std::min(bitwidth, kNumLists);
+    return IndexFor(std::get<2>(GetParam()), pages_per_span, objects_per_span,
+                    allocated, kPagesPerHugePage);
   };
 
   // Find an allocated count where releasing an object keeps the span in the
@@ -651,6 +756,92 @@ TEST_P(CentralFreeListTest, InsertRangeSameBucketDoesNotChangePriority) {
   test_release_keeps_priority(/*release_to_front=*/false);
 }
 
+// Checks the tier boundaries against the intended percentages.
+TEST(HugepageOccupancyTierTest, MatchesPercentages) {
+  const size_t n = kPagesPerHugePage.raw_num();
+  for (size_t used = 0; used <= n; ++used) {
+    const size_t expected = (used < n) + (used * 10 < n * 9) +
+                            (used * 10 < n * 8) + (used * 10 < n * 6);
+    EXPECT_EQ(HugepageOccupancyTier(Length(used)), expected) << used;
+  }
+  EXPECT_EQ(HugepageOccupancyTier(kPagesPerHugePage), 0);
+  EXPECT_EQ(HugepageOccupancyTier(Length(0)), kHugepageOccupancyTiers - 1);
+}
+
+// Confirms that a span on a fuller hugepage is preferred over a more utilized
+// span, and that a span's tier is refreshed by allocations but not by frees.
+TEST_P(CentralFreeListTest, HugepageOccupancyPrioritization) {
+#if ABSL_HAVE_HWADDRESS_SANITIZER
+  GTEST_SKIP()
+      << "Skipping under HWASan, which uses the top bits of the pointer.";
+#endif
+
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()),
+              std::get<2>(GetParam()));
+
+  const size_t n = e.objects_per_span();
+  const Length pages_per_span =
+      e.forwarder().class_to_pages(TypeParam::kSizeClass);
+  if (std::get<2>(GetParam()) ==
+      CflHugepageOccupancyPrioritization::kDisabled) {
+    GTEST_SKIP() << "Hugepage occupancy prioritization is disabled.";
+  }
+  if (n < 4 || pages_per_span >= kPagesPerHugePage) {
+    GTEST_SKIP() << "Needs spans of 4+ objects, smaller than a hugepage.";
+  }
+  auto index_for = [&](size_t allocated, Length used_pages) {
+    return IndexFor(CflHugepageOccupancyPrioritization::kEnabled,
+                    pages_per_span, n, allocated, used_pages);
+  };
+  const Length kFull = kPagesPerHugePage;
+  const Length kLight = kPagesPerHugePage / 4;
+  const Length kUnknown = Length(0);
+
+  // The span on the full hugepage has one allocated object, the span on the
+  // lightly used hugepage two.
+  e.forwarder().set_default_hugepage_used_pages(kLight);
+  std::vector<void*> light = AllocateFullSpan(e);
+  e.forwarder().set_default_hugepage_used_pages(kFull);
+  std::vector<void*> full = AllocateFullSpan(e);
+  Span* light_span = e.forwarder().MapObjectToSpan(light[0]);
+  Span* full_span = e.forwarder().MapObjectToSpan(full[0]);
+  ASSERT_NE(full_span, light_span);
+  ReleaseDownTo(e, light, 2);
+  ReleaseDownTo(e, full, 1);
+  ASSERT_LT(index_for(1, kFull), index_for(2, kLight));
+  EXPECT_THAT(SpansByList(e), ElementsAre(Pair(index_for(1, kFull), 1),
+                                          Pair(index_for(2, kLight), 1)));
+
+  // The less utilized span on the full hugepage serves the next allocation.
+  full.push_back(AllocateOne(e));
+  EXPECT_EQ(e.forwarder().MapObjectToSpan(full.back()), full_span);
+  ReleaseDownTo(e, full, 0);
+  EXPECT_THAT(SpansByList(e), ElementsAre(Pair(index_for(2, kLight), 1)));
+
+  // Allocating from a span refreshes its tier.
+  e.forwarder().SetHugepageUsedPages(light_span, kFull);
+  light.push_back(AllocateOne(e));
+  EXPECT_THAT(SpansByList(e), ElementsAre(Pair(index_for(3, kFull), 1)));
+
+  // Releasing an object does not: the span stays in tier 0 until the next
+  // allocation.
+  e.forwarder().SetHugepageUsedPages(light_span, kUnknown);
+  ReleaseDownTo(e, light, 2);
+  EXPECT_THAT(SpansByList(e), ElementsAre(Pair(index_for(2, kFull), 1)));
+  light.push_back(AllocateOne(e));
+  EXPECT_THAT(SpansByList(e), ElementsAre(Pair(index_for(3, kUnknown), 1)));
+
+  // Releasing an object to a full span, which is on no list, looks the tier up.
+  while (light.size() < n) light.push_back(AllocateOne(e));
+  EXPECT_THAT(SpansByList(e), IsEmpty());
+  e.forwarder().SetHugepageUsedPages(light_span, kFull);
+  ReleaseDownTo(e, light, n - 1);
+  EXPECT_THAT(SpansByList(e), ElementsAre(Pair(index_for(n - 1, kFull), 1)));
+
+  ReleaseDownTo(e, light, 0);
+  EXPECT_THAT(SpansByList(e), IsEmpty());
+}
 
 TEST_P(CentralFreeListTest, HookTracing) {
 #if ABSL_HAVE_HWADDRESS_SANITIZER
@@ -659,7 +850,8 @@ TEST_P(CentralFreeListTest, HookTracing) {
 #endif
 
   TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
-              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()),
+              std::get<2>(GetParam()));
 
   static int insert_count = 0;
   static int remove_count = 0;
@@ -696,7 +888,8 @@ TEST_P(CentralFreeListTest, SpanAllocationTracker) {
 #endif
 
   TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
-              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()),
+              std::get<2>(GetParam()));
 
   const int objects_per_span = e.objects_per_span();
   if (objects_per_span == 1) return;
@@ -769,7 +962,7 @@ TEST_P(CentralFreeListTest, SpanAllocationTracker) {
 TEST_P(CentralFreeListTest, SameSpans) {
   const int num_to_move = std::get<0>(GetParam()).num_to_move;
   TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
-              num_to_move, std::get<1>(GetParam()));
+              num_to_move, std::get<1>(GetParam()), std::get<2>(GetParam()));
 
   // Roundtrip a batch.
   void* batch[kMaxObjectsToMove];
@@ -833,7 +1026,8 @@ TEST_P(CentralFreeListTest, MultipleSpans) {
 #endif
 
   TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
-              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()),
+              std::get<2>(GetParam()));
   std::vector<void*> all_objects;
   constexpr size_t kNumSpans = 10;
 
@@ -920,7 +1114,8 @@ TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
 #endif
 
   TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
-              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()),
+              std::get<2>(GetParam()));
   ASSERT_GE(e.objects_per_span(), 1);
   auto test_function = [&](size_t num_objects,
                            AccessDensityPrediction density) {
@@ -957,7 +1152,8 @@ TEST_P(CentralFreeListTest, ConcurrentRemoveAndInsert) {
 #endif
 
   TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).bytes,
-              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()),
+              std::get<2>(GetParam()));
   constexpr int kThreads = 4;
   constexpr int kIterations = 200;
 
@@ -999,7 +1195,9 @@ INSTANTIATE_TEST_SUITE_P(
                           kSizeClasses.classes.end()),
         testing::Values(
             central_freelist_internal::CflSubbucketPrioritization::kDisabled,
-            central_freelist_internal::CflSubbucketPrioritization::kEnabled)));
+            central_freelist_internal::CflSubbucketPrioritization::kEnabled),
+        testing::Values(CflHugepageOccupancyPrioritization::kDisabled,
+                        CflHugepageOccupancyPrioritization::kEnabled)));
 
 }  // namespace
 }  // namespace tcmalloc_internal
