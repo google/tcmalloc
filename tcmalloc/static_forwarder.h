@@ -370,6 +370,9 @@ class StaticForwarder : private Parameters {
   [[nodiscard]] static MemoryModifyStatus ReleasePages(Range r) {
     return state.system_allocator().Release(r.start_addr(), r.in_bytes());
   }
+  [[nodiscard]] static bool has_released_with_madv_free() {
+    return state.system_allocator().has_released_with_madv_free();
+  }
   [[nodiscard]] static MemoryModifyStatus CollapsePages(Range r) {
     return state.system_allocator().Collapse(r.start_addr(), r.in_bytes());
   }

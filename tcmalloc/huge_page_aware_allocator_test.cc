@@ -1902,6 +1902,93 @@ TEST_P(HugePageAwareAllocatorTest, StressCollapse) {
     }
   }
 }
+
+TEST_P(HugePageAwareAllocatorTest, ZeroedPageTracking) {
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+
+  // 1. Small allocations on a fresh allocator refill from unbacked hugepages:
+  //    the refilling allocation is zeroed, while subsequent allocations on the
+  //    now-backed tracker conservatively report zeroed=false unless allocated
+  //    from subreleased pages.
+  AllocationState s0 = New(Length(4), kSpanInfo);
+  EXPECT_TRUE(s0.zeroed);
+  AllocationState s1 = New(Length(4), kSpanInfo);
+  EXPECT_EQ(HugePageContaining(s1.r.p), HugePageContaining(s0.r.p));
+  EXPECT_FALSE(s1.zeroed);
+
+  // Freeing s0 without subreleasing and reallocating 4 pages best-fits [0, 4)
+  // and reports zeroed=false.
+  Delete(s0, kSpanInfo.objects_per_span);
+  s0 = New(Length(4), kSpanInfo);
+  EXPECT_FALSE(s0.zeroed);
+
+  // Subreleasing free pages on the tracker and reallocating from them reports
+  // zeroed=true.
+  EXPECT_EQ(ReleaseAtLeastNPagesBreakingHugepages(
+                kPagesPerHugePage, PageReleaseReason::kReleaseMemoryToSystem),
+            kPagesPerHugePage - Length(8));
+  AllocationState s2 = New(Length(4), kSpanInfo);
+  EXPECT_TRUE(s2.zeroed);
+
+  Delete(s0, kSpanInfo.objects_per_span);
+  Delete(s1, kSpanInfo.objects_per_span);
+  Delete(s2, kSpanInfo.objects_per_span);
+  // Retiring the partially released tracker returned an unbacked hugepage to
+  // the cache/allocator; release any remaining cached pages.
+  ReleasePages(Length(std::numeric_limits<int32_t>::max()),
+               PageReleaseReason::kReleaseMemoryToSystem);
+
+  // 2. Full-hugepage allocations cached in HugeCache are backed and dirty until
+  //    released.
+  AllocationState hp0 = New(kPagesPerHugePage, kSpanInfo);
+  EXPECT_TRUE(hp0.zeroed);
+  Delete(hp0, kSpanInfo.objects_per_span);
+
+  // Reallocating from HugeCache hits the backed (dirty) hugepage.
+  hp0 = New(kPagesPerHugePage, kSpanInfo);
+  EXPECT_FALSE(hp0.zeroed);
+  Delete(hp0, kSpanInfo.objects_per_span);
+
+  // Refilling a small allocation from a backed HugeCache entry also marks the
+  // new allocation dirty (from_released=false).
+  AllocationState cached_small = New(Length(2), kSpanInfo);
+  EXPECT_FALSE(cached_small.zeroed);
+  Delete(cached_small, kSpanInfo.objects_per_span);
+
+  // Releasing cached pages in HugeCache unbacks them; the next allocation is
+  // zeroed again.
+  EXPECT_GE(ReleasePages(kPagesPerHugePage,
+                         PageReleaseReason::kReleaseMemoryToSystem),
+            kPagesPerHugePage);
+  hp0 = New(kPagesPerHugePage, kSpanInfo);
+  EXPECT_TRUE(hp0.zeroed);
+  Delete(hp0, kSpanInfo.objects_per_span);
+  EXPECT_GE(ReleasePages(kPagesPerHugePage,
+                         PageReleaseReason::kReleaseMemoryToSystem),
+            kPagesPerHugePage);
+
+  // 3. Multi-hugepage allocation from unbacked memory is zeroed; its donated
+  //    tail hugepage is backed until subreleased.
+  AllocationState donated_large = New(kPagesPerHugePage + Length(2), kSpanInfo);
+  EXPECT_TRUE(donated_large.zeroed);
+  AllocationState tail_small = New(Length(2), kSpanInfo);
+  EXPECT_FALSE(tail_small.zeroed);
+  Delete(tail_small, kSpanInfo.objects_per_span);
+  Delete(donated_large, kSpanInfo.objects_per_span);
+
+  // 4. When MADV_FREE has been used, Finalize conservatively reports
+  //    zeroed=false even on fresh unbacked memory.
+  ReleasePages(Length(std::numeric_limits<int32_t>::max()),
+               PageReleaseReason::kReleaseMemoryToSystem);
+  allocator_->forwarder().set_released_with_madv_free(true);
+  AllocationState madv_free_small = New(Length(2), kSpanInfo);
+  EXPECT_FALSE(madv_free_small.zeroed);
+  AllocationState madv_free_large = New(2 * kPagesPerHugePage, kSpanInfo);
+  EXPECT_FALSE(madv_free_large.zeroed);
+  Delete(madv_free_small, kSpanInfo.objects_per_span);
+  Delete(madv_free_large, kSpanInfo.objects_per_span);
+  allocator_->forwarder().set_released_with_madv_free(false);
+}
 INSTANTIATE_TEST_SUITE_P(
     All, HugePageAwareAllocatorTest,
     testing::Combine(

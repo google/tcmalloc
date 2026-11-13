@@ -648,6 +648,17 @@ struct SetMinFreePagesToBreakSparseHugepage {
   }
 };
 
+struct SetReleasedWithMadvFree {
+  bool value;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetReleasedWithMadvFree& s) {
+    absl::Format(&sink, "SetReleasedWithMadvFree{.value=%v}", s.value);
+  }
+};
+
 struct Instruction;
 
 template <typename Sink>
@@ -671,7 +682,8 @@ using ParamOp = std::variant<
     SetReleaseMaxFillerPages, SetPreferBackedFillerPages, SetFillerAppendOnFree,
     SetEnableReleaseStalePages, SetCollapseReleasedHugepages,
     SetMadvNoHugepageHugeRegions, UpdateBitmaps, SetUsageLimitPressure,
-    SetMinFreePagesToBreakDenseHugepage, SetMinFreePagesToBreakSparseHugepage>;
+    SetMinFreePagesToBreakDenseHugepage, SetMinFreePagesToBreakSparseHugepage,
+    SetReleasedWithMadvFree>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -1089,6 +1101,13 @@ void Alloc::Perform(State& state) const {
   // The span is disjoint from every live span.
   const PageId first = s.r.p;
   const PageId end = first + s.r.n;
+  if (s.zeroed) {
+    TC_CHECK(!state.allocator.forwarder().has_released_with_madv_free());
+    for (PageId p = first; p != end; ++p) {
+      TC_CHECK(!state.allocator.forwarder().IsPageDirty(p), "%v", p);
+    }
+  }
+  state.allocator.forwarder().MarkPagesDirty(s.r);
   auto next = state.live_ranges.lower_bound(first);
   TC_CHECK(next == state.live_ranges.end() || next->first >= end);
   if (next != state.live_ranges.begin()) {
@@ -1376,6 +1395,10 @@ void SetMinFreePagesToBreakSparseHugepage::Perform(State& state) const {
       std::clamp(Length(pages), Length(1), kPagesPerHugePage));
 }
 
+void SetReleasedWithMadvFree::Perform(State& state) const {
+  state.allocator.forwarder().set_released_with_madv_free(value);
+}
+
 void UpdateBitmaps::Perform(State& state) const {
   if (hugepage_backed_set) {
     state.is_hugepage_backed = hugepage_backed_val;
@@ -1562,7 +1585,9 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
                 SetMinFreePagesToBreakSparseHugepage{.pages = pages}};
           },
           fuzztest::InRange<uint16_t>(
-              1, static_cast<uint16_t>(kPagesPerHugePage.raw_num()))));
+              1, static_cast<uint16_t>(kPagesPerHugePage.raw_num()))),
+      fuzztest::Map([](SetReleasedWithMadvFree s) { return ChangeParam{s}; },
+                    fuzztest::Arbitrary<SetReleasedWithMadvFree>()));
 
   if (depth <= 0) {
     return fuzztest::OneOf(

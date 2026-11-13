@@ -151,6 +151,10 @@ class SystemAllocator {
     return madvise_.load(std::memory_order_relaxed);
   }
 
+  [[nodiscard]] bool has_released_with_madv_free() const {
+    return released_with_madv_free_.load(std::memory_order_relaxed);
+  }
+
   // This call is a hint to the operating system that the pages
   // contained in the specified range of memory will not be used for a
   // while, and can be released for use by other processes or the OS.
@@ -224,6 +228,7 @@ class SystemAllocator {
 
   std::atomic<int> release_errors_{0};
   std::atomic<MadvisePreference> madvise_{MadvisePreference::kNever};
+  mutable std::atomic<bool> released_with_madv_free_{false};
   std::atomic<bool> has_custom_region_factory_{false};
   bool unlock_vmas_ = false;
 
@@ -1049,6 +1054,9 @@ SystemAllocator<Topology, NormalPartitions>::ReleasePages(void* start,
   }
 #endif
 
+  if (status == ReleaseStatus::kSuccess) {
+    released_with_madv_free_.store(true, std::memory_order_relaxed);
+  }
   return status;
 }
 
