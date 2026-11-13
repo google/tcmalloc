@@ -820,11 +820,21 @@ void Allocate::Perform(State& state) const {
     TC_CHECK(!(result.page < live.p + live.n && live.p < result.page + n));
   }
 
+  TC_CHECK_LE(result.from_released, n);
+  Length released_in_set(0);
   for (PageId p = result.page, end = p + n; p != end; ++p) {
-    // Only a previously released hugepage can hand out unmapped pages.
-    TC_CHECK(result.from_released || !state.released_set.contains(p));
-    state.released_set.erase(p);
+    if (state.released_set.erase(p) > 0) {
+      ++released_in_set;
+    }
     state.non_resident_set.erase(p);
+  }
+  // HandleUnbackedHugePage marks unbacked free pages in released_by_page_
+  // before TreatHugepageTrackers returns and syncs them into released_set, so a
+  // reentrant allocation during treatment can see more released pages than
+  // released_set has recorded yet, never fewer. At the top level they match.
+  TC_CHECK_GE(result.from_released, released_in_set);
+  if (state.depth == 0 && state.lock_drops == 0) {
+    TC_CHECK_EQ(result.from_released, released_in_set);
   }
 
   state.allocs[hp].push_back({{result.page, n}, alloc_info});

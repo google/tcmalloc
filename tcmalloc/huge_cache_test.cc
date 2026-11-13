@@ -526,6 +526,14 @@ TEST_P(HugeCacheTest, Contains) {
   EXPECT_FALSE(cache_.Contains(r.start() + NHugePages(4)));
 }
 
+TEST_P(HugeCacheTest, AllocationFailureClearsFromReleased) {
+  vm_allocator_.backing_.resize(FakeVirtualAllocator::kMaxBacking);
+  bool from_released = true;
+  HugeRange r = cache_.Get(NHugePages(1), &from_released);
+  EXPECT_FALSE(r.valid());
+  EXPECT_FALSE(from_released);
+}
+
 TEST_P(HugeCacheTest, ClockCalls) {
   bool from;
   const int64_t before_miss = now_calls();

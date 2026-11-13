@@ -195,6 +195,8 @@ class FakeHugePageStaticForwarder : private Parameters {
     void* ptr = reinterpret_cast<void*>(
         aligned_allocation | (static_cast<uintptr_t>(tag) << kTagShift));
     TC_CHECK_EQ(GetMemoryTag(ptr), tag);
+    MarkPagesNonResident(
+        Range(PageIdContaining(ptr), BytesToLengthCeil(bytes)));
     return AddressRange{ptr, bytes};
   }
 
@@ -217,6 +219,17 @@ class FakeHugePageStaticForwarder : private Parameters {
     return !non_resident_pages_.contains(p);
   }
 
+  [[nodiscard]] Length CountNonResidentPages(Range r) const {
+    absl::base_internal::SpinLockHolder h(live_spans_lock_);
+    Length count;
+    for (PageId p = r.p, end = r.p + r.n; p != end; ++p) {
+      if (non_resident_pages_.contains(p)) {
+        ++count;
+      }
+    }
+    return count;
+  }
+
   template <typename Fn>
   void ForEachTracker(Fn&& fn) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
@@ -232,7 +245,11 @@ class FakeHugePageStaticForwarder : private Parameters {
         reinterpret_cast<uintptr_t>(r.p.start_addr()) & ~kTagMask;
     const uintptr_t end = start + r.n.in_bytes();
     TC_CHECK_LE(end, fake_allocation_);
+    back_calls_.fetch_add(1, std::memory_order_relaxed);
     MarkPagesResident(r);
+  }
+  [[nodiscard]] size_t back_calls() const {
+    return back_calls_.load(std::memory_order_relaxed);
   }
 
   [[nodiscard]] MemoryModifyStatus ReleasePages(Range r) {
@@ -298,6 +315,7 @@ class FakeHugePageStaticForwarder : private Parameters {
   static double FakeClockFrequency() { return 1e9; }
 
   std::atomic<uintptr_t> fake_allocation_ = 0x1000;
+  std::atomic<size_t> back_calls_{0};
   static inline std::atomic<int64_t> clock_{0};
 
   // Not final: libstdc++'s std::map derives from its allocator.

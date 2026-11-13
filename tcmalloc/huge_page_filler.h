@@ -527,7 +527,7 @@ class HugePageFiller {
   struct TryGetResult {
     TrackerType* absl_nullable pt;
     PageId page;
-    bool from_released;
+    Length from_released;
   };
 
   // Our API is simple, but note that it does not include an unconditional
@@ -538,7 +538,9 @@ class HugePageFiller {
   // n is the number of TCMalloc pages to be allocated.  num_objects is the
   // number of individual objects that would be allocated on these n pages.
   //
-  // On failure, returns nullptr/PageId{0}.
+  // On failure, returns {nullptr, PageId{0}, Length(0)}. On success,
+  // from_released is the number of pages in [page, page + n) that were
+  // previously unbacked.
   [[nodiscard]] TryGetResult TryGet(Length n, SpanAllocInfo span_alloc_info,
                                     PreferBackedPages prefer_backed)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -1045,6 +1047,9 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info,
   // PageTrackerList that *could* support our allocation, and it will be our
   // best choice. If there is none we repeat with the donated PageTrackerList.
   ASSUME(n < kPagesPerHugePage);
+#ifndef NDEBUG
+  const BackingStats stats_before = stats();
+#endif
   TrackerType* pt;
 
   bool was_released = false;
@@ -1082,7 +1087,7 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info,
       break;
     }
 
-    return {nullptr, PageId{0}, false};
+    return {nullptr, PageId{0}, Length(0)};
   } while (false);
   ASSUME(pt != nullptr);
   TC_ASSERT_GE(pt->longest_free_range(), n);
@@ -1113,9 +1118,15 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info,
   // donated by this point.
   TC_ASSERT(!pt->donated());
   UpdateFillerStatsTracker(now);
+  TC_ASSERT_LE(page_allocation.previously_unbacked, n);
   TC_ASSERT(was_released || page_allocation.previously_unbacked == Length(0));
-  return {pt, page_allocation.page,
-          page_allocation.previously_unbacked > Length(0)};
+#ifndef NDEBUG
+  const BackingStats stats_after = stats();
+  TC_ASSERT_EQ((stats_after.system_bytes - stats_after.unmapped_bytes) -
+                   (stats_before.system_bytes - stats_before.unmapped_bytes),
+               page_allocation.previously_unbacked.in_bytes());
+#endif
+  return {pt, page_allocation.page, page_allocation.previously_unbacked};
 }
 
 template <class TrackerType>

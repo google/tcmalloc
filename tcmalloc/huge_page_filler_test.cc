@@ -524,7 +524,7 @@ class FillerTest : public testing::Test {
     Length n;
     size_t mark;
     SpanAllocInfo span_alloc_info;
-    bool from_released;
+    Length from_released;
   };
 
   void Mark(const PAlloc& alloc) { MarkRange(alloc.p, alloc.n, alloc.mark); }
@@ -755,6 +755,7 @@ class FillerTest : public testing::Test {
     ret.pt = nullptr;
     ret.mark = ++next_mark_;
     ret.span_alloc_info = span_alloc_info;
+    ret.from_released = Length(0);
     if (!donated) {  // Donated means always create a new hugepage
       PageHeapSpinLockHolder l;
       auto [pt, page, from_released] =
@@ -1768,7 +1769,7 @@ TEST_F(FillerTest, AllocateDuringRetirementUnback) {
     auto [pt, page, from_released] = filler_.TryGet(
         Length(1), b.span_alloc_info, PreferBackedPages::kDisabled);
     EXPECT_EQ(pt, b.pt);
-    EXPECT_FALSE(from_released);
+    EXPECT_EQ(from_released, Length(0));
     EXPECT_EQ(filler_.Put(pt, Range(page, Length(1)), b.span_alloc_info,
                           append_on_free_),
               nullptr);
@@ -2313,7 +2314,7 @@ TEST_F(FillerTest, ReentrantAllocateDuringRelease) {
 
   PAlloc d = Allocate(Length(5));
   EXPECT_EQ(d.pt, a.pt);
-  EXPECT_TRUE(d.from_released);
+  EXPECT_EQ(d.from_released, Length(5));
   EXPECT_FALSE(Delete(d));
   EXPECT_FALSE(Delete(a));
   EXPECT_TRUE(Delete(c));
@@ -2565,7 +2566,7 @@ TEST_F(FillerTest, ParallelReleaseCollapseAndFree) {
                                    .n = Length(1),
                                    .mark = 0,
                                    .span_alloc_info = info,
-                                   .from_released = false});
+                                   .from_released = Length(0)});
       }
     } else if (!allocated.empty()) {
       const size_t idx = absl::Uniform<size_t>(gen_, 0, allocated.size());
@@ -4130,7 +4131,7 @@ TEST_F(FillerTest, ReleaseFromFullAllocs) {
   ASSERT_TRUE(AllReleased(p1));
   ASSERT_FALSE(AllReleased(p3));
   for (const auto& pa : p3) {
-    ASSERT_FALSE(pa.from_released);
+    ASSERT_EQ(pa.from_released, Length(0));
   }
 
   // Check subrelease stats.
@@ -4380,11 +4381,11 @@ TEST_F(FillerTest, Release) {
   EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
   ASSERT_TRUE(AllReleased(p1));
   for (const auto& pa : p1) {
-    ASSERT_FALSE(pa.from_released);
+    ASSERT_EQ(pa.from_released, Length(0));
   }
   ASSERT_FALSE(AllReleased(p3));
   for (const auto& pa : p3) {
-    ASSERT_FALSE(pa.from_released);
+    ASSERT_EQ(pa.from_released, Length(0));
   }
 
   // We expect to reuse p1.pt.
@@ -4468,7 +4469,7 @@ TEST_F(FillerTestWithSubreleaseUnbacked, PreferFullyBackedOverUnbackedBroken) {
 
   // Verify that the allocation came from A.
   EXPECT_EQ(c.pt, a.pt);
-  EXPECT_FALSE(c.from_released);
+  EXPECT_EQ(c.from_released, Length(0));
 
   // Clean up.
   Delete(a);
@@ -4524,7 +4525,7 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
   // allocate them and re-back them.
   PAlloc b = Allocate(Length(5));
   EXPECT_EQ(b.pt, a.pt);
-  EXPECT_TRUE(b.from_released);
+  EXPECT_EQ(b.from_released, Length(5));
 
   // Now all released pages should be allocated.
   EXPECT_EQ(a.pt->released_pages(), Length(0));
@@ -5419,11 +5420,11 @@ TEST_F(FillerTest, CollapseFullyReleasedTrackerAndAllocate) {
   EXPECT_EQ(filler_.used_pages_in_released(), Length(0));
 
   // Allocate from the previously released (now collapsed) 4-page range and
-  // confirm that from_released is false.
+  // confirm that from_released is Length(0).
   PAlloc reallocated = AllocateWithSpanAllocInfo(Length(4), pa.span_alloc_info);
   ASSERT_EQ(reallocated.pt, pa.pt);
   EXPECT_EQ(reallocated.p, rel.p);
-  EXPECT_FALSE(reallocated.from_released);
+  EXPECT_EQ(reallocated.from_released, Length(0));
   EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
 
   Delete(reallocated);
@@ -5582,7 +5583,7 @@ TEST_F(FillerTestWithSubreleaseUnbacked,
           AllocateWithSpanAllocInfo(Length(4), pa.span_alloc_info);
       EXPECT_EQ(reallocated.pt, pa.pt);
       EXPECT_EQ(reallocated.p, rel.p);
-      EXPECT_FALSE(reallocated.from_released);
+      EXPECT_EQ(reallocated.from_released, Length(0));
       EXPECT_EQ(ReleasePages(Length(4)), Length(4));
       {
         PageHeapSpinLockHolder l;
@@ -9036,21 +9037,29 @@ TEST_F(FillerTest, TryGetReturnsPerPagePreviouslyUnbackedState) {
   ASSERT_EQ(a1.pt->released_pages(), kPagesPerHugePage - Length(3));
 
   // Re-allocating 1 page pops page 0 (`previously_unbacked == Length(0)`), so
-  // `TryGet` must report `from_released == false` rather than list-level
-  // `true`.
+  // `TryGet` must report `from_released == Length(0)`.
   PAlloc re_a0 = AllocateWithSpanAllocInfo(Length(1), kSparseInfo);
   EXPECT_EQ(re_a0.p, a0.p);
-  EXPECT_FALSE(re_a0.from_released);
+  EXPECT_EQ(re_a0.from_released, Length(0));
 
   // The next 1-page allocation pops page 3 (`previously_unbacked ==
-  // Length(1)`), which was unbacked and must report `from_released == true`.
+  // Length(1)`), which was unbacked and must report `from_released ==
+  // Length(1)`.
   PAlloc a3 = AllocateWithSpanAllocInfo(Length(1), kSparseInfo);
-  EXPECT_TRUE(a3.from_released);
+  EXPECT_EQ(a3.from_released, Length(1));
+
+  // Freeing backed pages 2 and 3 creates a contiguous free range [2, ...) whose
+  // first 2 pages are backed and remaining pages [4, ...) are unbacked. A
+  // 5-page allocation [2, 7) must report the exact 3 unbacked pages.
+  DeleteRaw(a2);
+  DeleteRaw(a3);
+  PAlloc mixed = AllocateWithSpanAllocInfo(Length(5), kSparseInfo);
+  EXPECT_EQ(mixed.p, a2.p);
+  EXPECT_EQ(mixed.from_released, Length(3));
 
   DeleteRaw(re_a0);
   DeleteRaw(a1);
-  DeleteRaw(a2);
-  DeleteRaw(a3);
+  DeleteRaw(mixed);
 }
 
 TEST_F(FillerTestWithSubreleaseUnbacked,

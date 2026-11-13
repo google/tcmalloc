@@ -41,9 +41,7 @@ HugeRange HugeCache::DoGet(HugeLength n, bool* from_released) {
     misses_++;
     weighted_misses_ += n.raw_num();
     HugeRange res = allocator_->Get(n);
-    if (res.valid()) {
-      *from_released = true;
-    }
+    *from_released = res.valid();
 
     return res;
   }
@@ -151,8 +149,7 @@ HugeRange HugeCache::Get(HugeLength n, bool* from_released) {
   // this case for cache size accounting.
   IncUsage(r.len());
 
-  const bool miss = r.valid() && *from_released;
-  if (miss) MaybeGrowCacheLimit(n);
+  if (*from_released) MaybeGrowCacheLimit(n);
   return r;
 }
 
