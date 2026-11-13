@@ -134,11 +134,11 @@ class HugeRegionTest : public ::testing::Test {
   }
 
   Alloc Allocate(Length n) {
-    bool from_released;
+    Length from_released;
     return Allocate(n, &from_released);
   }
 
-  Alloc Allocate(Length n, bool* from_released) {
+  Alloc Allocate(Length n, Length* from_released) {
     Alloc ret;
     TC_CHECK(region_.MaybeGet(n, &ret.p, from_released));
     ret.n = n;
@@ -215,29 +215,36 @@ TEST_F(HugeRegionTest, ReqsBacking) {
   const Length n = kPagesPerHugePage;
   std::vector<Alloc> allocs;
   // should back the first page
-  bool from_released;
+  Length from_released;
   allocs.push_back(Allocate(n - Length(1), &from_released));
-  EXPECT_TRUE(from_released);
+  EXPECT_EQ(from_released, n - Length(1));
   // nothing
   allocs.push_back(Allocate(Length(1), &from_released));
-  EXPECT_FALSE(from_released);
+  EXPECT_EQ(from_released, Length(0));
   // second page
   allocs.push_back(Allocate(Length(1), &from_released));
-  EXPECT_TRUE(from_released);
-  // third, fourth, fifth
+  EXPECT_EQ(from_released, Length(1));
+  // remainder of second (backed) + third, fourth, and 1 page of fifth
+  // (unbacked)
   allocs.push_back(Allocate(3 * n, &from_released));
-  EXPECT_TRUE(from_released);
+  EXPECT_EQ(from_released, 2 * n + Length(1));
 
   for (auto a : allocs) {
     Delete(a);
   }
+
+  // Free-backed hugepages [0..4] followed by unbacked hugepage 5: a 6-hugepage
+  // allocation spans 5 free-backed hugepages and 1 unbacked hugepage.
+  Alloc mixed = Allocate(6 * n, &from_released);
+  EXPECT_EQ(from_released, n);
+  Delete(mixed);
 }
 
 TEST_F(HugeRegionTest, ReleaseFrac) {
   const Length n = kPagesPerHugePage;
-  bool from_released;
+  Length from_released;
   auto a = Allocate(n * 20, &from_released);
-  EXPECT_TRUE(from_released);
+  EXPECT_EQ(from_released, n * 20);
 
   Delete(a);
   ExpectUnback({p_ + NHugePages(0), NHugePages(2)});
@@ -267,23 +274,23 @@ TEST_F(HugeRegionTest, ReleaseFrac) {
 
 TEST_F(HugeRegionTest, Release) {
   const Length n = kPagesPerHugePage;
-  bool from_released;
+  Length from_released;
   auto a = Allocate(n * 4 - Length(1), &from_released);
-  EXPECT_TRUE(from_released);
+  EXPECT_EQ(from_released, n * 4 - Length(1));
 
   auto b = Allocate(n * 3, &from_released);
-  EXPECT_TRUE(from_released);
+  EXPECT_EQ(from_released, n * 3 - Length(1));
 
   auto c = Allocate(n * 5 + Length(1), &from_released);
-  EXPECT_TRUE(from_released);
+  EXPECT_EQ(from_released, n * 5);
 
   auto d = Allocate(n * 2, &from_released);
-  EXPECT_TRUE(from_released);
+  EXPECT_EQ(from_released, n * 2);
 
   auto e = Allocate(n / 2, &from_released);
-  EXPECT_TRUE(from_released);
+  EXPECT_EQ(from_released, n / 2);
   auto f = Allocate(n / 2, &from_released);
-  EXPECT_FALSE(from_released);
+  EXPECT_EQ(from_released, Length(0));
 
   // Don't unback the first or last hugepage this touches -- since they
   // overlap with others.
@@ -324,9 +331,9 @@ TEST_F(HugeRegionTest, Release) {
 
 TEST_F(HugeRegionTest, ReleaseAdaptive) {
   const Length n = kPagesPerHugePage;
-  bool from_released;
+  Length from_released;
   auto a = Allocate(n * 4, &from_released);
-  EXPECT_TRUE(from_released);
+  EXPECT_EQ(from_released, n * 4);
 
   Delete(a);
   // Now we have 4 backed, free hugepages: 0, 1, 2, 3 relative to p_.
@@ -346,11 +353,11 @@ TEST_F(HugeRegionTest, ReleaseAdaptive) {
 // range is needed.
 TEST_F(HugeRegionTest, ReleaseAdaptiveFragmented) {
   const Length n = kPagesPerHugePage;
-  bool from_released;
+  Length from_released;
   std::optional<Alloc> allocs[8];
   for (int i = 0; i < 8; ++i) {
     allocs[i] = Allocate(n, &from_released);
-    EXPECT_TRUE(from_released);
+    EXPECT_EQ(from_released, n);
   }
 
   // Delete hugepages: 0, 1, 3, 4, 6, 7 while keeping 2 and 5 allocated.
@@ -380,11 +387,11 @@ TEST_F(HugeRegionTest, ReleaseAdaptiveFragmented) {
 // allocations.
 TEST_F(HugeRegionTest, ReleaseNonAdaptiveFragmented) {
   const Length n = kPagesPerHugePage;
-  bool from_released;
+  Length from_released;
   std::optional<Alloc> allocs[8];
   for (int i = 0; i < 8; ++i) {
     allocs[i] = Allocate(n, &from_released);
-    EXPECT_TRUE(from_released);
+    EXPECT_EQ(from_released, n);
   }
 
   // Delete hugepages: 0, 1, 3, 4, 6, 7 while keeping 2 and 5 allocated.
@@ -411,9 +418,9 @@ TEST_F(HugeRegionTest, ReleaseNonAdaptiveFragmented) {
 
 TEST_F(HugeRegionTest, ReleaseFailure) {
   const Length n = kPagesPerHugePage;
-  bool from_released;
+  Length from_released;
   auto a = Allocate(n * 4 - Length(1), &from_released);
-  EXPECT_TRUE(from_released);
+  EXPECT_EQ(from_released, n * 4 - Length(1));
   EXPECT_EQ(NHugePages(4), region_.backed());
 
   // Don't unback the first or last hugepage this touches -- since they
@@ -428,7 +435,7 @@ TEST_F(HugeRegionTest, ReleaseFailure) {
 
   // Reallocate.
   a = Allocate(n * 4 - Length(1), &from_released);
-  EXPECT_FALSE(from_released);
+  EXPECT_EQ(from_released, Length(0));
   Delete(a);
 
   EXPECT_EQ(NHugePages(4), region_.backed());
@@ -436,19 +443,19 @@ TEST_F(HugeRegionTest, ReleaseFailure) {
 
 TEST_F(HugeRegionTest, Reback) {
   const Length n = kPagesPerHugePage / 4;
-  bool from_released;
+  Length from_released;
   // Even in back/unback cycles we should still call the functions
   // on every transition.
   for (int i = 0; i < 20; ++i) {
     std::vector<Alloc> allocs;
     allocs.push_back(Allocate(n, &from_released));
-    EXPECT_TRUE(from_released);
+    EXPECT_EQ(from_released, n);
     allocs.push_back(Allocate(n, &from_released));
-    EXPECT_FALSE(from_released);
+    EXPECT_EQ(from_released, Length(0));
     allocs.push_back(Allocate(n, &from_released));
-    EXPECT_FALSE(from_released);
+    EXPECT_EQ(from_released, Length(0));
     allocs.push_back(Allocate(n, &from_released));
-    EXPECT_FALSE(from_released);
+    EXPECT_EQ(from_released, Length(0));
 
     std::shuffle(allocs.begin(), allocs.end(), absl::BitGen());
     DeleteUnback(allocs[0]);
@@ -545,7 +552,7 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
         FuzzAlloc f;
         f.owner = owner;
         f.r.n = Length(n);
-        bool from_released;
+        Length from_released;
         {
           absl::MutexLock l(mu);
           if (!region_.MaybeGet(f.r.n, &f.r.p, &from_released)) {
@@ -966,7 +973,7 @@ TEST_F(HugeRegionTest, ReleaseDuringRelease) {
   const Length hp = kPagesPerHugePage;
 
   // Setup: HP 0, 2 are free; HP 1 is allocated.
-  bool from_released;
+  Length from_released;
   auto a0 = Allocate(hp, &from_released);
   auto a1 = Allocate(hp, &from_released);
   auto a2 = Allocate(hp, &from_released);
@@ -1087,7 +1094,7 @@ TEST_F(HugeRegionUnbackWithoutLockTest, GetDuringUnbackAvoidsRangeInFlight) {
   ASSERT_EQ(region_.free_backed(), NHugePages(2));
 
   Alloc concurrent;
-  bool concurrent_from_released = false;
+  Length concurrent_from_released = Length(0);
   unback_without_lock_.unlocked_hook_ = [&](Range r) {
     EXPECT_EQ(r.p, p_.first_page());
     EXPECT_EQ(r.n, 2 * hp);
@@ -1117,7 +1124,7 @@ TEST_F(HugeRegionUnbackWithoutLockTest, GetDuringUnbackAvoidsRangeInFlight) {
   // Hugepages 0-1 were in flight, so the concurrent Get landed past a1 on
   // hugepages 3-4.
   EXPECT_EQ(concurrent.p, p_.first_page() + 3 * hp);
-  EXPECT_TRUE(concurrent_from_released);
+  EXPECT_EQ(concurrent_from_released, 2 * hp);
   EXPECT_EQ(region_.backed(), NHugePages(3));
   EXPECT_EQ(region_.free_backed(), NHugePages(0));
   EXPECT_EQ(region_.used_pages(), 3 * hp);
@@ -1150,7 +1157,7 @@ TEST_F(HugeRegionUnbackWithoutLockTest, GetDuringUnbackTakesPendingCandidate) {
     Delete(a2);
 
     Alloc taken;
-    bool from_released = true;
+    Length from_released = Length(1);
     int hooks = 0;
     unback_without_lock_.unlocked_hook_ = [&](Range r) {
       ++hooks;
@@ -1167,7 +1174,7 @@ TEST_F(HugeRegionUnbackWithoutLockTest, GetDuringUnbackTakesPendingCandidate) {
     EXPECT_EQ(released, NHugePages(1));
     EXPECT_EQ(unback_.unbacked_, 1);
     EXPECT_EQ(taken.p, p_.first_page() + 2 * hp);
-    EXPECT_FALSE(from_released);
+    EXPECT_EQ(from_released, Length(0));
     EXPECT_EQ(region_.backed(), NHugePages(3));
     EXPECT_EQ(region_.free_backed(), NHugePages(0));
 
@@ -1241,7 +1248,7 @@ TEST_F(HugeRegionUnbackWithoutLockTest, FailedUnbackAfterConcurrentGet) {
   ASSERT_EQ(region_.free_backed(), NHugePages(3));
 
   Alloc concurrent;
-  bool from_released = true;
+  Length from_released = Length(1);
   unback_without_lock_.unlocked_hook_ = [&](Range r) {
     EXPECT_EQ(r.p, p_.first_page());
     EXPECT_EQ(r.n, 2 * hp);
@@ -1250,7 +1257,7 @@ TEST_F(HugeRegionUnbackWithoutLockTest, FailedUnbackAfterConcurrentGet) {
     // Consumes hugepage 3 while hugepages 0-1 are in flight.
     concurrent = Allocate(hp, &from_released);
     EXPECT_EQ(concurrent.p, p_.first_page() + 3 * hp);
-    EXPECT_FALSE(from_released);
+    EXPECT_EQ(from_released, Length(0));
     EXPECT_EQ(region_.free_backed(), NHugePages(0));
   };
   EXPECT_EQ(ReleaseUnderLock(2 * hp, HugeRegionAdaptiveRelease::kDisabled),
@@ -1263,10 +1270,10 @@ TEST_F(HugeRegionUnbackWithoutLockTest, FailedUnbackAfterConcurrentGet) {
   EXPECT_EQ(region_.used_pages(), 2 * hp);
 
   // The rolled-back range is unmarked in tracker_ and still backed.
-  bool reget_from_released = true;
+  Length reget_from_released = Length(1);
   Alloc reget = Allocate(2 * hp, &reget_from_released);
   EXPECT_EQ(reget.p, p_.first_page());
-  EXPECT_FALSE(reget_from_released);
+  EXPECT_EQ(reget_from_released, Length(0));
   Delete(reget);
 
   // And it is still eligible for a subsequent Release.
@@ -1368,7 +1375,7 @@ class HugeRegionSetTest
 
   [[nodiscard]] static Range Allocate(Region& region, Length n) {
     PageId p;
-    bool from_released;
+    Length from_released;
     TC_CHECK(region.MaybeGet(n, &p, &from_released));
     return Range(p, n);
   }
@@ -1423,8 +1430,9 @@ TEST_P(HugeRegionSetTest, Release) {
   absl::BitGen rng;
   PageId p;
   constexpr Length kSize = kPagesPerHugePage;
-  bool from_released;
+  Length from_released = Length(1);
   ASSERT_FALSE(set_.MaybeGet(Length(1), &p, &from_released));
+  EXPECT_EQ(from_released, Length(0));
   auto r1 = GetRegion();
   set_.Contribute(r1.get());
 
@@ -1464,7 +1472,7 @@ TEST_P(HugeRegionSetTest, ReleaseAdaptive) {
 
   PageId p;
   constexpr Length kSize = kPagesPerHugePage;
-  bool from_released;
+  Length from_released;
   auto r1 = GetRegion();
   set_.Contribute(r1.get());
 
@@ -1523,7 +1531,7 @@ TEST_P(HugeRegionSetTest, ReleaseAdaptiveWithLimit) {
 
   PageId p;
   constexpr Length kSize = kPagesPerHugePage;
-  bool from_released;
+  Length from_released;
   auto r1 = GetRegion();
   set_.Contribute(r1.get());
 
@@ -1584,7 +1592,7 @@ TEST_P(HugeRegionSetTest, ReleaseAdaptiveWithHitLimit) {
 
   PageId p;
   constexpr Length kSize = kPagesPerHugePage;
-  bool from_released;
+  Length from_released;
   auto r1 = GetRegion();
   set_.Contribute(r1.get());
 
@@ -1621,7 +1629,7 @@ TEST_P(HugeRegionSetTest, ReleaseAdaptiveOrder) {
 
   PageId p;
   constexpr Length kSize = kPagesPerHugePage;
-  bool from_released;
+  Length from_released;
   auto r1 = GetRegion();
   set_.Contribute(r1.get());
 
@@ -1674,8 +1682,9 @@ TEST_P(HugeRegionSetTest, Set) {
   absl::BitGen rng;
   PageId p;
   constexpr Length kSize = kPagesPerHugePage + Length(1);
-  bool from_released;
+  Length from_released = Length(1);
   ASSERT_FALSE(set_.MaybeGet(Length(1), &p, &from_released));
+  EXPECT_EQ(from_released, Length(0));
   auto r1 = GetRegion();
   auto r2 = GetRegion();
   auto r3 = GetRegion();
@@ -1788,9 +1797,10 @@ TEST_P(HugeRegionSetTest, GetPageAllocationStatus) {
   EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 0);
 
   PageId p;
-  bool from_released;
+  Length from_released;
   ASSERT_TRUE(set_.MaybeGet(Length(7), &p, &from_released));
   EXPECT_EQ(p, hp.first_page());
+  EXPECT_EQ(from_released, Length(7));
 
   EXPECT_TRUE(set_.GetPageAllocationStatus(hp, pages));
   EXPECT_EQ(pages.CountBits(0, kPagesPerHugePage.raw_num()), 7);
@@ -1813,13 +1823,13 @@ TEST_P(HugeRegionSetTest, TimeSeriesMinMaxWindow) {
 
   const Length kHalfHp = kPagesPerHugePage / 2;
   PageId p1, p2, p3;
-  bool from_released = false;
+  Length from_released = Length(0);
 
   // Epoch 0 (t = 0ms): allocate 0.5 HP + 4 HP, backing 5 hugepages in use.
   ASSERT_TRUE(set_.MaybeGet(kHalfHp, &p1, &from_released));
-  EXPECT_TRUE(from_released);
+  EXPECT_EQ(from_released, kHalfHp);
   ASSERT_TRUE(set_.MaybeGet(NHugePages(4).in_pages(), &p2, &from_released));
-  EXPECT_TRUE(from_released);
+  EXPECT_EQ(from_released, NHugePages(4).in_pages() - kHalfHp);
 
   // Epoch 1 (t = 1000ms): free the 4 HP allocation, leaving 1 HP in use and
   // 4 HP free-backed when lazy release is enabled (or 0 when eagerly unbacked).
@@ -1838,7 +1848,7 @@ TEST_P(HugeRegionSetTest, TimeSeriesMinMaxWindow) {
   // free p3 so 1 HP remains in use and 2 HP remain free-backed.
   AdvanceClock(absl::Seconds(1));
   ASSERT_TRUE(set_.MaybeGet(NHugePages(2).in_pages(), &p3, &from_released));
-  EXPECT_FALSE(from_released);
+  EXPECT_EQ(from_released, Length(0));
   EXPECT_EQ(
       set_.ReleasePages(Length::max(), HugeRegionAdaptiveRelease::kEnabled,
                         /*hit_limit=*/true),
@@ -1868,7 +1878,7 @@ TEST_P(HugeRegionSetTest, TimeSeriesMinMaxWindow) {
     AdvanceClock(absl::Seconds(1));
     PageId p;
     ASSERT_TRUE(set_.MaybeGet(kPagesPerHugePage, &p, &from_released));
-    EXPECT_FALSE(from_released);
+    EXPECT_EQ(from_released, Length(0));
     ASSERT_TRUE(set_.MaybePut(Range(p, kPagesPerHugePage)));
   }
 
@@ -1922,10 +1932,11 @@ TEST_P(HugeRegionSetTest, GetAndPutDuringReleasePages) {
         // Hugepages 1-2 are marked in flight, so MaybeGet lands back on
         // hugepage 3; it was unbacked iff MaybePut tried to release and
         // succeeded.
-        bool from_released;
+        Length from_released;
         ASSERT_TRUE(set_.MaybeGet(hp, &hp3.p, &from_released));
         EXPECT_EQ(hp3.p, hp0.p + 3 * hp);
-        EXPECT_EQ(from_released, !UseHugeRegionMoreOften() && success);
+        EXPECT_EQ(from_released,
+                  (!UseHugeRegionMoreOften() && success) ? hp : Length(0));
         ExpectFreeBacked({region.get()}, in_flight);
       };
       const Length released = ReleaseAll(10 * hp, adaptive);
@@ -2079,7 +2090,7 @@ TEST_P(HugeRegionSetTest, ReleasePagesVisitBound) {
     // strictly larger than the previous region's, so that Contribute() orders
     // list_ as R0, R1, R2 and the adaptive traversal visits R2, R1, R0.
     PageId p;
-    bool from_released;
+    Length from_released;
     ASSERT_TRUE(
         region->MaybeGet(Region::size().in_pages(), &p, &from_released));
     const Length free_len = NHugePages(4 * (i + 1)).in_pages();
@@ -2155,7 +2166,7 @@ TEST_P(HugeRegionSetTest, ListStaysSortedAcrossReleasePagesUnback) {
     mid_r_n = r.n;
     PageHeapSpinLockHolder l;
     mid_r1_longest_free = r1->longest_free();
-    bool from_released;
+    Length from_released;
     mid_get_ok = set_.MaybeGet(hp, &mid_get_page, &from_released);
   };
   EXPECT_EQ(ReleaseAll(5 * hp, HugeRegionAdaptiveRelease::kDisabled), 5 * hp);
@@ -2169,7 +2180,7 @@ TEST_P(HugeRegionSetTest, ListStaysSortedAcrossReleasePagesUnback) {
   // (above r0's 4), so list_ must return to [r0 (4), r1 (5)] and a 4-hugepage
   // Get must pick r0 over r1.
   PageId post_get_page;
-  bool from_released;
+  Length from_released;
   ASSERT_TRUE(set_.MaybeGet(4 * hp, &post_get_page, &from_released));
   EXPECT_TRUE(r0->contains(post_get_page));
 }
@@ -2180,7 +2191,7 @@ TEST_P(HugeRegionSetTest, ClockCalls) {
 
   const Length hp = kPagesPerHugePage;
   PageId p;
-  bool from_released;
+  Length from_released;
 
   const int64_t before_get = fake_clock_calls_;
   ASSERT_TRUE(set_.MaybeGet(hp, &p, &from_released));

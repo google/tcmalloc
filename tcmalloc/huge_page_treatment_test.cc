@@ -292,7 +292,7 @@ TEST_F(HugePageTreatmentRealMemoryTest,
     auto [got_pt, got_page, from_released] =
         filler_.TryGet(released_len, info, PreferBackedPages::kDisabled);
     ASSERT_EQ(got_pt, pt.get());
-    EXPECT_FALSE(from_released);
+    EXPECT_EQ(from_released, Length(0));
     rel_page = got_page;
   }
 
@@ -330,7 +330,7 @@ TEST_F(HugePageTreatmentRealMemoryTest,
     auto [got_pt, got_page, from_released] =
         filler_.TryGet(Length(1), info, PreferBackedPages::kDisabled);
     ASSERT_EQ(got_pt, pt.get());
-    EXPECT_TRUE(from_released);
+    EXPECT_EQ(from_released, Length(1));
     extra_free_page = got_page;
     // Populate the refilled page so 3 TCMalloc pages remain unbacked in OS
     // pagemap.

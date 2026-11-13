@@ -71,6 +71,23 @@ class MockUnback final : public MemoryModifyFunction {
     return {.success = true, .error_number = 0};
   }
 
+  [[nodiscard]] Length ConsumeAllocatedRange(Range r) {
+    Length from_released(0);
+    for (PageId q = r.p, q_end = r.p + r.n; q != q_end; ++q) {
+      if (released_.contains(q)) {
+        ++from_released;
+      }
+    }
+    const PageId first = HugePageContaining(r.p).first_page();
+    const PageId end =
+        (HugePageContaining(r.p + r.n - Length(1)) + NHugePages(1))
+            .first_page();
+    for (PageId q = first; q != end; ++q) {
+      released_.erase(q);
+    }
+    return from_released;
+  }
+
   absl::flat_hash_set<PageId> released_;
   bool unback_success_ = true;
   // Runs before each unback with the range being unbacked.
@@ -333,23 +350,15 @@ struct State {
 void Allocate::Perform(State& state) const {
   const Length n = Length(std::max<size_t>(length % (1 << 18), 1));
   PageId p;
-  bool from_released;
+  Length from_released = Length::max();
   if (!state.region.MaybeGet(n, &p, &from_released)) {
+    CHECK_EQ(from_released, Length(0));
     return;
   }
   EXPECT_TRUE(state.region.contains(p));
   EXPECT_TRUE(state.region.contains(p + n - Length(1)));
   state.allocs.emplace_back(p, n);
-  bool did_release = false;
-  const PageId first = HugePageContaining(p).first_page();
-  const PageId end =
-      (HugePageContaining(p + n - Length(1)) + NHugePages(1)).first_page();
-  for (PageId q = first; q != end; ++q) {
-    if (state.unback.released_.erase(q) > 0) {
-      did_release = true;
-    }
-  }
-  CHECK_EQ(did_release, from_released);
+  CHECK_EQ(state.unback.ConsumeAllocatedRange(Range(p, n)), from_released);
 }
 
 void Deallocate::Perform(State& state) const {
@@ -669,6 +678,7 @@ struct State {
     LargeSpanStats large;
     set.AddSpanStats(&small, &large);
     ExpectSpanStats(small, large, free, unmapped);
+    EXPECT_EQ(Length(unback.released_.size()), unmapped);
 
     const BackingStats stats = set.stats();
     EXPECT_EQ(stats.system_bytes,
@@ -731,6 +741,10 @@ void Contribute::Perform(State& state) const {
   }
   const HugePage start =
       state.start + HugeRegion::size() * state.regions.size();
+  for (PageId p = start.first_page(), end = p + HugeRegion::size().in_pages();
+       p != end; ++p) {
+    state.unback.released_.insert(p);
+  }
   state.regions.push_back(
       std::make_unique<HugeRegion>(HugeRange(start, HugeRegion::size()),
                                    state.unback, state.nil_set_anon_vma_name));
@@ -747,13 +761,16 @@ void Get::Perform(State& state) const {
   }
 
   PageId p;
-  bool from_released;
+  Length from_released = Length::max();
   if (!state.set.MaybeGet(n, &p, &from_released)) {
+    CHECK_EQ(from_released, Length(0));
     for (Length longest : longest_free) {
       EXPECT_LT(longest, n);
     }
     return;
   }
+
+  CHECK_EQ(state.unback.ConsumeAllocatedRange(Range(p, n)), from_released);
 
   const size_t i = state.RegionIndex(p);
   ASSERT_LT(i, state.regions.size());

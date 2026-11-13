@@ -212,6 +212,14 @@ class HugePageAwareAllocatorTest
     return s;
   }
 
+  AllocationState AllocatorNewAligned(Length n, Length align,
+                                      SpanAllocInfo span_alloc_info) {
+    AllocationState s = allocator_->NewAligned(n, align, span_alloc_info);
+    uintptr_t start = reinterpret_cast<uintptr_t>(s.r.start_addr());
+    allocator_->forwarder().RecordAllocation(start);
+    return s;
+  }
+
   void AllocatorDeleteWithInfo(AllocationState s,
                                SpanAllocInfo span_alloc_info) {
     uintptr_t start = reinterpret_cast<uintptr_t>(s.r.start_addr());
@@ -307,9 +315,47 @@ class HugePageAwareAllocatorTest
     return allocator_->ReleaseAtLeastNPages(k, reason);
   }
 
+  class ForwarderPageFlags final : public PageFlagsBase {
+   public:
+    std::optional<PageStats> Get(const void*, size_t) override {
+      return PageStats{};
+    }
+    PageFlagsBitmaps GetSinglePageBitmaps(const void*) override {
+      return {.status = absl::StatusCode::kOk};
+    }
+    std::optional<bool> IsHugepageBacked(const void*) override { return false; }
+  };
+
+  class ForwarderResidency final : public NoopResidency {
+   public:
+    explicit ForwarderResidency(
+        const huge_page_allocator_internal::FakeHugePageStaticForwarder&
+            forwarder)
+        : forwarder_(forwarder) {}
+
+    SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override {
+      Bitmap<kMaxResidencyBits> unbacked;
+      const size_t hw_pages = kHugePageSize / GetPageSize();
+      if (hw_pages >= kPagesPerHugePage.raw_num()) {
+        const size_t ratio = hw_pages / kPagesPerHugePage.raw_num();
+        const PageId first = HugePageContaining(addr).first_page();
+        for (size_t i = 0; i < kPagesPerHugePage.raw_num(); ++i) {
+          if (!forwarder_.IsPageResident(first + Length(i))) {
+            unbacked.SetRange(i * ratio, ratio);
+          }
+        }
+      }
+      return {unbacked, {}, absl::StatusCode::kOk};
+    }
+
+   private:
+    const huge_page_allocator_internal::FakeHugePageStaticForwarder& forwarder_;
+  };
+
   void TreatHugepageTrackers(EnableCollapse enable_collapse) {
-    allocator_->TreatHugepageTrackers(enable_collapse, /*pageflags=*/nullptr,
-                                      /*residency=*/nullptr);
+    ForwarderPageFlags pageflags;
+    ForwarderResidency residency(allocator_->forwarder());
+    allocator_->TreatHugepageTrackers(enable_collapse, &pageflags, &residency);
   }
 
   Length ReleaseAtLeastNPagesBreakingHugepages(Length n,
@@ -3174,6 +3220,89 @@ TEST_P(HugePageAwareAllocatorTest, MinFreePagesToBreakHugepage) {
     cold_allocator.Delete(cold_sparse_keep1, kSparseInfo);
     cold_allocator.Delete(cold_sparse_keep2, kSparseInfo);
   }
+}
+
+TEST_P(HugePageAwareAllocatorTest, FromReleasedBackingAndGrowth) {
+  constexpr SpanAllocInfo kSpanInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kSparse,
+  };
+  allocator_->forwarder().hpaa_subrelease.set(true);
+  allocator_->forwarder().release_partial_alloc_pages.set(
+      ReleasePartialAllocPages::kEnabled);
+  allocator_->forwarder().filler_skip_subrelease_short_interval.set(
+      absl::ZeroDuration());
+  allocator_->forwarder().filler_skip_subrelease_long_interval.set(
+      absl::ZeroDuration());
+  allocator_->forwarder().min_free_pages_to_break_dense_hugepage.set(Length(1));
+  allocator_->forwarder().min_free_pages_to_break_sparse_hugepage.set(
+      Length(1));
+  allocator_->forwarder().prefer_backed_filler_pages.set(
+      PreferBackedPages::kDisabled);
+  allocator_->forwarder().back_small_allocations.set(true);
+  allocator_->forwarder().back_size_threshold_bytes.set(kHugePageSize);
+
+  // 1. Filler: backed vs partially-unbacked vs fully-unbacked ranges.
+  AllocationState pin = New(Length(1), kSpanInfo);
+  AllocationState backed_part = New(Length(2), kSpanInfo);
+  AllocationState unbacked_part = New(Length(3), kSpanInfo);
+  AllocationState tail = New(kPagesPerHugePage - Length(6), kSpanInfo);
+  const HugePage hp = HugePageContaining(pin.r.p);
+  ASSERT_EQ(HugePageContaining(backed_part.r.p), hp);
+  ASSERT_EQ(HugePageContaining(unbacked_part.r.p), hp);
+  ASSERT_EQ(HugePageContaining(tail.r.p), hp);
+
+  Delete(unbacked_part, 1);
+  EXPECT_EQ(
+      ReleasePages(Length(3), PageReleaseReason::kProcessBackgroundActions),
+      Length(3));
+  for (PageId p = unbacked_part.r.p, end = p + Length(3); p != end; ++p) {
+    EXPECT_FALSE(allocator_->forwarder().IsPageResident(p));
+  }
+  Delete(backed_part, 1);
+
+  // Purely backed slice [backed_part.r.p, +2): neither grows nor calls Back().
+  const size_t back_calls_before = allocator_->forwarder().back_calls();
+  allocator_->forwarder().clear_last_may_have_grown();
+  AllocationState re_backed = New(Length(2), kSpanInfo);
+  EXPECT_EQ(re_backed.r.p, backed_part.r.p);
+  EXPECT_FALSE(allocator_->forwarder().last_may_have_grown());
+  EXPECT_EQ(allocator_->forwarder().back_calls(), back_calls_before);
+  for (PageId p = unbacked_part.r.p, end = p + Length(3); p != end; ++p) {
+    EXPECT_FALSE(allocator_->forwarder().IsPageResident(p));
+  }
+
+  // Mixed slice spanning 2 backed pages + 2 unbacked pages (`from_released ==
+  // Length(2)`): reports `may_have_grown` and triggers `Back(r)`.
+  Delete(re_backed, 1);
+  allocator_->forwarder().clear_last_may_have_grown();
+  AllocationState mixed = New(Length(4), kSpanInfo);
+  EXPECT_EQ(mixed.r.p, backed_part.r.p);
+  EXPECT_TRUE(allocator_->forwarder().last_may_have_grown());
+  EXPECT_EQ(allocator_->forwarder().back_calls(), back_calls_before + 1);
+  for (PageId p = mixed.r.p, end = p + mixed.r.n; p != end; ++p) {
+    EXPECT_TRUE(allocator_->forwarder().IsPageResident(p));
+  }
+  EXPECT_FALSE(
+      allocator_->forwarder().IsPageResident(unbacked_part.r.p + Length(2)));
+
+  Delete(mixed, 1);
+  Delete(pin, 1);
+  Delete(tail, 1);
+
+  // 2. NewAligned: HugeCache miss grows, HugeCache hit does not.
+  allocator_->forwarder().clear_last_may_have_grown();
+  AllocationState aligned_miss =
+      AllocatorNewAligned(kPagesPerHugePage, Length(2), kSpanInfo);
+  ASSERT_TRUE(aligned_miss);
+  EXPECT_TRUE(allocator_->forwarder().last_may_have_grown());
+  AllocatorDeleteWithInfo(aligned_miss, kSpanInfo);
+  allocator_->forwarder().clear_last_may_have_grown();
+  AllocationState aligned_hit =
+      AllocatorNewAligned(kPagesPerHugePage, Length(2), kSpanInfo);
+  ASSERT_TRUE(aligned_hit);
+  EXPECT_FALSE(allocator_->forwarder().last_may_have_grown());
+  AllocatorDeleteWithInfo(aligned_hit, kSpanInfo);
 }
 
 TEST(HugePageAwareAllocatorDeathTest, DoubleFreeReportsError) {

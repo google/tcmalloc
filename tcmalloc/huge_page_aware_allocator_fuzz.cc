@@ -1089,6 +1089,7 @@ void Alloc::Perform(State& state) const {
   // The span is disjoint from every live span.
   const PageId first = s.r.p;
   const PageId end = first + s.r.n;
+  state.allocator.forwarder().MarkPagesResident(s.r);
   auto next = state.live_ranges.lower_bound(first);
   TC_CHECK(next == state.live_ranges.end() || next->first >= end);
   if (next != state.live_ranges.begin()) {
