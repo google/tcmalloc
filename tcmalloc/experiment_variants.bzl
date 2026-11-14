@@ -101,6 +101,12 @@ experiment_variants = [
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_SPAN_BITMAP_ABLATION"},
     },
     {
+        "name": "tcmalloc_subrelease_order_by_allocation_time",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_SUBRELEASE_ORDER_BY_ALLOCATION_TIME"},
+    },
+    {
         "name": "tcmalloc_track_broken_hugepages",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],

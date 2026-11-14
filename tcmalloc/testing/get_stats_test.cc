@@ -270,6 +270,10 @@ TEST_F(GetStatsTest, Parameters) {
       Parameters::filler_append_on_free() ==
       tcmalloc_internal::FillerAppendOnFree::kEnabled;
   Parameters::set_filler_append_on_free(false);
+  const bool old_subrelease_order_by_allocation_time =
+      Parameters::subrelease_order_by_allocation_time() ==
+      tcmalloc_internal::SubreleaseOrderByAllocationTime::kEnabled;
+  Parameters::set_subrelease_order_by_allocation_time(false);
   const size_t old_min_free_bytes_to_break_dense_hugepage =
       Parameters::min_free_bytes_to_break_dense_hugepage();
   Parameters::set_min_free_bytes_to_break_dense_hugepage(0);
@@ -364,6 +368,10 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         buf,
         HasSubstr(
+            R"(PARAMETER tcmalloc_subrelease_order_by_allocation_time 0)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(
             R"(PARAMETER tcmalloc_min_free_bytes_to_break_dense_hugepage 0)"));
     EXPECT_THAT(
         buf,
@@ -389,6 +397,9 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_prefer_backed_filler_pages: false)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_filler_append_on_free: false)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(R"(tcmalloc_subrelease_order_by_allocation_time: false)"));
     EXPECT_THAT(
         pbtxt,
         HasSubstr(R"(tcmalloc_min_free_bytes_to_break_dense_hugepage: 0)"));
@@ -463,6 +474,7 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_collapse_released_hugepages(true);
   Parameters::set_prefer_backed_filler_pages(true);
   Parameters::set_filler_append_on_free(true);
+  Parameters::set_subrelease_order_by_allocation_time(true);
   Parameters::set_min_free_bytes_to_break_dense_hugepage(131072);
   Parameters::set_min_free_bytes_to_break_sparse_hugepage(65536);
   Parameters::set_min_hot_access_hint(hot_cold_t{3});
@@ -518,6 +530,10 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         buf,
         HasSubstr(
+            R"(PARAMETER tcmalloc_subrelease_order_by_allocation_time 1)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(
             R"(PARAMETER tcmalloc_min_free_bytes_to_break_dense_hugepage 131072)"));
     EXPECT_THAT(
         buf,
@@ -563,6 +579,9 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_filler_append_on_free: true)"));
     EXPECT_THAT(
         pbtxt,
+        HasSubstr(R"(tcmalloc_subrelease_order_by_allocation_time: true)"));
+    EXPECT_THAT(
+        pbtxt,
         HasSubstr(
             R"(tcmalloc_min_free_bytes_to_break_dense_hugepage: 131072)"));
     EXPECT_THAT(
@@ -590,6 +609,8 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_collapse_released_hugepages(old_collapse_released_hugepages);
   Parameters::set_prefer_backed_filler_pages(old_prefer_backed_filler_pages);
   Parameters::set_filler_append_on_free(old_filler_append_on_free);
+  Parameters::set_subrelease_order_by_allocation_time(
+      old_subrelease_order_by_allocation_time);
   Parameters::set_min_free_bytes_to_break_dense_hugepage(
       old_min_free_bytes_to_break_dense_hugepage);
   Parameters::set_min_free_bytes_to_break_sparse_hugepage(

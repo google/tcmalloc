@@ -260,6 +260,8 @@ TEST(StaticForwarderTest, Parameters) {
             Parameters::release_partial_alloc_pages());
   EXPECT_EQ(ProdForwarder::release_stale_pages(),
             Parameters::release_stale_pages());
+  EXPECT_EQ(ProdForwarder::subrelease_order_by_allocation_time(),
+            Parameters::subrelease_order_by_allocation_time());
   EXPECT_EQ(ProdForwarder::subrelease_unbacked_hugepages(),
             Parameters::subrelease_unbacked_hugepages());
   EXPECT_EQ(ProdForwarder::track_broken_hugepages(),
@@ -315,6 +317,19 @@ TEST(StaticForwarderTest, Parameters) {
 
   Parameters::set_min_free_bytes_to_break_dense_hugepage(initial_dense);
   Parameters::set_min_free_bytes_to_break_sparse_hugepage(initial_sparse);
+
+  const bool initial_order_by_alloc_time =
+      TCMalloc_Internal_GetSubreleaseOrderByAllocationTime();
+  Parameters::set_subrelease_order_by_allocation_time(true);
+  EXPECT_TRUE(TCMalloc_Internal_GetSubreleaseOrderByAllocationTime());
+  EXPECT_EQ(ProdForwarder::subrelease_order_by_allocation_time(),
+            SubreleaseOrderByAllocationTime::kEnabled);
+  Parameters::set_subrelease_order_by_allocation_time(false);
+  EXPECT_FALSE(TCMalloc_Internal_GetSubreleaseOrderByAllocationTime());
+  EXPECT_EQ(ProdForwarder::subrelease_order_by_allocation_time(),
+            SubreleaseOrderByAllocationTime::kDisabled);
+  Parameters::set_subrelease_order_by_allocation_time(
+      initial_order_by_alloc_time);
 }
 
 class StaticForwarderSpanTest : public testing::TestWithParam<size_t> {
