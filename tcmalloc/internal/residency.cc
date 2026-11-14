@@ -16,6 +16,9 @@
 
 #include <fcntl.h>
 #include <stddef.h>
+#if defined(__linux__)
+#include <sys/syscall.h>
+#endif
 #include <unistd.h>
 
 #include <algorithm>
@@ -23,15 +26,68 @@
 #include <cstdio>
 #include <optional>
 
+#include "absl/algorithm/container.h"
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/util.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+// TODO(b/585745921): Move to internal/numa.h once :numa no longer pulls in
+// :percpu's initial-exec TLS globals.
+int GetCurrentNumaNode() {
+#if defined(__linux__) && defined(SYS_getcpu)
+  unsigned int node = 0;
+  if (syscall(SYS_getcpu, nullptr, &node, nullptr) == 0) {
+    return node;
+  }
+#endif
+  return 0;
+}
+
+bool ForEachRemoteNumaPage(
+    const uintptr_t base_page, const size_t num_pages, const int local_node,
+    const absl::FunctionRef<void(size_t page_index)> on_remote_page) {
+  const size_t kHardwarePageSize = GetPageSize();
+  if (local_node < 0 || (base_page % kHardwarePageSize) != 0) {
+    return false;
+  }
+  if (num_pages == 0) {
+    return true;
+  }
+#if defined(__linux__) && defined(SYS_move_pages)
+  constexpr size_t kBatchSize = 64;
+  const void* pages[kBatchSize];
+  int status[kBatchSize];
+
+  for (size_t page_idx = 0; page_idx < num_pages; page_idx += kBatchSize) {
+    const size_t batch = std::min(kBatchSize, num_pages - page_idx);
+    for (size_t i = 0; i < batch; ++i) {
+      pages[i] = reinterpret_cast<const void*>(
+          base_page + (page_idx + i) * kHardwarePageSize);
+    }
+    absl::c_fill(status, -1);
+    if (syscall(SYS_move_pages, 0, batch, pages, nullptr, status, 0) != 0) {
+      return false;
+    }
+    for (size_t i = 0; i < batch; ++i) {
+      if (status[i] >= 0 && status[i] != local_node) {
+        on_remote_page(page_idx + i);
+      }
+    }
+  }
+  return true;
+#else
+  return false;
+#endif
+}
+
 namespace {
 
 // From fs/proc/task_mmu.c:
@@ -200,6 +256,35 @@ std::optional<Residency::Info> ResidencyPageMap::Get(const void* const addr,
   Update(res.value(), lastPageSize, page_index++, info);
 
   return info;
+}
+
+std::optional<size_t> ResidencyPageMap::GetRemoteNumaBytes(
+    const void* const addr, const size_t size, const int local_node) {
+  if (fd_ < 0 || addr == nullptr || local_node < 0) {
+    return std::nullopt;
+  }
+  if (size == 0) {
+    return 0;
+  }
+  const uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
+  const uintptr_t base_page = uaddr & ~(kHardwarePageSize - 1);
+  const uintptr_t end_page =
+      (uaddr + size + kHardwarePageSize - 1) & ~(kHardwarePageSize - 1);
+  const size_t total_pages = (end_page - base_page) / kHardwarePageSize;
+
+  size_t remote_bytes = 0;
+  if (!ForEachRemoteNumaPage(
+          base_page, total_pages, local_node, [&](size_t page_index) {
+            const uintptr_t page_start =
+                base_page + page_index * kHardwarePageSize;
+            const uintptr_t span_start = std::max(uaddr, page_start);
+            const uintptr_t span_end =
+                std::min(uaddr + size, page_start + kHardwarePageSize);
+            remote_bytes += span_end - span_start;
+          })) {
+    return std::nullopt;
+  }
+  return remote_bytes;
 }
 
 Residency::SinglePageBitmaps ResidencyPageMap::GetUnbackedAndSwappedBitmaps(
