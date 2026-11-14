@@ -745,7 +745,7 @@ TEST_P(MismatchedSampledTest, MismatchedSampled) {
                 size_range,
                 " bytes"
                 ")"
-#ifndef NDEBUG
+                #ifndef NDEBUG
                 "|(Mismatched-size-delete.*of [0-9]+ bytes \\(expected between "
                 "\\[[0-9]+, [0-9]+\\] bytes\\)"
                 ")"
@@ -875,7 +875,7 @@ TEST_F(TcMallocTest, MismatchedDeleteTooSmall) {
           absl::StrCat(
               "(Mismatched-size-delete.*mismatched-sized-delete.md.*of"
               ")"
-#ifndef NDEBUG
+              #ifndef NDEBUG
               "|(Mismatched-size-delete.*of [0-9]+ bytes \\(expected between "
               "\\[[0-9]+, [0-9]+\\] bytes\\)"
               ")"
@@ -910,7 +910,7 @@ TEST_F(TcMallocTest, MismatchedSizeClassInFreelistInsertion) {
           "(Mismatched-size-class.*size argument in the range \\[1, "
           "8\\].*allocations with sizes \\[9, 16\\]"
           ")|"
-#ifndef NDEBUG
+          #ifndef NDEBUG
           "(Mismatched-size-delete.*of 5 bytes \\(expected between \\[9, 16\\] "
           "bytes\\)"
           ")|"
