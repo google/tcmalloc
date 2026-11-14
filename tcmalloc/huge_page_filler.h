@@ -647,7 +647,8 @@ class HugePageFiller {
   Length ReleasePages(Length desired, SkipSubreleaseIntervals intervals,
                       ReleasePartialAllocPages release_partial_alloc_pages,
                       bool hit_limit,
-                      MinFreePagesToBreak min_free_pages_to_break)
+                      MinFreePagesToBreak min_free_pages_to_break,
+                      SubreleaseOrderByAllocationTime order_by_allocation_time)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Number of candidate hugepages selected in each iteration for releasing
   // their free memory.
@@ -873,9 +874,25 @@ class HugePageFiller {
   // CompareForSubrelease identifies the worse candidate for subrelease, between
   // the choice of huge pages a and b.
   [[nodiscard]] static bool CompareForSubrelease(
-      const TrackerType* absl_nonnull a, const TrackerType* absl_nonnull b) {
+      const TrackerType* absl_nonnull a, const TrackerType* absl_nonnull b,
+      SubreleaseOrderByAllocationTime order_by_allocation_time) {
     TC_ASSERT_NE(a, nullptr);
     TC_ASSERT_NE(b, nullptr);
+
+    if (ABSL_PREDICT_FALSE(order_by_allocation_time ==
+                           SubreleaseOrderByAllocationTime::kEnabled)) {
+      constexpr size_t kOccupancyBucketPages =
+          std::max<size_t>(1, kPagesPerHugePage.raw_num() / 16);
+      const size_t bucket_a = a->used_pages().raw_num() / kOccupancyBucketPages;
+      const size_t bucket_b = b->used_pages().raw_num() / kOccupancyBucketPages;
+      if (bucket_a != bucket_b) return bucket_a < bucket_b;
+      if (a->HasDenseSpans() != b->HasDenseSpans()) {
+        return !a->HasDenseSpans();
+      }
+      if (a->LastAllocationTime() != b->LastAllocationTime()) {
+        return a->LastAllocationTime() < b->LastAllocationTime();
+      }
+    }
 
     if (a->used_pages() < b->used_pages()) return true;
     if (a->used_pages() > b->used_pages()) return false;
@@ -896,7 +913,8 @@ class HugePageFiller {
   [[nodiscard]] static int SelectCandidates(
       absl::Span<TrackerType*> candidates, int current_candidates,
       const PageTrackerLists<N>& tracker_list, size_t tracker_start,
-      Length min_free_pages);
+      Length min_free_pages,
+      SubreleaseOrderByAllocationTime order_by_allocation_time);
 
   // Unbacks pt's free pages with pageheap_lock dropped, keeping pt off the
   // filler lists meanwhile.  pt must be pinned (DontFreeTracker) by the caller
@@ -910,9 +928,10 @@ class HugePageFiller {
   // triggered by reaching the tcmalloc limit.  Drops and reacquires
   // pageheap_lock while unbacking; every candidate must be pinned
   // (PinForRelease) by SelectCandidates and is unpinned here.
-  Length ReleaseCandidates(absl::Span<TrackerType* absl_nonnull> candidates,
-                           Length target, bool hit_limit,
-                           MinFreePagesToBreak min_free_pages)
+  Length ReleaseCandidates(
+      absl::Span<TrackerType* absl_nonnull> candidates, Length target,
+      bool hit_limit, MinFreePagesToBreak min_free_pages,
+      SubreleaseOrderByAllocationTime order_by_allocation_time)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   HugeLength size_;
@@ -1094,8 +1113,8 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info,
   const int64_t now = clock_.now();
   if (ABSL_PREDICT_FALSE(pt->GetTagState().sampled_for_tagging)) {
     pt->RecordFeatures();
-    pt->SetLastAllocationTime(now);
   }
+  pt->SetLastAllocationTime(now);
   const auto page_allocation = pt->Get(n, span_alloc_info, prefer_backed);
   AddToFillerList(pt, FillerAppendOnFree::kDisabled);
   pages_allocated_[type] += n;
@@ -1276,7 +1295,13 @@ template <size_t N>
 inline int HugePageFiller<TrackerType>::SelectCandidates(
     absl::Span<TrackerType*> candidates, int current_candidates,
     const PageTrackerLists<N>& tracker_list, size_t tracker_start,
-    Length min_free_pages) {
+    Length min_free_pages,
+    SubreleaseOrderByAllocationTime order_by_allocation_time) {
+  auto compare = [order_by_allocation_time](
+                     const TrackerType* absl_nonnull a,
+                     const TrackerType* absl_nonnull b) GOOGLE_MALLOC_SECTION {
+    return CompareForSubrelease(a, b, order_by_allocation_time);
+  };
   auto PushCandidate = [&](TrackerType& pt) GOOGLE_MALLOC_SECTION {
     TC_ASSERT_GT(pt.free_pages(), Length(0));
     TC_ASSERT_GT(pt.free_pages(), pt.released_pages());
@@ -1299,30 +1324,29 @@ inline int HugePageFiller<TrackerType>::SelectCandidates(
       current_candidates++;
 
       if (current_candidates == candidates.size()) {
-        std::make_heap(candidates.begin(), candidates.end(),
-                       CompareForSubrelease);
+        std::make_heap(candidates.begin(), candidates.end(), compare);
       }
       return;
     }
 
     // Consider popping the worst candidate from our list.
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
-    if (CompareForSubrelease(candidates[0], &pt)) {
+    if (compare(candidates[0], &pt)) {
       // pt is worse than the current worst.
       return;
     }
 #else
-    if (!CompareForSubrelease(&pt, candidates[0])) {
+    if (!compare(&pt, candidates[0])) {
       // pt is no better than the current worst.
       return;
     }
 #endif
 
     std::pop_heap(candidates.begin(), candidates.begin() + current_candidates,
-                  CompareForSubrelease);
+                  compare);
     candidates[current_candidates - 1] = &pt;
     std::push_heap(candidates.begin(), candidates.begin() + current_candidates,
-                   CompareForSubrelease);
+                   compare);
   };
 
   tracker_list.Iter(PushCandidate, tracker_start);
@@ -1392,8 +1416,14 @@ inline Length HugePageFiller<TrackerType>::ReleaseFreeFromTracker(
 template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
     absl::Span<TrackerType*> candidates, Length target, bool hit_limit,
-    MinFreePagesToBreak min_free_pages) {
-  absl::c_sort(candidates, CompareForSubrelease);
+    MinFreePagesToBreak min_free_pages,
+    SubreleaseOrderByAllocationTime order_by_allocation_time) {
+  absl::c_sort(candidates,
+               [order_by_allocation_time](
+                   const TrackerType* absl_nonnull a,
+                   const TrackerType* absl_nonnull b) GOOGLE_MALLOC_SECTION {
+                 return CompareForSubrelease(a, b, order_by_allocation_time);
+               });
 
   // Pin every candidate before the first release drops pageheap_lock: a
   // concurrent Put that empties one must park it (HandleFullyFreedTracker)
@@ -1528,7 +1558,8 @@ template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::ReleasePages(
     Length desired, SkipSubreleaseIntervals intervals,
     ReleasePartialAllocPages release_partial_alloc_pages, bool hit_limit,
-    MinFreePagesToBreak min_free_pages_to_break) {
+    MinFreePagesToBreak min_free_pages_to_break,
+    SubreleaseOrderByAllocationTime order_by_allocation_time) {
   Length total_released;
 
   // If the feature to release all free pages in partially-released allocs is
@@ -1589,18 +1620,20 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
     //
     // We do not examine the regular_alloc_released_ lists, as only contain
     // completely released pages.
-    int n_candidates =
-        SelectCandidates(absl::MakeSpan(candidates), 0,
-                         regular_alloc_partial_released_.sparse, kChunks,
-                         /*min_free_pages=*/Length(1));
+    int n_candidates = SelectCandidates(
+        absl::MakeSpan(candidates), 0, regular_alloc_partial_released_.sparse,
+        kChunks,
+        /*min_free_pages=*/Length(1), order_by_allocation_time);
     n_candidates = SelectCandidates(absl::MakeSpan(candidates), n_candidates,
                                     regular_alloc_partial_released_.dense, 1,
-                                    /*min_free_pages=*/Length(1));
+                                    /*min_free_pages=*/Length(1),
+                                    order_by_allocation_time);
 
     Length released = ReleaseCandidates(
         absl::MakeSpan(candidates.data(), n_candidates),
         desired - total_released, hit_limit,
-        MinFreePagesToBreak{.dense = Length(1), .sparse = Length(1)});
+        MinFreePagesToBreak{.dense = Length(1), .sparse = Length(1)},
+        order_by_allocation_time);
     subrelease_stats_.num_partial_alloc_pages_subreleased += released;
     if (released == Length(0)) {
       break;
@@ -1627,17 +1660,21 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
     // allocs.
     int n_candidates =
         SelectCandidates(absl::MakeSpan(candidates), /*current_candidates=*/0,
-                         regular_alloc_.sparse, kChunks, break_floor.sparse);
+                         regular_alloc_.sparse, kChunks, break_floor.sparse,
+                         order_by_allocation_time);
     n_candidates = SelectCandidates(absl::MakeSpan(candidates), n_candidates,
-                                    regular_alloc_.dense, 1, break_floor.dense);
+                                    regular_alloc_.dense, 1, break_floor.dense,
+                                    order_by_allocation_time);
     // TODO(b/138864853): Perhaps remove donated_alloc_ from here, it's not a
     // great candidate for partial release.
     n_candidates = SelectCandidates(absl::MakeSpan(candidates), n_candidates,
-                                    donated_alloc_, 0, break_floor.sparse);
+                                    donated_alloc_, 0, break_floor.sparse,
+                                    order_by_allocation_time);
 
     Length released =
         ReleaseCandidates(absl::MakeSpan(candidates.data(), n_candidates),
-                          desired - total_released, hit_limit, break_floor);
+                          desired - total_released, hit_limit, break_floor,
+                          order_by_allocation_time);
     if (released == Length(0)) {
       break;
     }

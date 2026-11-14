@@ -435,6 +435,15 @@ function(tcmalloc_cc_test_variants)
     DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
     ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_SPAN_BITMAP_ABLATION"
   )
+  tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_subrelease_order_by_allocation_time
+    ${EXTRA_ARGS}
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
+    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_SUBRELEASE_ORDER_BY_ALLOCATION_TIME"
+  )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_track_broken_hugepages
     ${EXTRA_ARGS}
     SRCS ${TCMALLOC_SRCS}
@@ -694,6 +703,13 @@ function(tcmalloc_cc_binary_variants)
     DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
   )
   tcmalloc_cc_binary(NAME ${TCMALLOC_NAME}_tcmalloc_span_bitmap_ablation
+    SRCS ${TCMALLOC_SRCS}
+    HDRS ${TCMALLOC_HDRS}
+    COPTS ${TCMALLOC_COPTS}
+    LINKOPTS ${TCMALLOC_LINKOPTS}
+    DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
+  )
+  tcmalloc_cc_binary(NAME ${TCMALLOC_NAME}_tcmalloc_subrelease_order_by_allocation_time
     SRCS ${TCMALLOC_SRCS}
     HDRS ${TCMALLOC_HDRS}
     COPTS ${TCMALLOC_COPTS}
