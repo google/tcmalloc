@@ -24,6 +24,10 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal {
 
+#if !defined(NDEBUG)
+ABSL_CONST_INIT extern thread_local int tcmalloc_reentrancy_count;
+#endif
+
 // In debug mode, ensures that no allocations will occur on the current thread
 // while this class is in scope.
 class AllocationGuard {
@@ -34,13 +38,24 @@ class AllocationGuard {
       (void)MallocHook::AddNewHook(Hook);
     }
     ++disallowed_;
+    ++tcmalloc_reentrancy_count;
 #endif
   }
 
   ~AllocationGuard() {
 #if !defined(NDEBUG) && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+    --tcmalloc_reentrancy_count;
     --disallowed_;
     if (disallowed_ == 0) {
+      (void)MallocHook::RemoveNewHook(Hook);
+    }
+#endif
+  }
+
+  static void Disarm() {
+#if !defined(NDEBUG) && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+    if (disallowed_ > 0) {
+      disallowed_ = 0;
       (void)MallocHook::RemoveNewHook(Hook);
     }
 #endif
