@@ -274,11 +274,6 @@ TEST(ReentrancyTest, Matrix) {
     GTEST_SKIP() << "Skipping under sanitizers";
   }
 
-  volatile bool kDisabled = true;
-  if (kDisabled) {
-    GTEST_SKIP() << "Skipping while reentrancy check is disabled";
-  }
-
 #if !defined(NDEBUG) || defined(TCMALLOC_INTERNAL_WITH_ASSERTIONS)
   test<operator new, wrap_delete>();
   test<operator new, wrap_sized_delete>();
@@ -333,11 +328,6 @@ TEST(ReentrancyTest, Matrix) {
 TEST(ReentrancyTest, ReallocSizeChange) {
   if (tcmalloc::tcmalloc_internal::kSanitizerPresent) {
     GTEST_SKIP() << "Skipping under sanitizers";
-  }
-
-  volatile bool kDisabled = true;
-  if (kDisabled) {
-    GTEST_SKIP() << "Skipping while reentrancy check is disabled";
   }
 
   void* ptr = malloc(16);
