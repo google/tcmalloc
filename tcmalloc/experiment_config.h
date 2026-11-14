@@ -37,6 +37,7 @@ enum class Experiment : int {
   TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE,  // TODO: b/572530574 - Complete experiment.
   TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE,  // TODO: b/538230058 - Complete experiment.
   TCMALLOC_SONIC_SPAN_BITMAP_ABLATION,  // TODO: b/575736447 - Complete experiment.
+  TCMALLOC_SONIC_SUBRELEASE_ORDER_BY_ALLOCATION_TIME,  // TODO: b/578767065 - Complete experiment.
   TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES,  // TODO: b/572530574 - Complete experiment.
   TEST_ONLY_MM_VCPU,  // TODO: b/245776120 - Complete experiment.
   TEST_ONLY_TCMALLOC_POW2_SIZECLASS,
@@ -74,6 +75,7 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE, "TCMALLOC_SONIC_PRESERVE_DONATED_ON_COLLAPSE", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
     {Experiment::TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE, "TCMALLOC_SONIC_SHARDED_TRANSFER_CACHE", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
     {Experiment::TCMALLOC_SONIC_SPAN_BITMAP_ABLATION, "TCMALLOC_SONIC_SPAN_BITMAP_ABLATION", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.1},
+    {Experiment::TCMALLOC_SONIC_SUBRELEASE_ORDER_BY_ALLOCATION_TIME, "TCMALLOC_SONIC_SUBRELEASE_ORDER_BY_ALLOCATION_TIME"},
     {Experiment::TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES, "TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
     {Experiment::TEST_ONLY_MM_VCPU, "TEST_ONLY_MM_VCPU"},
     {Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS, "TEST_ONLY_TCMALLOC_POW2_SIZECLASS", /*brittle=*/true},
