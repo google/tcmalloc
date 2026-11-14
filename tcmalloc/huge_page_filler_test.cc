@@ -661,7 +661,8 @@ class FillerTest : public testing::Test {
     PageHeapSpinLockHolder l;
     return filler_.ReleasePages(desired, intervals,
                                 ReleasePartialAllocPages::kDisabled,
-                                /*hit_limit=*/false, min_free_pages_to_break);
+                                /*hit_limit=*/false, min_free_pages_to_break,
+                                order_by_allocation_time_);
   }
 
   Length ReleasePartialPages(Length desired,
@@ -671,16 +672,17 @@ class FillerTest : public testing::Test {
     PageHeapSpinLockHolder l;
     return filler_.ReleasePages(desired, intervals,
                                 ReleasePartialAllocPages::kEnabled,
-                                /*hit_limit=*/false, min_free_pages_to_break);
+                                /*hit_limit=*/false, min_free_pages_to_break,
+                                order_by_allocation_time_);
   }
 
   Length HardReleasePages(Length desired,
                           MinFreePagesToBreak min_free_pages_to_break = {
                               .dense = Length(1), .sparse = Length(1)}) {
     PageHeapSpinLockHolder l;
-    return filler_.ReleasePages(desired, SkipSubreleaseIntervals{},
-                                ReleasePartialAllocPages::kDisabled,
-                                /*hit_limit=*/true, min_free_pages_to_break);
+    return filler_.ReleasePages(
+        desired, SkipSubreleaseIntervals{}, ReleasePartialAllocPages::kDisabled,
+        /*hit_limit=*/true, min_free_pages_to_break, order_by_allocation_time_);
   }
 
   PreserveDonatedOnCollapse preserve_donated_on_collapse_ =
@@ -688,6 +690,8 @@ class FillerTest : public testing::Test {
   CollapseReleasedHugePages collapse_released_ =
       CollapseReleasedHugePages::kDisabled;
   FillerAppendOnFree append_on_free_ = FillerAppendOnFree::kDisabled;
+  SubreleaseOrderByAllocationTime order_by_allocation_time_ =
+      SubreleaseOrderByAllocationTime::kDisabled;
 
   void TreatHugepageTrackers(
       EnableCollapse enable_collapse,
@@ -2230,7 +2234,8 @@ TEST_F(FillerTest, CollapseDuringRelease) {
   const Length released = filler_.ReleasePages(
       2 * kPagesPerHugePage, SkipSubreleaseIntervals{},
       ReleasePartialAllocPages::kDisabled, /*hit_limit=*/false,
-      MinFreePagesToBreak{.dense = Length(1), .sparse = Length(1)});
+      MinFreePagesToBreak{.dense = Length(1), .sparse = Length(1)},
+      order_by_allocation_time_);
   pageheap_lock.unlock();
   EXPECT_EQ(released, 2 * kPagesPerHugePage - Length(3));
   blocking_unback_without_lock_.unlocked_hook_ = nullptr;
@@ -9424,6 +9429,132 @@ TEST_F(FillerTest, PutLastSpanDuringCollapseUnbacksCollapsedHugepage) {
       EXPECT_EQ(DrainFreedTrackers(), 1);
       EXPECT_EQ(ReleasePages(Length(2)), Length(2));
     }
+  }
+}
+
+TEST_F(FillerTest, SubreleaseOrderByAllocationTime) {
+  randomize_density_ = false;
+  constexpr SpanAllocInfo kSparseInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kSparse,
+  };
+  constexpr SpanAllocInfo kDenseInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kDense,
+  };
+  constexpr Length kBand = BytesToLengthCeil(kHugePageSize / 16);
+
+  struct TrackedPage {
+    std::vector<PAlloc> keep;
+    std::vector<PAlloc> fill;
+    PageTracker* pt = nullptr;
+    Length free_pages;
+  };
+  auto make_tracker = [&](Length used, SpanAllocInfo info) {
+    FakeClock::Advance(absl::Seconds(100));
+    TrackedPage t;
+    t.keep = AllocateVectorWithSpanAllocInfo(used, info);
+    t.fill = AllocateVectorWithSpanAllocInfo(kPagesPerHugePage - used, info);
+    t.pt = t.keep.front().pt;
+    t.free_pages = kPagesPerHugePage - used;
+    EXPECT_EQ(t.fill.front().pt, t.pt);
+    return t;
+  };
+
+  // 1. Within the same 128 KiB occupancy band, TryGet refreshes
+  //    LastAllocationTime() even when sampled_for_tagging is false, and
+  //    flipping order_by_allocation_time_ back and forth alternates between
+  //    oldest-first and exact-occupancy/MRU ordering.
+  {
+    Length b_used = kBand;
+    Length c_used = kBand;
+    if constexpr (kBand >= Length(4)) {
+      b_used = kBand + Length(3);
+      c_used = kBand + Length(2);
+    }
+    TrackedPage a = make_tracker(kBand, kSparseInfo);
+    a.pt->SetTagState({.sampled_for_tagging = false, .record_time = 0});
+    TrackedPage b = make_tracker(b_used, kSparseInfo);
+    TrackedPage c = make_tracker(c_used, kSparseInfo);
+    TrackedPage d = make_tracker(kBand, kSparseInfo);
+
+    // Refresh `a` via TryGet so it becomes newer than `b`, `c`, and `d`.
+    EXPECT_FALSE(DeleteVector(a.fill));
+    FakeClock::Advance(absl::Seconds(100));
+    PAlloc a_recent = AllocateWithSpanAllocInfo(Length(1), kSparseInfo);
+    ASSERT_EQ(a_recent.pt, a.pt);
+    EXPECT_GT(a.pt->LastAllocationTime(), d.pt->LastAllocationTime());
+    if constexpr (kBand >= Length(4)) {
+      a.keep.push_back(a_recent);
+      a.free_pages -= Length(1);
+    } else {
+      EXPECT_FALSE(Delete(a.keep.front()));
+      a.keep[0] = a_recent;
+    }
+
+    EXPECT_FALSE(DeleteVector(b.fill));
+    EXPECT_FALSE(DeleteVector(c.fill));
+    EXPECT_FALSE(DeleteVector(d.fill));
+
+    order_by_allocation_time_ = SubreleaseOrderByAllocationTime::kEnabled;
+    EXPECT_EQ(ReleasePages(Length(1)), b.free_pages);
+    EXPECT_FALSE(b.pt->unbroken());
+
+    order_by_allocation_time_ = SubreleaseOrderByAllocationTime::kDisabled;
+    EXPECT_EQ(ReleasePages(Length(1)), d.free_pages);
+    EXPECT_FALSE(d.pt->unbroken());
+
+    order_by_allocation_time_ = SubreleaseOrderByAllocationTime::kEnabled;
+    EXPECT_EQ(ReleasePages(Length(1)), c.free_pages);
+    EXPECT_FALSE(c.pt->unbroken());
+    EXPECT_TRUE(a.pt->unbroken());
+
+    order_by_allocation_time_ = SubreleaseOrderByAllocationTime::kDisabled;
+    EXPECT_EQ(ReleasePages(Length(1)), a.free_pages);
+    EXPECT_FALSE(a.pt->unbroken());
+
+    const Length remaining_used = (kPagesPerHugePage - a.free_pages) +
+                                  (kPagesPerHugePage - b.free_pages) +
+                                  (kPagesPerHugePage - c.free_pages) +
+                                  (kPagesPerHugePage - d.free_pages);
+    EXPECT_TRUE(DeleteVector(a.keep));
+    EXPECT_TRUE(DeleteVector(b.keep));
+    EXPECT_TRUE(DeleteVector(c.keep));
+    EXPECT_TRUE(DeleteVector(d.keep));
+    EXPECT_EQ(ReleasePages(remaining_used), remaining_used);
+  }
+
+  // 2. Emptier occupancy bands win first; within a band, sparse wins over
+  //    dense regardless of single-page differences or age.
+  {
+    Length lower_band_used = Length(1);
+    Length upper_dense_used = Length(2);
+    Length upper_sparse_used = Length(2);
+    if constexpr (kBand > Length(1)) {
+      lower_band_used = kBand - Length(1);
+      upper_dense_used = kBand + Length(1);
+      upper_sparse_used = kBand + Length(2);
+    }
+
+    TrackedPage d1 = make_tracker(upper_dense_used, kDenseInfo);
+    TrackedPage s1 = make_tracker(upper_sparse_used, kSparseInfo);
+    TrackedPage d0 = make_tracker(lower_band_used, kDenseInfo);
+    EXPECT_FALSE(DeleteVector(d1.fill));
+    EXPECT_FALSE(DeleteVector(s1.fill));
+    EXPECT_FALSE(DeleteVector(d0.fill));
+
+    order_by_allocation_time_ = SubreleaseOrderByAllocationTime::kEnabled;
+    EXPECT_EQ(ReleasePages(Length(1)), d0.free_pages);
+    EXPECT_FALSE(d0.pt->unbroken());
+    EXPECT_EQ(ReleasePages(Length(1)), s1.free_pages);
+    EXPECT_FALSE(s1.pt->unbroken());
+    EXPECT_TRUE(d1.pt->unbroken());
+
+    EXPECT_TRUE(DeleteVector(d0.keep));
+    EXPECT_TRUE(DeleteVector(s1.keep));
+    EXPECT_TRUE(DeleteVector(d1.keep));
+    EXPECT_EQ(ReleasePages(lower_band_used + upper_sparse_used),
+              lower_band_used + upper_sparse_used);
   }
 }
 }  // namespace

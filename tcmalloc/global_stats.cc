@@ -668,6 +668,11 @@ void DumpStats(Printer& out, int level) {
         Parameters::filler_append_on_free() == FillerAppendOnFree::kEnabled
             ? 1
             : 0);
+    out.printf("PARAMETER tcmalloc_subrelease_order_by_allocation_time %d\n",
+               Parameters::subrelease_order_by_allocation_time() ==
+                       SubreleaseOrderByAllocationTime::kEnabled
+                   ? 1
+                   : 0);
     out.printf("PARAMETER tcmalloc_madvise_sampled_allocations %d\n",
                Parameters::madvise_sampled_allocations() ==
                    MadviseSampledAllocations::kEnabled);
@@ -962,6 +967,9 @@ void DumpStatsInPbtxt(Printer& out, int level) {
   region.PrintBool(
       "tcmalloc_filler_append_on_free",
       Parameters::filler_append_on_free() == FillerAppendOnFree::kEnabled);
+  region.PrintBool("tcmalloc_subrelease_order_by_allocation_time",
+                   Parameters::subrelease_order_by_allocation_time() ==
+                       SubreleaseOrderByAllocationTime::kEnabled);
   region.PrintI64("profile_sampling_interval",
                   Parameters::profile_sampling_interval());
   region.PrintRaw("percpu_vcpu_type",

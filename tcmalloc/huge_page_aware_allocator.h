@@ -986,7 +986,8 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
           SkipSubreleaseIntervals{.short_interval = short_interval,
                                   .long_interval = long_interval},
           forwarder_.release_partial_alloc_pages(),
-          /*hit_limit=*/false, min_free_pages_to_break(/*hit_limit=*/false));
+          /*hit_limit=*/false, min_free_pages_to_break(/*hit_limit=*/false),
+          forwarder_.subrelease_order_by_allocation_time());
       DrainFreedTrackers();
     }
   }
@@ -1199,10 +1200,11 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
     return released;
   }
 
-  released += filler_.ReleasePages(n - released, SkipSubreleaseIntervals{},
-                                   ReleasePartialAllocPages::kDisabled,
-                                   /*hit_limit=*/true,
-                                   min_free_pages_to_break(/*hit_limit=*/true));
+  released += filler_.ReleasePages(
+      n - released, SkipSubreleaseIntervals{},
+      ReleasePartialAllocPages::kDisabled,
+      /*hit_limit=*/true, min_free_pages_to_break(/*hit_limit=*/true),
+      forwarder_.subrelease_order_by_allocation_time());
   DrainFreedTrackers();
 
   info_.RecordRelease(n, released, reason);
