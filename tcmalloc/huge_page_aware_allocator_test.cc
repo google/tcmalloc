@@ -3176,6 +3176,142 @@ TEST_P(HugePageAwareAllocatorTest, MinFreePagesToBreakHugepage) {
   }
 }
 
+TEST_P(HugePageAwareAllocatorTest, SubreleaseOrderByAllocationTime) {
+  if (kPagesPerHugePage < Length(32)) {
+    GTEST_SKIP() << "Requires at least 32 pages per hugepage.";
+  }
+
+  constexpr SpanAllocInfo kSparseInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kSparse,
+  };
+
+  allocator_->forwarder().hpaa_subrelease.set(true);
+  allocator_->forwarder().filler_skip_subrelease_short_interval.set(
+      absl::ZeroDuration());
+  allocator_->forwarder().filler_skip_subrelease_long_interval.set(
+      absl::ZeroDuration());
+  allocator_->forwarder().release_max_filler_pages.set(false);
+  allocator_->forwarder().min_free_pages_to_break_sparse_hugepage.set(
+      Length(1));
+
+  // Populate three sparse hugepages in the same 16-page occupancy band:
+  //   - hp_old at t=0 with 25 pages used (kPagesPerHugePage - 25 free pages)
+  //   - hp_new at t=120s with 24 pages used (kPagesPerHugePage - 24 free pages)
+  //   - hp_newest at t=240s with 23 pages used (kPagesPerHugePage - 23 free)
+  // All three have used_pages() in bucket 1 ([16, 31] pages used).
+  AllocationState old_keep = New(Length(25), kSparseInfo);
+  AllocationState old_fill1 = New(kPagesPerHugePage / 2, kSparseInfo);
+  AllocationState old_fill2 =
+      New(kPagesPerHugePage - kPagesPerHugePage / 2 - Length(25), kSparseInfo);
+  const HugePage hp_old = HugePageContaining(old_keep.r.p);
+  ASSERT_EQ(HugePageContaining(old_fill1.r.p), hp_old);
+  ASSERT_EQ(HugePageContaining(old_fill2.r.p), hp_old);
+
+  huge_page_allocator_internal::FakeHugePageStaticForwarder::AdvanceClock(
+      absl::Seconds(120));
+
+  AllocationState new_keep = New(Length(24), kSparseInfo);
+  AllocationState new_fill1 = New(kPagesPerHugePage / 2, kSparseInfo);
+  AllocationState new_fill2 =
+      New(kPagesPerHugePage - kPagesPerHugePage / 2 - Length(24), kSparseInfo);
+  const HugePage hp_new = HugePageContaining(new_keep.r.p);
+  ASSERT_NE(hp_new, hp_old);
+  ASSERT_EQ(HugePageContaining(new_fill1.r.p), hp_new);
+  ASSERT_EQ(HugePageContaining(new_fill2.r.p), hp_new);
+
+  huge_page_allocator_internal::FakeHugePageStaticForwarder::AdvanceClock(
+      absl::Seconds(120));
+
+  AllocationState newest_keep = New(Length(23), kSparseInfo);
+  AllocationState newest_fill1 = New(kPagesPerHugePage / 2, kSparseInfo);
+  AllocationState newest_fill2 =
+      New(kPagesPerHugePage - kPagesPerHugePage / 2 - Length(23), kSparseInfo);
+  const HugePage hp_newest = HugePageContaining(newest_keep.r.p);
+  ASSERT_NE(hp_newest, hp_old);
+  ASSERT_NE(hp_newest, hp_new);
+  ASSERT_EQ(HugePageContaining(newest_fill1.r.p), hp_newest);
+  ASSERT_EQ(HugePageContaining(newest_fill2.r.p), hp_newest);
+
+  huge_page_allocator_internal::FakeHugePageStaticForwarder::AdvanceClock(
+      absl::Seconds(120));
+
+  AllocationState emptiest_newest_keep = New(Length(22), kSparseInfo);
+  AllocationState emptiest_newest_fill1 =
+      New(kPagesPerHugePage / 2, kSparseInfo);
+  AllocationState emptiest_newest_fill2 =
+      New(kPagesPerHugePage - kPagesPerHugePage / 2 - Length(22), kSparseInfo);
+  const HugePage hp_emptiest_newest =
+      HugePageContaining(emptiest_newest_keep.r.p);
+  ASSERT_NE(hp_emptiest_newest, hp_old);
+  ASSERT_NE(hp_emptiest_newest, hp_new);
+  ASSERT_NE(hp_emptiest_newest, hp_newest);
+  ASSERT_EQ(HugePageContaining(emptiest_newest_fill1.r.p), hp_emptiest_newest);
+  ASSERT_EQ(HugePageContaining(emptiest_newest_fill2.r.p), hp_emptiest_newest);
+
+  DeleteWithInfo(old_fill1, kSparseInfo);
+  DeleteWithInfo(old_fill2, kSparseInfo);
+  DeleteWithInfo(new_fill1, kSparseInfo);
+  DeleteWithInfo(new_fill2, kSparseInfo);
+  DeleteWithInfo(newest_fill1, kSparseInfo);
+  DeleteWithInfo(newest_fill2, kSparseInfo);
+  DeleteWithInfo(emptiest_newest_fill1, kSparseInfo);
+  DeleteWithInfo(emptiest_newest_fill2, kSparseInfo);
+
+  // When subrelease_order_by_allocation_time is enabled, ReleaseAtLeastNPages
+  // breaks the oldest hp_old (25 used pages, t=0) ahead of the emptier but
+  // newer hp_new (24 used pages, t=120s), hp_newest (23 used pages, t=240s),
+  // and hp_emptiest_newest (22 used pages, t=360s) in the same 16-page band.
+  allocator_->forwarder().subrelease_order_by_allocation_time.set(
+      SubreleaseOrderByAllocationTime::kEnabled);
+  const Length expected_old_free = kPagesPerHugePage - Length(25);
+  EXPECT_EQ(
+      ReleasePages(Length(1), PageReleaseReason::kProcessBackgroundActions),
+      expected_old_free);
+  EXPECT_FALSE(GetHugepageState(hp_old).unbroken);
+  EXPECT_EQ(GetHugepageState(hp_old).released_pages, expected_old_free);
+  EXPECT_TRUE(GetHugepageState(hp_new).unbroken);
+  EXPECT_EQ(GetHugepageState(hp_new).released_pages, Length(0));
+  EXPECT_TRUE(GetHugepageState(hp_newest).unbroken);
+  EXPECT_TRUE(GetHugepageState(hp_emptiest_newest).unbroken);
+
+  // Hard-limit release (ReleaseAtLeastNPagesBreakingHugepages) also honors
+  // subrelease_order_by_allocation_time: it breaks hp_new (t=120s, 24 used
+  // pages) ahead of hp_newest (t=240s, 23 used pages) and hp_emptiest_newest
+  // (t=360s, 22 used pages).
+  const Length expected_new_free = kPagesPerHugePage - Length(24);
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(allocator_->ReleaseAtLeastNPagesBreakingHugepages(
+                  Length(1), PageReleaseReason::kSoftLimitExceeded),
+              expected_new_free);
+  }
+  EXPECT_FALSE(GetHugepageState(hp_new).unbroken);
+  EXPECT_EQ(GetHugepageState(hp_new).released_pages, expected_new_free);
+  EXPECT_TRUE(GetHugepageState(hp_newest).unbroken);
+  EXPECT_TRUE(GetHugepageState(hp_emptiest_newest).unbroken);
+
+  // Flipping subrelease_order_by_allocation_time back to kDisabled while
+  // live trackers remain in flight reverts subrelease selection to exact
+  // used_pages() ordering, breaking hp_emptiest_newest (22 used pages, t=360s)
+  // ahead of the older hp_newest (23 used pages, t=240s).
+  allocator_->forwarder().subrelease_order_by_allocation_time.set(
+      SubreleaseOrderByAllocationTime::kDisabled);
+  const Length expected_emptiest_newest_free = kPagesPerHugePage - Length(22);
+  EXPECT_EQ(
+      ReleasePages(Length(1), PageReleaseReason::kProcessBackgroundActions),
+      expected_emptiest_newest_free);
+  EXPECT_FALSE(GetHugepageState(hp_emptiest_newest).unbroken);
+  EXPECT_EQ(GetHugepageState(hp_emptiest_newest).released_pages,
+            expected_emptiest_newest_free);
+  EXPECT_TRUE(GetHugepageState(hp_newest).unbroken);
+
+  DeleteWithInfo(old_keep, kSparseInfo);
+  DeleteWithInfo(new_keep, kSparseInfo);
+  DeleteWithInfo(newest_keep, kSparseInfo);
+  DeleteWithInfo(emptiest_newest_keep, kSparseInfo);
+}
+
 TEST(HugePageAwareAllocatorDeathTest, DoubleFreeReportsError) {
   FakeHugePageAwareAllocator allocator({.tag = MemoryTag::kNormal});
   constexpr SpanAllocInfo kSpanInfo = {

@@ -114,6 +114,26 @@ inline void AbslStringify(Sink& sink, FillerAppendOnFree v) {
   }
 }
 
+// Controls whether HugePageFiller::ReleasePages quantizes used-page counts into
+// 16-page (1/16th of a hugepage) occupancy bands and orders candidates within
+// each band and density class by oldest last-allocation time first.
+enum class SubreleaseOrderByAllocationTime : bool {
+  kDisabled = false,
+  kEnabled = true,
+};
+
+template <typename Sink>
+inline void AbslStringify(Sink& sink, SubreleaseOrderByAllocationTime v) {
+  switch (v) {
+    case SubreleaseOrderByAllocationTime::kDisabled:
+      sink.Append("false");
+      return;
+    case SubreleaseOrderByAllocationTime::kEnabled:
+      sink.Append("true");
+      return;
+  }
+}
+
 enum class HugeRegionUsageOption : bool {
   // This is a default behavior. We use slack to determine when to use
   // HugeRegion. When slack is greater than 64MB (to ignore small binaries), and
