@@ -22,12 +22,14 @@ namespace tcmalloc::tcmalloc_internal {
 class ScopedAllocationAllow {
  public:
   ScopedAllocationAllow() {
-#ifndef NDEBUG
+#if !defined(NDEBUG) && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
     --AllocationGuard::disallowed_;
+    --tcmalloc_reentrancy_count;
 #endif
   }
   ~ScopedAllocationAllow() {
-#ifndef NDEBUG
+#if !defined(NDEBUG) && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+    ++tcmalloc_reentrancy_count;
     ++AllocationGuard::disallowed_;
 #endif
   }
