@@ -255,7 +255,7 @@ class ABSL_CACHELINE_ALIGNED TransferCache {
       memcpy(buf, entry, sizeof(void*) * num_to_move);
       info.used -= num_to_move;
       to_return -= num_to_move;
-      low_water_mark_ = info.used;
+      low_water_mark_ = std::min(low_water_mark_, static_cast<int>(info.used));
       SetSlotInfo(info);
       lock_.unlock();
 
@@ -264,6 +264,7 @@ class ABSL_CACHELINE_ALIGNED TransferCache {
       if (to_return == 0) return;
 #endif
       if (!lock_.try_lock()) return;
+      to_return = std::min(to_return, low_water_mark_);
     }
     lock_.unlock();
   }
