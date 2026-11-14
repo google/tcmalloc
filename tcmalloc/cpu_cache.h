@@ -1215,6 +1215,9 @@ void* CpuCache<Forwarder>::AllocateSlowNoHooks(size_t size_class) {
   }
   auto [cpu, cached] = CacheCpuSlab();
   if (ABSL_PREDICT_FALSE(cached)) {
+    if (ABSL_PREDICT_FALSE(forwarder_.HaveHooks())) {
+      freelist_.UncacheCpuSlab();
+    }
     if (ABSL_PREDICT_FALSE(cpu < 0)) {
       // The cpu is stopped.
       void* ptr = nullptr;
@@ -2228,6 +2231,9 @@ void CpuCache<Forwarder>::DeallocateSlowNoHooks(void* ptr, size_t size_class) {
   }
   auto [cpu, cached] = CacheCpuSlab();
   if (ABSL_PREDICT_FALSE(cached)) {
+    if (ABSL_PREDICT_FALSE(forwarder_.HaveHooks())) {
+      freelist_.UncacheCpuSlab();
+    }
     if (ABSL_PREDICT_FALSE(cpu < 0)) {
       // The cpu is stopped.
       return ReleaseToBackingCache(size_class, {&ptr, 1});
