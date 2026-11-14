@@ -1073,20 +1073,31 @@ void ExpectSameAddresses(T1 v1, T2 v2) {
 }
 }  // end unnamed namespace
 
+#if ABSL_HAVE_FEATURE(kcfi)
+extern "C" char kDeleteNothrow[] asm("_ZdlPvRKSt9nothrow_t");
+extern "C" char kDeleteArrayNothrow[] asm("_ZdaPvRKSt9nothrow_t");
+#endif
+
 TEST(TCMallocTest, TestAliasedFunctions) {
   if (kSanitizerPresent) {
     GTEST_SKIP() << "Skipping under sanitizers";
   }
   void (*operator_delete)(void*) = &::operator delete;
+  void (*operator_delete_array)(void*) = &::operator delete[];
+#if ABSL_HAVE_FEATURE(kcfi)
+  ExpectSameAddresses(operator_delete, kDeleteNothrow);
+  ExpectSameAddresses(operator_delete, operator_delete_array);
+  ExpectSameAddresses(operator_delete, kDeleteArrayNothrow);
+#else
   void (*operator_delete_nothrow)(void*, const std::nothrow_t&) =
       &::operator delete;
-  void (*operator_delete_array)(void*) = &::operator delete[];
   void (*operator_delete_array_nothrow)(void*, const std::nothrow_t&) =
       &::operator delete[];
 
   ExpectSameAddresses(operator_delete, operator_delete_nothrow);
   ExpectSameAddresses(operator_delete, operator_delete_array);
   ExpectSameAddresses(operator_delete, operator_delete_array_nothrow);
+#endif
 }
 
 // This test is extremely slow on riscv.
