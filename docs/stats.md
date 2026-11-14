@@ -953,6 +953,7 @@ PARAMETER tcmalloc_min_free_bytes_to_break_sparse_hugepage 0
 PARAMETER tcmalloc_track_broken_hugepages 1
 PARAMETER tcmalloc_preserve_donated_on_collapse 0
 PARAMETER tcmalloc_collapse_released_hugepages 0
+PARAMETER tcmalloc_subrelease_order_by_allocation_time 0
 PARAMETER tcmalloc_madvise_sampled_allocations 1
 PARAMETER tcmalloc_use_wider_slabs 1
 PARAMETER heap_partitioning 0

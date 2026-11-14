@@ -206,6 +206,9 @@ class PageTracker : public TList<PageTracker>::Elem {
   [[nodiscard]] double last_page_allocation_time() const {
     return last_page_allocation_time_;
   }
+  [[nodiscard]] double LastAllocationTime() const {
+    return std::max(alloctime_, last_page_allocation_time_);
+  }
   [[nodiscard]] bool fully_freed() const {
     return longest_free_range() == kPagesPerHugePage;
   }
