@@ -12,9 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// These tests assume TCMalloc is not linked in, and therefore the features
-// exposed by MallocExtension should be no-ops, but otherwise safe to call.
+// These tests verify that MallocExtension methods are safe to call when
+// TCMalloc is not linked in (either acting as no-ops or delegating to the
+// underlying system/sanitizer allocator where supported).
 
+#include <cstddef>
+#include <limits>
+#include <new>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -98,6 +103,30 @@ TEST(MallocExtension, GetAllocatedSizeSystemMalloc) {
   }
 
   ::operator delete(ptr);
+}
+
+TEST(MallocExtension, ReleaseMemoryToSystem) {
+  constexpr size_t kNumAllocs = 64;
+  constexpr size_t kAllocSize = 64 * 1024;
+  constexpr size_t kTouchStride = 4096;
+
+  std::vector<void*> ptrs;
+  ptrs.reserve(kNumAllocs);
+  for (size_t i = 0; i < kNumAllocs; ++i) {
+    void* ptr = ::operator new(kAllocSize);
+    auto* bytes = static_cast<volatile unsigned char*>(ptr);
+    for (size_t offset = 0; offset < kAllocSize; offset += kTouchStride) {
+      bytes[offset] = 0xAB;
+    }
+    ptrs.push_back(ptr);
+  }
+  for (void* ptr : ptrs) {
+    ::operator delete(ptr);
+  }
+
+  MallocExtension::ReleaseMemoryToSystem(0);
+  MallocExtension::ReleaseMemoryToSystem(1 << 20);
+  MallocExtension::ReleaseMemoryToSystem(std::numeric_limits<size_t>::max());
 }
 
 }  // namespace
