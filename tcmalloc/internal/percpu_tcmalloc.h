@@ -57,6 +57,10 @@
 #define TCMALLOC_INTERNAL_PERCPU_USE_TLS_WORKAROUND 0
 #endif
 
+#ifndef TCMALLOC_INTERNAL_WRITE_PREFETCH
+#define TCMALLOC_INTERNAL_WRITE_PREFETCH 0
+#endif
+
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -197,7 +201,8 @@ class TcmallocSlab {
 
   // Remove an item (LIFO) from the current CPU's slab. If the slab is empty,
   // invokes <underflow_handler> and returns its result.
-  [[nodiscard]] void* Pop(size_t size_class);
+  // `size` is the requested allocation size, used only as a prefetch hint.
+  [[nodiscard]] void* Pop(size_t size_class, size_t size);
 
   // Add up to <len> items to the current cpu slab from the array located at
   // <batch>. Returns the number of items that were added (possibly 0). All
@@ -836,7 +841,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
 // It is in a distinct, always-lined method to make its cost more transparent
 // when profiling with debug information.
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchNextObject(
-    void* prefetch_target) {
+    void* prefetch_target, [[maybe_unused]] size_t size) {
   // A note about prefetcht0 in Pop:  While this prefetch may appear costly,
   // trace analysis shows the target is frequently used (b/70294962). Stalling
   // on a TLB miss at the prefetch site (which has no deps) and prefetching the
@@ -846,15 +851,32 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchNextObject(
   // See "Beyond malloc efficiency to fleet efficiency"
   // (https://research.google/pubs/pub50370/), section 6.4 for additional
   // details.
-  //
+#if TCMALLOC_INTERNAL_WRITE_PREFETCH
+  // Prefetch the first two cache lines of the next object with write intent,
+  // capped by `size` without branches (compiles to CMOV/CSEL): for objects <= 1
+  // cache line this stays on the same line (or covers a straddled boundary),
+  // while larger objects prefetch the second cache line.
+  // Do the arithmetic in uintptr_t (with left-associative `(p + min) - 1`) to
+  // avoid C++ pointer-arithmetic UB when `size == 0`; prefetching `p - 1` for
+  // rare zero-sized allocations is intentional to avoid adding instructions to
+  // the hot path. Callers pass small sizes (<= kMaxSize), which fit in
+  // uint32_t without truncation.
+  const uintptr_t p = reinterpret_cast<uintptr_t>(prefetch_target);
+  PrefetchWT0(prefetch_target);
+  PrefetchWT0(reinterpret_cast<const void*>(
+      p +
+      std::min<uint32_t>(static_cast<uint32_t>(size), ABSL_CACHELINE_SIZE + 1) -
+      1));
+#else
   // TODO(b/214608320): Evaluate prefetch for write.
   __builtin_prefetch(prefetch_target, 0, 3);
+#endif
 }
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
 template <size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
-    size_t size_class) {
+    size_t size_class, size_t size) {
   TC_ASSERT_NE(size_class, 0);
   void* next;
   void* result;
@@ -891,7 +913,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   // The next pop will be from current-2, but because we prefetch the previous
   // element we've already just read that, so prefetch current-3.
   PrefetchSlabMemory(tcmalloc_slabs_addr + (current - 3) * sizeof(void*));
-  PrefetchNextObject(next);
+  PrefetchNextObject(next, size);
   return AssumeNotNull(result);
 underflow_path:
   return nullptr;
@@ -901,7 +923,7 @@ underflow_path:
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
 template <size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
-    size_t size_class) {
+    size_t size_class, size_t size) {
   TC_ASSERT_NE(size_class, 0);
   void* result;
   void* region_start;
@@ -949,7 +971,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   // The next pop will be from current-2, but because we prefetch the previous
   // element we've already just read that, so prefetch current-3.
   PrefetchSlabMemory(current_plus_slabs_addr - 3 * sizeof(void*));
-  PrefetchNextObject(prefetch);
+  PrefetchNextObject(prefetch, size);
   return AssumeNotNull(result);
 underflow_path:
   return nullptr;
@@ -959,7 +981,7 @@ underflow_path:
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 template <size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
-    size_t size_class) {
+    [[maybe_unused]] size_t size_class, [[maybe_unused]] size_t size) {
   return nullptr;
 }
 #endif

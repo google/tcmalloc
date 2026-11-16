@@ -225,11 +225,15 @@ class CpuCache {
   // Separate allocation fast/slow paths.
   // The fast path succeeds iff the thread has already cached the slab pointer
   // (done by AllocateSlow) and there is an available object in the slab.
-  [[nodiscard]] void* absl_nullable AllocateFast(size_t size_class);
-  [[nodiscard]] void* absl_nullable AllocateSlow(size_t size_class);
+  // `size` is the requested allocation size, used only as a prefetch hint.
+  [[nodiscard]] void* absl_nullable AllocateFast(size_t size_class,
+                                                 size_t size);
+  [[nodiscard]] void* absl_nullable AllocateSlow(size_t size_class,
+                                                 size_t size);
   // A slightly faster version of AllocateSlow that may be called only
   // when it's known that no hooks are installed.
-  [[nodiscard]] void* absl_nullable AllocateSlowNoHooks(size_t size_class);
+  [[nodiscard]] void* absl_nullable AllocateSlowNoHooks(size_t size_class,
+                                                        size_t size);
 
   // Free an object of the given class.
   void Deallocate(void* absl_nonnull ptr, size_t size_class);
@@ -813,18 +817,19 @@ class CpuCache {
 
 template <class Forwarder>
 void* CpuCache<Forwarder>::Allocate(size_t size_class) {
-  void* ret = AllocateFast(size_class);
+  const size_t size = forwarder_.class_to_size(size_class);
+  void* ret = AllocateFast(size_class, size);
   if (ABSL_PREDICT_TRUE(ret != nullptr)) {
     return ret;
   }
-  TCMALLOC_MUSTTAIL return AllocateSlow(size_class);
+  return AllocateSlow(size_class, size);
 }
 
 template <class Forwarder>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* CpuCache<Forwarder>::AllocateFast(
-    size_t size_class) {
+    size_t size_class, size_t size) {
   TC_ASSERT_GT(size_class, 0);
-  return freelist_.Pop(size_class);
+  return freelist_.Pop(size_class, size);
 }
 
 template <class Forwarder>
@@ -1202,14 +1207,14 @@ inline void CpuCache<Forwarder>::ReleaseToBackingCache(
 }
 
 template <class Forwarder>
-void* CpuCache<Forwarder>::AllocateSlow(size_t size_class) {
-  void* ret = AllocateSlowNoHooks(size_class);
+void* CpuCache<Forwarder>::AllocateSlow(size_t size_class, size_t size) {
+  void* ret = AllocateSlowNoHooks(size_class, size);
   MaybeForceSlowPath();
   return ret;
 }
 
 template <class Forwarder>
-void* CpuCache<Forwarder>::AllocateSlowNoHooks(size_t size_class) {
+void* CpuCache<Forwarder>::AllocateSlowNoHooks(size_t size_class, size_t size) {
   if (ABSL_PREDICT_FALSE(BypassCpuCache(size_class))) {
     return forwarder_.sharded_transfer_cache().Pop(size_class);
   }
@@ -1226,7 +1231,7 @@ void* CpuCache<Forwarder>::AllocateSlowNoHooks(size_t size_class) {
 #endif
       return ptr;
     }
-    if (void* ret = AllocateFast(size_class);
+    if (void* ret = AllocateFast(size_class, size);
         ABSL_PREDICT_FALSE(ret != nullptr)) {
       return ret;
     }
