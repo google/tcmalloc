@@ -163,7 +163,7 @@ absl::StatusCode PageFlags::MaybeReadOne(uintptr_t vaddr, uint64_t& flags,
                           /*bytes_read=*/nullptr) != kPagemapEntrySize) {
       return absl::StatusCode::kUnavailable;
     }
-    if (ABSL_PREDICT_FALSE(PageTail(flags))) {
+    if (ABSL_PREDICT_FALSE(!PageHead(flags) || !PageThp(flags))) {
       TC_LOG("Somehow still at tail page even after seeking?");
       return absl::StatusCode::kFailedPrecondition;
     }
@@ -222,7 +222,6 @@ std::optional<PageStats> PageFlags::Get(const void* const addr,
   const uintptr_t endPage =
       (uend + kHardwarePageSize - 1) & ~(kHardwarePageSize - 1);
 
-  const uintptr_t basePage = vaddr;
   int64_t remainingPages = (endPage - vaddr) / kHardwarePageSize;
   while (remainingPages > 0) {
     const size_t batch_size = std::min<int64_t>(kEntriesInBuf, remainingPages);
@@ -245,28 +244,24 @@ std::optional<PageStats> PageFlags::Get(const void* const addr,
       if (PageHead(flags)) {
         last_head_read_ = flags;
       } else if (PageTail(flags)) {
-        // The object may start on a tail page of a hugepage, whose flags are
-        // only on the head page. Simplifying to four native pages per hugepage
-        // to make the diagram fit, an entire hugepage looks like (where X is
-        // the span of interest):
+        // A tail page's flags are only on the compound head page, which we may
+        // not have read yet (either because the span starts on a tail page or
+        // because earlier pages in a deferred-split THP were unbacked/native).
+        // Simplifying to four native pages per hugepage to make the diagram
+        // fit, an entire hugepage looks like (where X is the span of interest):
         // .                     vaddr & kHugePageMask (head page)
-        //      .                basePage
+        //      .                vaddr
         // [....|..XX|XXXX|XXXX]
         //  ^^^^^^^              some other stale object(s)
-        if (vaddr == basePage) {
+        if (ABSL_PREDICT_FALSE(last_head_read_ == -1)) {
           bool is_huge = false;
           if (MaybeReadOne(vaddr & kHugePageMask, last_head_read_, is_huge) !=
-              absl::StatusCode::kOk) {
+                  absl::StatusCode::kOk ||
+              ABSL_PREDICT_FALSE(!is_huge)) {
             return std::nullopt;
           }
-        } else if (ABSL_PREDICT_FALSE(last_head_read_ == -1)) {
-          TC_LOG("Did not see head page before tail page (i=%v, buf=%v)", i,
-                 buf_[i]);
-          return std::nullopt;
         }
         flags = last_head_read_;
-      } else {
-        last_head_read_ = -1;
       }
       // Intersect [uaddr, uend) (where X is the span of interest) with each
       // page [vaddr, vaddr + kHardwarePageSize) (delimited by |) to get
