@@ -42,7 +42,8 @@ class PageAllocatorInterface {
 
   struct AllocationState {
     Range r;
-    bool donated;
+    bool donated = false;
+    bool zeroed = false;
 
     [[nodiscard]] operator bool() const {
       return ABSL_PREDICT_TRUE(r.p != PageId{0});

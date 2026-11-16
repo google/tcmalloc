@@ -659,8 +659,9 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(
 
 namespace {
 
-ABSL_ATTRIBUTE_NOINLINE sized_ptr_t do_malloc_pages(size_t size, ssize_t weight,
-                                                    DynamicPolicy policy) {
+ABSL_ATTRIBUTE_NOINLINE sized_ptr_t
+do_malloc_pages(size_t size, ssize_t weight, DynamicPolicy policy,
+                bool* absl_nullable zeroed = nullptr) {
   // Page allocator does not deal well with num_pages = 0.
   Length num_pages = std::max<Length>(BytesToLengthCeil(size), Length(1));
 
@@ -685,6 +686,9 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t do_malloc_pages(size_t size, ssize_t weight,
       tc_globals.page_allocator().NewAligned(
           num_pages, align, {1, AccessDensityPrediction::kSparse}, tag);
   if (!alloc_res) return {nullptr, 0};
+  if (zeroed != nullptr) {
+    *zeroed = alloc_res.zeroed;
+  }
 
   // Set capacity to the exact size for a page allocation.  This needs to be
   // revisited if we introduce gwp-asan sampling / guarded allocations to
@@ -694,10 +698,10 @@ ABSL_ATTRIBUTE_NOINLINE sized_ptr_t do_malloc_pages(size_t size, ssize_t weight,
             tag == GetMemoryTag(alloc_res.r.start_addr()));
 
   if (weight > 0) {
-    auto ptr =
-        SampleifyAllocation(tc_globals, policy, size, weight,
-                            /*size_class=*/0, alloc_res.r, alloc_res.donated);
-    TC_CHECK_EQ(res.p, ptr.p);
+    auto sampled =
+        SampleifyAllocation(tc_globals, policy, size, weight, /*size_class=*/0,
+                            alloc_res.r, alloc_res.donated);
+    TC_CHECK_EQ(res.p, sampled.p);
   } else {
     tc_globals.pagemap().SetLarge(alloc_res.r.p, num_pages, alloc_res.donated);
   }
@@ -1306,29 +1310,29 @@ alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
     size_class = ret.size_class;
     TC_CHECK(ret.is_small);
   }
-  __sized_ptr_t ptr;
+  sized_ptr_t res;
   if (ABSL_PREDICT_FALSE(weight > 0)) {
-    ptr = SampleifyAllocation(tc_globals, policy, size, weight, size_class,
+    res = SampleifyAllocation(tc_globals, policy, size, weight, size_class,
                               Range(), /*donated=*/false);
   } else {
     if (ABSL_PREDICT_TRUE(UsePerCpuCache(tc_globals))) {
-      ptr.p = tc_globals.cpu_cache().AllocateSlow(size_class);
+      res.p = tc_globals.cpu_cache().AllocateSlow(size_class);
     } else {
-      ptr.p = ThreadCache::GetCache()->Allocate(size_class);
+      res.p = ThreadCache::GetCache()->Allocate(size_class);
     }
-    ptr.n = tc_globals.sizemap().class_to_size(size_class);
+    res.n = tc_globals.sizemap().class_to_size(size_class);
   }
-  if (ABSL_PREDICT_FALSE(ptr.p == nullptr)) {
+  if (ABSL_PREDICT_FALSE(res.p == nullptr)) {
     return {nullptr, 0};
   }
   if (policy.invoke_hooks()) {
     // Size returning tcmallocs call NewHooks with capacity as requested_size.
     // The callee of the hook has no other way of knowing that writes to [size,
-    // ptr.n) are valid.
-    MallocHook::InvokeNewHook({ptr.p, policy.size_returning() ? ptr.n : size,
-                               ptr.n, HookMemoryMutable::kMutable});
+    // res.n) are valid.
+    MallocHook::InvokeNewHook({res.p, policy.size_returning() ? res.n : size,
+                               res.n, HookMemoryMutable::kMutable});
   }
-  return ptr;
+  return res;
 }
 
 // Slow path implementation.
@@ -1347,7 +1351,7 @@ ABSL_ATTRIBUTE_NOINLINE static
   if (ABSL_PREDICT_FALSE(weight != 0) ||
       ABSL_PREDICT_FALSE(tcmalloc::tcmalloc_internal::Static::HaveHooks()) ||
       ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals))) {
-    __sized_ptr_t res = alloc_small_sampled_hooks_or_perthread(
+    sized_ptr_t res = alloc_small_sampled_hooks_or_perthread(
         size, size_class, DynamicPolicy(policy), weight);
     if (ABSL_PREDICT_FALSE(res.p == nullptr)) return policy.handle_oom(size);
     return Policy::as_pointer(res.p, res.n);
@@ -1364,15 +1368,35 @@ template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type slow_alloc_large(
     size_t size, Policy policy) {
   ssize_t weight = GetThreadSampler().RecordAllocation(size);
-  __sized_ptr_t res = do_malloc_pages(size, weight, DynamicPolicy(policy));
+  sized_ptr_t res = do_malloc_pages(size, weight, DynamicPolicy(policy));
   if (ABSL_PREDICT_FALSE(res.p == nullptr)) return policy.handle_oom(size);
 
   if (Policy::invoke_hooks()) {
     // Size returning tcmallocs call NewHooks with capacity as requested_size.
     // The callee of the hook has no other way of knowing that writes to [size,
-    // ptr.n) are valid.
+    // res.n) are valid.
     MallocHook::InvokeNewHook({res.p, Policy::size_returning() ? res.n : size,
                                res.n, HookMemoryMutable::kMutable});
+  }
+  return Policy::as_pointer(res.p, res.n);
+}
+
+template <typename Policy>
+ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type slow_calloc_large(
+    size_t size, Policy policy) {
+  ssize_t weight = GetThreadSampler().RecordAllocation(size);
+  bool zeroed = false;
+  sized_ptr_t res =
+      do_malloc_pages(size, weight, DynamicPolicy(policy), &zeroed);
+  if (ABSL_PREDICT_FALSE(res.p == nullptr)) return policy.handle_oom(size);
+
+  if (Policy::invoke_hooks() && ABSL_PREDICT_FALSE(!new_hooks_.empty())) {
+    MallocHook::InvokeNewHook({res.p, Policy::size_returning() ? res.n : size,
+                               res.n, HookMemoryMutable::kMutable});
+    zeroed = false;
+  }
+  if (!zeroed) {
+    memset(res.p, 0, size);
   }
   return Policy::as_pointer(res.p, res.n);
 }
@@ -1421,6 +1445,45 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(size_t size,
 
   TC_ASSERT_NE(ret, nullptr);
   return Policy::to_pointer(ret, size_class);
+}
+
+template <typename Policy>
+static inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE do_calloc(size_t n,
+                                                           size_t elem_size,
+                                                           Policy policy) {
+  ReentrancyGuard guard;
+
+  size_t size;
+  if (ABSL_PREDICT_FALSE(MultiplyOverflow(n, elem_size, &size))) {
+    return Policy::handle_oom(std::numeric_limits<size_t>::max());
+  }
+
+  const auto [is_small, size_class] =
+      tc_globals.sizemap().GetSizeClass(policy, size);
+  if (ABSL_PREDICT_FALSE(!is_small)) {
+    SLOW_PATH_BARRIER();
+    return slow_calloc_large(size, policy);
+  }
+
+  void* result;
+  if (ABSL_PREDICT_FALSE(!GetThreadSampler().TryRecordAllocationFast(size))) {
+    SLOW_PATH_BARRIER();
+    result = slow_alloc_small(size, size_class, policy);
+    if (ABSL_PREDICT_FALSE(result == nullptr)) {
+      return nullptr;
+    }
+  } else {
+    result = tc_globals.cpu_cache().AllocateFast(size_class);
+    if (ABSL_PREDICT_FALSE(result == nullptr)) {
+      SLOW_PATH_BARRIER();
+      result = slow_alloc_small(size, size_class, policy);
+      if (ABSL_PREDICT_FALSE(result == nullptr)) {
+        return nullptr;
+      }
+    }
+  }
+  memset(result, 0, size);
+  return result;
 }
 
 }  // namespace tcmalloc_internal
@@ -1559,6 +1622,7 @@ void TCMalloc_Internal_SetMadvise(
 using tcmalloc::tcmalloc_internal::BytesToLengthCeil;
 using tcmalloc::tcmalloc_internal::CorrectAlignment;
 using tcmalloc::tcmalloc_internal::CorrectSize;
+using tcmalloc::tcmalloc_internal::do_calloc;
 using tcmalloc::tcmalloc_internal::do_free;
 using tcmalloc::tcmalloc_internal::do_free_with_size;
 using tcmalloc::tcmalloc_internal::GetPageSize;
@@ -1683,15 +1747,7 @@ TCMallocInternalNewAlignedHotColdNothrow(
 
 extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* TCMallocInternalCalloc(
     size_t n, size_t elem_size) noexcept {
-  size_t size;
-  if (ABSL_PREDICT_FALSE(MultiplyOverflow(n, elem_size, &size))) {
-    return MallocPolicy::handle_oom(std::numeric_limits<size_t>::max());
-  }
-  void* result = fast_alloc(size, MallocPolicy());
-  if (ABSL_PREDICT_TRUE(result != nullptr)) {
-    memset(result, 0, size);
-  }
-  return result;
+  return do_calloc(n, elem_size, MallocPolicy());
 }
 
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
@@ -2339,16 +2395,8 @@ TCMALLOC_INTERNAL_CACHELINE_ALIGNED void* operator new[](
   }                                                                            \
   void* TCMallocInternal_alloc_token_##id##_calloc(                            \
       size_t n, size_t elem_size) noexcept {                                   \
-    size_t size;                                                               \
-    if (ABSL_PREDICT_FALSE(MultiplyOverflow(n, elem_size, &size))) {           \
-      return MallocPolicy::handle_oom(std::numeric_limits<size_t>::max());     \
-    }                                                                          \
-    void* result =                                                             \
-        fast_alloc(size, MallocPolicy().WithSecurityToken<TokenId{id}>());     \
-    if (ABSL_PREDICT_TRUE(result != nullptr)) {                                \
-      memset(result, 0, size);                                                 \
-    }                                                                          \
-    return result;                                                             \
+    return do_calloc(n, elem_size,                                             \
+                     MallocPolicy().WithSecurityToken<TokenId{id}>());         \
   }                                                                            \
   void* TCMallocInternal_alloc_token_##id##_memalign(size_t align,             \
                                                      size_t size) noexcept {   \

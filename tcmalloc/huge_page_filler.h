@@ -528,6 +528,7 @@ class HugePageFiller {
     TrackerType* absl_nullable pt;
     PageId page;
     bool from_released;
+    bool zeroed;
   };
 
   // Our API is simple, but note that it does not include an unconditional
@@ -1082,7 +1083,7 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info,
       break;
     }
 
-    return {nullptr, PageId{0}, false};
+    return {nullptr, PageId{0}, false, false};
   } while (false);
   ASSUME(pt != nullptr);
   TC_ASSERT_GE(pt->longest_free_range(), n);
@@ -1115,7 +1116,8 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info,
   UpdateFillerStatsTracker(now);
   TC_ASSERT(was_released || page_allocation.previously_unbacked == Length(0));
   return {pt, page_allocation.page,
-          page_allocation.previously_unbacked > Length(0)};
+          page_allocation.previously_unbacked > Length(0),
+          page_allocation.previously_unbacked == n};
 }
 
 template <class TrackerType>

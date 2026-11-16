@@ -2233,6 +2233,107 @@ TEST(HugeRegionNamedVmaTest, NamedVmaCold) {
                     mock_set_anon_vma_name);
 }
 
+TEST_F(HugeRegionTest, ZeroedPageTracking) {
+  const Length hp = kPagesPerHugePage;
+  const Length half_hp = hp / 2;
+  PageId page;
+  bool from_released = false;
+  bool zeroed = false;
+
+  // First allocation from a fresh region backs hugepage 0 and is zeroed.
+  ASSERT_TRUE(region_.MaybeGet(half_hp, &page, &from_released, &zeroed));
+  EXPECT_EQ(page, p_.first_page());
+  EXPECT_TRUE(from_released);
+  EXPECT_TRUE(zeroed);
+
+  // Second allocation in hugepage 0 finds hugepage 0 already backed
+  // (from_released=false, zeroed=false).
+  PageId page2;
+  ASSERT_TRUE(region_.MaybeGet(half_hp, &page2, &from_released, &zeroed));
+  EXPECT_EQ(page2, p_.first_page() + half_hp);
+  EXPECT_FALSE(from_released);
+  EXPECT_FALSE(zeroed);
+
+  // Free the first half with release=true while the second half is still live;
+  // hugepage 0 cannot be unbacked, so the first half remains dirty.
+  region_.Put(Range(page, half_hp), /*release=*/true, [] {});
+  ASSERT_TRUE(region_.MaybeGet(half_hp, &page, &from_released, &zeroed));
+  EXPECT_EQ(page, p_.first_page());
+  EXPECT_FALSE(from_released);
+  EXPECT_FALSE(zeroed);
+
+  // Free both halves with release=true; the second Put unbacks hugepage 0 and
+  // clears its dirty bits.
+  region_.Put(Range(page, half_hp), /*release=*/true, [] {});
+  ExpectUnback({p_, NHugePages(1)});
+  region_.Put(Range(page2, half_hp), /*release=*/true, [] {});
+  CheckMock();
+
+  // Reallocating hugepage 0 after a successful unback reports zeroed=true.
+  ASSERT_TRUE(region_.MaybeGet(hp, &page, &from_released, &zeroed));
+  EXPECT_EQ(page, p_.first_page());
+  EXPECT_TRUE(from_released);
+  EXPECT_TRUE(zeroed);
+
+  // Free without release, then fail Release(): dirty bits must remain set.
+  region_.Put(Range(page, hp), /*release=*/false, [] {});
+  ExpectUnback({p_, NHugePages(1)}, /*success=*/false);
+  EXPECT_EQ(NHugePages(0),
+            region_.Release(hp, HugeRegionAdaptiveRelease::kDisabled, [] {}));
+  CheckMock();
+
+  // Allocating 2 hugepages spans dirty backed hugepage 0 and clean unbacked
+  // hugepage 1: from_released is true, but zeroed must be false.
+  ASSERT_TRUE(region_.MaybeGet(2 * hp, &page, &from_released, &zeroed));
+  EXPECT_EQ(page, p_.first_page());
+  EXPECT_TRUE(from_released);
+  EXPECT_FALSE(zeroed);
+
+  // Release both hugepages successfully; subsequent allocation is zeroed again.
+  region_.Put(Range(page, 2 * hp), /*release=*/false, [] {});
+  ExpectUnback({p_, NHugePages(2)}, /*success=*/true);
+  EXPECT_EQ(
+      NHugePages(2),
+      region_.Release(2 * hp, HugeRegionAdaptiveRelease::kDisabled, [] {}));
+  CheckMock();
+  ASSERT_TRUE(region_.MaybeGet(2 * hp, &page, &from_released, &zeroed));
+  EXPECT_EQ(page, p_.first_page());
+  EXPECT_TRUE(from_released);
+  EXPECT_TRUE(zeroed);
+  region_.Put(Range(page, 2 * hp), /*release=*/false, [] {});
+}
+
+TEST_P(HugeRegionSetTest, ZeroedPageTracking) {
+  std::unique_ptr<Region> r0 = GetRegion();
+  set_.Contribute(r0.get());
+
+  const Length hp = kPagesPerHugePage;
+  PageId p;
+  bool from_released = false;
+  bool zeroed = false;
+
+  ASSERT_TRUE(set_.MaybeGet(hp, &p, &from_released, &zeroed));
+  EXPECT_TRUE(from_released);
+  EXPECT_TRUE(zeroed);
+
+  // Return without releasing (when UseHugeRegionMoreOften() is enabled, Put
+  // does not unback; otherwise ReleaseAll below is a no-op because Put already
+  // unbacked).
+  PutUnderLock({Range(p, hp)});
+  if (r0->free_backed() > NHugePages(0)) {
+    ASSERT_TRUE(set_.MaybeGet(hp, &p, &from_released, &zeroed));
+    EXPECT_FALSE(from_released);
+    EXPECT_FALSE(zeroed);
+    PutUnderLock({Range(p, hp)});
+    EXPECT_EQ(ReleaseAll(hp, HugeRegionAdaptiveRelease::kDisabled), hp);
+  }
+
+  ASSERT_TRUE(set_.MaybeGet(hp, &p, &from_released, &zeroed));
+  EXPECT_TRUE(from_released);
+  EXPECT_TRUE(zeroed);
+  PutUnderLock({Range(p, hp)});
+}
+
 INSTANTIATE_TEST_SUITE_P(
     All, HugeRegionSetTest,
     testing::Values(HugeRegionUsageOption::kDefault,

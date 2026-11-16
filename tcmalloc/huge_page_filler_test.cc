@@ -757,7 +757,7 @@ class FillerTest : public testing::Test {
     ret.span_alloc_info = span_alloc_info;
     if (!donated) {  // Donated means always create a new hugepage
       PageHeapSpinLockHolder l;
-      auto [pt, page, from_released] =
+      auto [pt, page, from_released, zeroed] =
           filler_.TryGet(n, span_alloc_info, PreferBackedPages::kDisabled);
       ret.pt = pt;
       ret.p = page;
@@ -1765,10 +1765,11 @@ TEST_F(FillerTest, AllocateDuringRetirementUnback) {
             .TryGet(Length(2), b.span_alloc_info, PreferBackedPages::kDisabled)
             .pt,
         nullptr);
-    auto [pt, page, from_released] = filler_.TryGet(
+    auto [pt, page, from_released, zeroed] = filler_.TryGet(
         Length(1), b.span_alloc_info, PreferBackedPages::kDisabled);
     EXPECT_EQ(pt, b.pt);
     EXPECT_FALSE(from_released);
+    EXPECT_FALSE(zeroed);
     EXPECT_EQ(filler_.Put(pt, Range(page, Length(1)), b.span_alloc_info,
                           append_on_free_),
               nullptr);
@@ -9425,6 +9426,96 @@ TEST_F(FillerTest, PutLastSpanDuringCollapseUnbacksCollapsedHugepage) {
       EXPECT_EQ(ReleasePages(Length(2)), Length(2));
     }
   }
+}
+
+TEST_F(FillerTest, ZeroedPageTracking) {
+  randomize_density_ = false;
+  const SpanAllocInfo kSparseInfo = {1, AccessDensityPrediction::kSparse};
+
+  auto try_get = [&](Length n) {
+    PageHeapSpinLockHolder l;
+    return filler_.TryGet(n, kSparseInfo, PreferBackedPages::kDisabled);
+  };
+  auto put = [&](PageTracker* pt, PageId p, Length n) {
+    PageHeapSpinLockHolder l;
+    return filler_.Put(pt, Range(p, n), kSparseInfo, append_on_free_);
+  };
+
+  // 1. A tracker starts with released_count_ == 0, and subrelease marks
+  //    released pages so subsequent allocations spanning only subreleased
+  //    pages report zeroed=true.
+  PAlloc d0 = AllocateWithSpanAllocInfo(Length(2), kSparseInfo);
+  PAlloc d1 = AllocateWithSpanAllocInfo(Length(2), kSparseInfo);
+  ASSERT_EQ(d0.pt, d1.pt);
+  PageTracker* dirty_pt = d0.pt;
+
+  // Subrelease the remaining kPagesPerHugePage - 4 free pages.
+  EXPECT_EQ(ReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(4));
+  ASSERT_TRUE(dirty_pt->released());
+
+  // Allocating from the subreleased region returns from_released=true and
+  // zeroed=true.
+  auto res = try_get(Length(2));
+  ASSERT_EQ(res.pt, dirty_pt);
+  EXPECT_TRUE(res.from_released);
+  EXPECT_TRUE(res.zeroed);
+  PAlloc d2 = {.pt = res.pt,
+               .p = res.page,
+               .n = Length(2),
+               .mark = ++next_mark_,
+               .span_alloc_info = kSparseInfo,
+               .from_released = res.from_released};
+  total_allocated_ += d2.n;
+  Mark(d2);
+
+  // Free d1 ([2, 4)) and d2 ([4, 6)) without subreleasing; [2, 6) is now dirty
+  // and backed while [6, kPagesPerHugePage) remains subreleased and clean.
+  EXPECT_FALSE(Delete(d1));
+  EXPECT_FALSE(Delete(d2));
+
+  // Allocating 6 pages from [2, 8) spans dirty [2, 6) and clean subreleased
+  // [6, 8): from_released is true (2 pages rebacked), but zeroed is false.
+  res = try_get(Length(6));
+  ASSERT_EQ(res.pt, dirty_pt);
+  EXPECT_TRUE(res.from_released);
+  EXPECT_FALSE(res.zeroed);
+  PAlloc d3 = {.pt = res.pt,
+               .p = res.page,
+               .n = Length(6),
+               .mark = ++next_mark_,
+               .span_alloc_info = kSparseInfo,
+               .from_released = res.from_released};
+  total_allocated_ += d3.n;
+  Mark(d3);
+
+  // 2. Collapse (ClearReleasedPages) clears released_by_page_ because
+  //    MADV_COLLAPSE faults in the entire 2MB THP and previously subreleased
+  //    pages are now backed.
+  collapse_released_ = CollapseReleasedHugePages::kEnabled;
+  collapse_.SetSuccess(true);
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  pageflags.MarkHugePageBacked(dirty_pt->location().start_addr(),
+                               /*is_hugepage_backed=*/false);
+  residency.SetUnbackedAndSwappedBitmaps(dirty_pt->location().start_addr(), {},
+                                         {});
+  pageflags.SetStaleBitmap(dirty_pt->location().start_addr(), {});
+
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_FALSE(dirty_pt->released());
+
+  // Allocating from [8, 10) (which was subreleased before Collapse) now
+  // reports from_released=false and zeroed=false.
+  res = try_get(Length(2));
+  ASSERT_EQ(res.pt, dirty_pt);
+  EXPECT_FALSE(res.from_released);
+  EXPECT_FALSE(res.zeroed);
+  EXPECT_EQ(put(dirty_pt, res.page, Length(2)), nullptr);
+
+  EXPECT_FALSE(Delete(d3));
+  EXPECT_TRUE(Delete(d0));
 }
 }  // namespace
 }  // namespace tcmalloc_internal

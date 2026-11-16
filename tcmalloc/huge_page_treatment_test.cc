@@ -289,10 +289,11 @@ TEST_F(HugePageTreatmentRealMemoryTest,
   PageId rel_page;
   {
     PageHeapSpinLockHolder l;
-    auto [got_pt, got_page, from_released] =
+    auto [got_pt, got_page, from_released, zeroed] =
         filler_.TryGet(released_len, info, PreferBackedPages::kDisabled);
     ASSERT_EQ(got_pt, pt.get());
     EXPECT_FALSE(from_released);
+    EXPECT_FALSE(zeroed);
     rel_page = got_page;
   }
 
@@ -327,10 +328,11 @@ TEST_F(HugePageTreatmentRealMemoryTest,
   PageId extra_free_page;
   {
     PageHeapSpinLockHolder l;
-    auto [got_pt, got_page, from_released] =
+    auto [got_pt, got_page, from_released, zeroed] =
         filler_.TryGet(Length(1), info, PreferBackedPages::kDisabled);
     ASSERT_EQ(got_pt, pt.get());
     EXPECT_TRUE(from_released);
+    EXPECT_TRUE(zeroed);
     extra_free_page = got_page;
     // Populate the refilled page so 3 TCMalloc pages remain unbacked in OS
     // pagemap.

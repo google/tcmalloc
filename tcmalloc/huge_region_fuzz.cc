@@ -66,12 +66,26 @@ class MockUnback final : public MemoryModifyFunction {
     PageId end = r.p + r.n;
     for (; r.p != end; ++r.p) {
       released_.insert(r.p);
+      backed_hugepages_.erase(HugePageContaining(r.p));
     }
 
     return {.success = true, .error_number = 0};
   }
 
+  [[nodiscard]] bool MarkAllocated(Range r) {
+    bool zeroed = true;
+    const HugePage first = HugePageContaining(r.p);
+    const HugePage last = HugePageContaining(r.p + r.n - Length(1));
+    for (HugePage hp = first; hp <= last; ++hp) {
+      if (!backed_hugepages_.insert(hp).second) {
+        zeroed = false;
+      }
+    }
+    return zeroed;
+  }
+
   absl::flat_hash_set<PageId> released_;
+  absl::flat_hash_set<HugePage> backed_hugepages_;
   bool unback_success_ = true;
   // Runs before each unback with the range being unbacked.
   std::function<void(Range)> release_callback_;
@@ -334,12 +348,14 @@ void Allocate::Perform(State& state) const {
   const Length n = Length(std::max<size_t>(length % (1 << 18), 1));
   PageId p;
   bool from_released;
-  if (!state.region.MaybeGet(n, &p, &from_released)) {
+  bool zeroed;
+  if (!state.region.MaybeGet(n, &p, &from_released, &zeroed)) {
     return;
   }
   EXPECT_TRUE(state.region.contains(p));
   EXPECT_TRUE(state.region.contains(p + n - Length(1)));
   state.allocs.emplace_back(p, n);
+  CHECK_EQ(zeroed, state.unback.MarkAllocated({p, n}));
   bool did_release = false;
   const PageId first = HugePageContaining(p).first_page();
   const PageId end =
@@ -748,12 +764,15 @@ void Get::Perform(State& state) const {
 
   PageId p;
   bool from_released;
-  if (!state.set.MaybeGet(n, &p, &from_released)) {
+  bool zeroed;
+  if (!state.set.MaybeGet(n, &p, &from_released, &zeroed)) {
     for (Length longest : longest_free) {
       EXPECT_LT(longest, n);
     }
     return;
   }
+
+  EXPECT_EQ(zeroed, state.unback.MarkAllocated({p, n}));
 
   const size_t i = state.RegionIndex(p);
   ASSERT_LT(i, state.regions.size());
