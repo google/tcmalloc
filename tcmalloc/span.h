@@ -100,7 +100,15 @@ class ABSL_CACHELINE_ALIGNED Span final : public SpanList::Elem {
         first_page_(first_page),
         raw_bitmap_{} {
     TC_ASSERT_GT(first_page, PageId{0});
+#ifdef ABSL_HAVE_HWADDRESS_SANITIZER
+    // Under HWASan, the top byte of a pointer holds the allocation tag.
+    constexpr uint64_t kUntaggedPageIdMask =
+        (uint64_t{1} << (56 - kPageShift)) - 1;
+    TC_CHECK_LT(first_page.index() & kUntaggedPageIdMask,
+                static_cast<uint64_t>(1) << kMaxPageIdBits);
+#else
     TC_CHECK_LT(first_page.index(), static_cast<uint64_t>(1) << kMaxPageIdBits);
+#endif
   }
 
   Span(const Span&) = delete;
