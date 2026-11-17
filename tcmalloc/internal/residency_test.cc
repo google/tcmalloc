@@ -31,6 +31,7 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
@@ -69,6 +70,12 @@ class ResidencySpouse {
   decltype(auto) GetUnbackedAndSwappedBitmaps(const void* const addr) {
     AllocationGuard g;
     return r_.GetUnbackedAndSwappedBitmaps(addr);
+  }
+
+  decltype(auto) GetRemoteNumaBytes(const void* const addr, const size_t size,
+                                    const int local_node) {
+    AllocationGuard g;
+    return r_.GetRemoteNumaBytes(addr, size, local_node);
   }
 
  private:
@@ -632,6 +639,113 @@ TEST(PageMapIntegrationTest, GuardPages) {
   EXPECT_TRUE(res.swapped.IsZero());
 
   ASSERT_EQ(munmap(raw, 2 * kHugePageSize), 0) << errno;
+}
+
+TEST(ResidenceTest, GetRemoteNumaBytes) {
+  const size_t kHardwarePageSize = GetPageSize();
+  EXPECT_GE(GetCurrentNumaNode(), 0);
+  constexpr size_t kNumPages = 70;
+  constexpr size_t kResidentPages = 66;
+  void* ptr = mmap(nullptr, kNumPages * kHardwarePageSize,
+                   PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+  ASSERT_NE(ptr, MAP_FAILED) << errno;
+
+  {
+    AllocationGuard g;
+    ResidencySpouse bad("/tmp/a667ba48-18ba-4523-a8a7-b49ece3a6c2b");
+    EXPECT_EQ(bad.GetRemoteNumaBytes(ptr, kHardwarePageSize, 0), std::nullopt);
+  }
+
+  ResidencySpouse r;
+  EXPECT_EQ(r.GetRemoteNumaBytes(nullptr, kHardwarePageSize, 0), std::nullopt);
+  EXPECT_EQ(r.GetRemoteNumaBytes(ptr, kHardwarePageSize, -1), std::nullopt);
+  EXPECT_THAT(r.GetRemoteNumaBytes(ptr, 0, 0), Optional(0));
+
+  // Unbacked pages are not resident on any NUMA node.
+  errno = 0;
+  std::optional<size_t> unbacked =
+      r.GetRemoteNumaBytes(ptr, kNumPages * kHardwarePageSize, 0);
+  if (!unbacked.has_value() && (errno == EPERM || errno == ENOSYS)) {
+    const int err = errno;
+    ASSERT_EQ(munmap(ptr, kNumPages * kHardwarePageSize), 0) << errno;
+    GTEST_SKIP() << "move_pages not supported: " << err;
+  }
+  EXPECT_THAT(unbacked, Optional(0));
+
+  // Fault in the first kResidentPages pages across multiple batches, leaving
+  // the remaining pages unbacked.
+  memset(ptr, 1, kResidentPages * kHardwarePageSize);
+  ::benchmark::DoNotOptimize(ptr);
+
+  int actual_node = -1;
+  for (int node = 0; node < 64; ++node) {
+    if (r.GetRemoteNumaBytes(ptr, kHardwarePageSize, node) == size_t{0}) {
+      actual_node = node;
+      break;
+    }
+  }
+  ASSERT_GE(actual_node, 0);
+  EXPECT_THAT(r.GetRemoteNumaBytes(ptr, kHardwarePageSize, actual_node + 1),
+              Optional(kHardwarePageSize));
+
+  // Querying against a node ID that holds none of the pages counts only the
+  // resident pages and respects sub-page start/end offsets.
+  constexpr int kOtherNode = 1000;
+  EXPECT_THAT(
+      r.GetRemoteNumaBytes(ptr, kNumPages * kHardwarePageSize, kOtherNode),
+      Optional(kResidentPages * kHardwarePageSize));
+  EXPECT_THAT(
+      r.GetRemoteNumaBytes(static_cast<char*>(ptr) + 7,
+                           kResidentPages * kHardwarePageSize, kOtherNode),
+      Optional(kResidentPages * kHardwarePageSize - 7));
+  EXPECT_THAT(r.GetRemoteNumaBytes(static_cast<char*>(ptr) + 7,
+                                   kHardwarePageSize - 11, kOtherNode),
+              Optional(kHardwarePageSize - 11));
+
+  const uintptr_t base_page = reinterpret_cast<uintptr_t>(ptr);
+  EXPECT_FALSE(ForEachRemoteNumaPage(base_page + 1, 1, 0, [](size_t) {}));
+  EXPECT_FALSE(ForEachRemoteNumaPage(base_page, 1, -1, [](size_t) {}));
+  std::vector<size_t> remote_indices;
+  ASSERT_TRUE(ForEachRemoteNumaPage(
+      base_page, kNumPages, kOtherNode,
+      [&](size_t page_index) { remote_indices.push_back(page_index); }));
+  ASSERT_EQ(remote_indices.size(), kResidentPages);
+  for (size_t i = 0; i < kResidentPages; ++i) {
+    EXPECT_EQ(remote_indices[i], i);
+  }
+
+  ASSERT_EQ(munmap(ptr, kNumPages * kHardwarePageSize), 0) << errno;
+}
+
+TEST(ResidenceTest, GetRemoteNumaBytesOverflow) {
+  const size_t kHardwarePageSize = GetPageSize();
+  const uintptr_t last_page =
+      std::numeric_limits<uintptr_t>::max() & ~(kHardwarePageSize - 1);
+
+  EXPECT_FALSE(ForEachRemoteNumaPage(last_page, 2, 0, [](size_t) {}));
+
+  ResidencySpouse r;
+  char c = 0;
+  const uintptr_t aligned_addr =
+      reinterpret_cast<uintptr_t>(&c) & ~(kHardwarePageSize - 1);
+  EXPECT_FALSE(ForEachRemoteNumaPage(
+      aligned_addr, std::numeric_limits<size_t>::max(), 0, [](size_t) {}));
+  EXPECT_EQ(r.GetRemoteNumaBytes(reinterpret_cast<const void*>(aligned_addr),
+                                 std::numeric_limits<size_t>::max(), 0),
+            std::nullopt);
+  EXPECT_EQ(r.GetRemoteNumaBytes(reinterpret_cast<const void*>(last_page),
+                                 kHardwarePageSize, 0),
+            std::nullopt);
+  EXPECT_EQ(r.GetRemoteNumaBytes(reinterpret_cast<const void*>(last_page + 1),
+                                 kHardwarePageSize - 1, 0),
+            std::nullopt);
+  errno = 0;
+  std::optional<size_t> last_page_res = r.GetRemoteNumaBytes(
+      reinterpret_cast<const void*>(last_page + 1), kHardwarePageSize - 2, 0);
+  if (!last_page_res.has_value() && (errno == EPERM || errno == ENOSYS)) {
+    GTEST_SKIP() << "move_pages not supported: " << errno;
+  }
+  EXPECT_THAT(last_page_res, Optional(0));
 }
 
 }  // namespace

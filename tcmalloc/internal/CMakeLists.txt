@@ -649,6 +649,10 @@ tcmalloc_cc_library(
   SRCS
     "residency.cc"
   DEPS
+    "absl::flat_hash_map"
+    "absl::flat_hash_set"
+    "absl::inlined_vector"
+    "absl::function_ref"
     "absl::status"
     "tcmalloc::internal_config"
     "tcmalloc::internal_logging"

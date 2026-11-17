@@ -39,6 +39,11 @@ class NoopResidency : public Residency {
     return kHugePageSize / GetPageSize();
   }
 
+  [[nodiscard]] std::optional<size_t> GetRemoteNumaBytes(
+      const void* addr, size_t size, int local_node) override {
+    return std::nullopt;
+  }
+
   [[nodiscard]] SinglePageBitmaps GetUnbackedAndSwappedBitmaps(
       const void* addr) override {
     return {{}, {}, absl::StatusCode::kOk};

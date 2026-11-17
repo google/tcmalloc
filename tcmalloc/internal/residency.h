@@ -21,6 +21,8 @@
 
 #include <optional>
 #include <ostream>
+
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/page_size.h"
@@ -29,6 +31,21 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+// Returns the NUMA node of the CPU on which the calling thread is currently
+// running, or 0 if unavailable.
+// TODO(b/585745921): Move to internal/numa.h once :numa no longer pulls in
+// :percpu's initial-exec TLS globals.
+[[nodiscard]] int GetCurrentNumaNode();
+
+// Invokes `on_remote_page(page_index)` for each page in
+// `[base_page, base_page + num_pages * GetPageSize())` that resides on a NUMA
+// node other than `local_node` according to move_pages(2). `base_page` must be
+// aligned to `GetPageSize()`. Returns true on success, or false if NUMA
+// residency information is unavailable.
+[[nodiscard]] bool ForEachRemoteNumaPage(
+    uintptr_t base_page, size_t num_pages, int local_node,
+    absl::FunctionRef<void(size_t page_index)> on_remote_page);
 
 // Abstract base class for Residency, which offers information about memory
 // residency: whether or not specific spans of memory are resident in core ("m
@@ -49,6 +66,12 @@ class Residency {
   [[nodiscard]] virtual std::optional<Info> Get(const void* addr,
                                                 size_t size) = 0;
   [[nodiscard]] virtual inline size_t GetHardwarePagesInHugePage() const = 0;
+
+  // Returns the number of resident bytes in `[addr, addr + size)` that reside
+  // on a NUMA node other than `local_node`, or std::nullopt if NUMA residency
+  // information is unavailable.
+  [[nodiscard]] virtual std::optional<size_t> GetRemoteNumaBytes(
+      const void* addr, size_t size, int local_node) = 0;
 
   // Struct is ordered with bitmaps first to optimize cacheline usage.
   struct SinglePageBitmaps {
@@ -94,6 +117,9 @@ class ResidencyPageMap : public Residency {
   [[nodiscard]] size_t GetHardwarePagesInHugePage() const override {
     return kHardwarePagesInHugePage;
   }
+
+  [[nodiscard]] std::optional<size_t> GetRemoteNumaBytes(
+      const void* addr, size_t size, int local_node) override;
 
   // Using a hugepage-aligned address, parse through /proc/self/pagemap
   // to output two bitmaps - one for pages that are unbacked and one for pages

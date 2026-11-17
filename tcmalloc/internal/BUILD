@@ -636,6 +636,8 @@ cc_library(
         ":page_size",
         ":range_tracker",
         ":util",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/status",
     ],
 )
