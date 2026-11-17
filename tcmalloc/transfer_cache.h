@@ -90,8 +90,8 @@ class ShardedTransferCacheManagerBase {
   constexpr explicit ShardedTransferCacheManagerBase(CpuLayout* cpu_layout)
       : cpu_layout_(cpu_layout) {}
 
-  // We enable generic sharded transfer cache only when the number of cache
-  // domains is greater than or equal to kMinShardsAllowed.
+  // We enable sharded transfer caches only when the number of cache domains is
+  // greater than or equal to kMinShardsAllowed.
   //
   // TODO(b/210049384): We should use cache topology along with the number of
   // NUMA nodes to disable cache when we have only one cache domain per NUMA
@@ -118,13 +118,16 @@ class ShardedTransferCacheManagerBase {
       // size classes of >= 4096 with a traditional sharded cache
       // implementation.
       //
-      // Finally, we enable generic sharded transfer caches only on platforms
-      // that have multiple cache domains. On platforms with less than three
-      // cache domains, the traditional LIFO transfer cache should suffice.
+      // Finally, we enable sharded transfer caches only on platforms that have
+      // at least kMinShardsAllowed cache domains. On platforms with fewer cache
+      // domains (such as single-SLC aarch64 hosts where l3_count() == 1),
+      // bypassing the per-CPU cache funnels all large-class operations onto one
+      // or two shard locks, so the per-CPU cache + traditional LIFO transfer
+      // cache should be used instead.
       int min_size = UseGenericCache() ? 0 : 4096;
       bool use_sharded_cache =
-          UseCacheForLargeClassesOnly() ||
-          (UseGenericCache() && (num_shards_ >= kMinShardsAllowed));
+          (UseCacheForLargeClassesOnly() || UseGenericCache()) &&
+          (num_shards_ >= kMinShardsAllowed);
       active_for_class_[size_class] =
           use_sharded_cache && size_per_object >= min_size;
     }

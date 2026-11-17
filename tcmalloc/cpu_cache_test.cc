@@ -135,6 +135,53 @@ TEST(CpuCacheTest, MinimumShardsForGenericCache) {
   // We should deallocate directly to the LIFO transfer cache.
   EXPECT_EQ(forwarder.transfer_cache().tc_length(kSizeClass),
             num_to_move / 2 + 1);
+  forwarder.SetGenericShardedCache(false);
+}
+
+TEST(CpuCacheTest, MinimumShardsForLargeClassesOnlyCache) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  using ShardedManager = TestStaticForwarder::ShardedManager;
+  for (int num_shards : {1, ShardedManager::kMinShardsAllowed - 1}) {
+    CpuCache cache;
+    TestStaticForwarder& forwarder = cache.forwarder();
+    forwarder.SetGenericShardedCache(false);
+    forwarder.SetShardedCacheForLargeClassesOnly(true);
+    // Match production Static::InitIfNecessary() order: initialize the sharded
+    // transfer cache before CpuCache::Activate() queries IsActive(size_class).
+    forwarder.InitializeShardedManager(num_shards);
+    cache.Init();
+    cache.Activate();
+
+    ShardedManager& sharded_transfer_cache = forwarder.sharded_transfer_cache();
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      EXPECT_FALSE(sharded_transfer_cache.should_use(size_class));
+    }
+
+    size_t large_class = 0;
+    for (size_t sc = 1; sc < kNumClasses; ++sc) {
+      if (forwarder.class_to_size(sc) >= 4096) {
+        large_class = sc;
+        break;
+      }
+    }
+    ASSERT_GT(large_class, 0);
+
+    ScopedFakeCpuId fake_cpu_id(0);
+    void* ptr = cache.Allocate(large_class);
+    ASSERT_NE(ptr, nullptr);
+    // With fewer than kMinShardsAllowed cache domains (e.g. single-SLC ARM),
+    // large size classes must use the per-CPU cache backed by the traditional
+    // LIFO transfer cache instead of bypassing to a single contended shard.
+    EXPECT_FALSE(sharded_transfer_cache.shard_initialized(0));
+    EXPECT_EQ(sharded_transfer_cache.NumActiveShards(), 0);
+    cache.Deallocate(ptr, large_class);
+    cache.Drain(0);
+    EXPECT_EQ(sharded_transfer_cache.NumActiveShards(), 0);
+    EXPECT_GT(forwarder.transfer_cache().tc_length(large_class), 0);
+    forwarder.SetShardedCacheForLargeClassesOnly(false);
+  }
 }
 
 TEST(CpuCacheTest, UsesShardedAsBackingCache) {
