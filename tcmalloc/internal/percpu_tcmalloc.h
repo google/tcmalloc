@@ -509,6 +509,10 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
 
 #if defined(__x86_64__)
 #define TCMALLOC_RSEQ_RELOC_TYPE "R_X86_64_NONE"
+// Encode the 4-byte rseq signature as the displacement of a 7-byte
+// `nopl disp32(%rip)` so linear disassembly stays synchronized across
+// trampolines in `.text.unlikely`.
+#define TCMALLOC_RSEQ_SIGN_ABORT ".byte 0x0f, 0x1f, 0x05\n"
 #define TCMALLOC_RSEQ_JUMP "jmp"
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_TLS_WORKAROUND
@@ -555,6 +559,7 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
 #endif
 #define TCMALLOC_RSEQ_CLOBBER "x16", "x17"
 #define TCMALLOC_RSEQ_RELOC_TYPE "R_AARCH64_NONE"
+#define TCMALLOC_RSEQ_SIGN_ABORT ""
 #define TCMALLOC_RSEQ_JUMP "b"
 // clang-format off
 #define TCMALLOC_RSEQ_SET_CS(name)                                   \
@@ -609,6 +614,7 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
                                               annotate valid abort IPs (since \
                                               rseq_cs could live in a         \
                                               user-writable segment). */      \
+      TCMALLOC_RSEQ_SIGN_ABORT                                                \
   ".long %c[rseq_sig]\n"                                                      \
   ".local " #name                                                             \
   "_trampoline_PREEMPTION_OR_SIGNAL_BASED_PROFILER_ACTIVE_%=\n"               \

@@ -1510,6 +1510,34 @@ TEST(TcmallocSlab, CriticalSectionMetadata) {
   }
 
   EXPECT_THAT(cs_pointers, ::testing::ContainerEq(cs_array_pointers));
+
+  struct RseqCsAbi {
+    uint32_t version;
+    uint32_t flags;
+    uint64_t start_ip;
+    uint64_t post_commit_offset;
+    uint64_t abort_ip;
+  };
+  static_assert(sizeof(RseqCsAbi) == sizeof(kernel_rseq_cs));
+
+  for (const kernel_rseq_cs* ptr = cs_start; ptr != cs_end; ++ptr) {
+    SCOPED_TRACE(ptr - cs_start);
+    const auto* cs = reinterpret_cast<const RseqCsAbi*>(ptr);
+    ASSERT_NE(cs->start_ip, 0u);
+    ASSERT_NE(cs->abort_ip, 0u);
+    const auto* abort_ip =
+        reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(cs->abort_ip));
+    uint32_t sig = 0;
+    memcpy(&sig, abort_ip - 4, sizeof(sig));
+    EXPECT_EQ(sig, static_cast<uint32_t>(TCMALLOC_PERCPU_RSEQ_SIGNATURE));
+#if defined(__x86_64__)
+    // On x86-64, the 4-byte rseq signature must be preceded by `0f 1f 05` so
+    // the 7 bytes decode as `nopl disp32(%rip)` during linear disassembly.
+    EXPECT_THAT(
+        absl::MakeSpan(abort_ip - 7, 3),
+        ::testing::ElementsAre(uint8_t{0x0f}, uint8_t{0x1f}, uint8_t{0x05}));
+#endif
+  }
 #endif
 }
 
