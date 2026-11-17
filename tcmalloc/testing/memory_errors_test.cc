@@ -1061,6 +1061,30 @@ TEST_F(TcMallocTest, CorruptedPointerEdgeCases) {
   }
 }
 
+TEST_F(TcMallocTest, CorruptedPointerAlignedDelete) {
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER)
+  GTEST_SKIP() << "Skipping under address sanitizer";
+#endif
+  ScopedNeverSample never_sample;
+  constexpr std::align_val_t kAlign{64};
+  for (const bool sized : {false, true}) {
+    SCOPED_TRACE(absl::StrCat("sized=", sized));
+    EXPECT_DEATH(
+        {
+          char* ptr = static_cast<char*>(::operator new(8, kAlign));
+          if (sized) {
+            ::operator delete(ptr + 1, 8, kAlign);
+          } else {
+            ::operator delete(ptr + 1, kAlign);
+          }
+        },
+        absl::StrCat(
+            "Attempted to free corrupted pointer"
+            ));
+  }
+}
+
 TEST_F(TcMallocTest, AllocationDeallocationConfusion) {
 #if defined(ABSL_HAVE_HWADDRESS_SANITIZER)
   GTEST_SKIP() << "HWASan does not currently detect alloc-dealloc-mismatch.";

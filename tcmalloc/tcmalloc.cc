@@ -757,7 +757,8 @@ ABSL_ATTRIBUTE_NOINLINE static void InvokeHooksAndFreePages(
     // Spans with a size class are never sampled, guarded, or large, so any
     // pointer into one that reaches here is corrupted.
     if (absl::bit_cast<uintptr_t>(ptr) & kBadAlignmentMask) {
-      ReportCorruptedFree(tc_globals, kAlignment, ptr);
+      ReportCorruptedFree(tc_globals, std::max(policy.align(), kAlignment),
+                          ptr);
     }
     ReportCorruptedFree(tc_globals, ptr);
   }
@@ -976,7 +977,8 @@ ABSL_ATTRIBUTE_NOINLINE static void handle_sampled_or_illformed_ptrs(
   // If we get here, the object is small and this is the last line of defense
   // to report the error.
   TC_ASSERT_EQ((uptr & kBadAlignmentMask) != 0, true);
-  return ReportCorruptedFree(tc_globals, kAlignment, ptr);
+  return ReportCorruptedFree(tc_globals, std::max(policy.align(), kAlignment),
+                             ptr);
 }
 
 template <typename Policy>
