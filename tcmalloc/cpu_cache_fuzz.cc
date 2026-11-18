@@ -58,6 +58,11 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal {
 namespace {
 
+// Cap the number of distinct fake CPUs so that each one sees enough traffic to
+// populate, resize, and be stolen from.  NumCPUs() is not overridable through
+// the forwarder, so accounting still spans every CPU.
+constexpr int kMaxFuzzCpus = 4;
+
 // ShardedTransferCacheManagerBase never frees the shards and slots it
 // allocates, so initializing it afresh for every fuzz iteration through
 // ArenaBasedFakeTransferCacheForwarder would leak.  This forwarder carves them
@@ -186,8 +191,10 @@ class FuzzForwarder : public TestStaticForwarder {
     size_t size;
   };
 
-  // resize_, the initial slab, and every (shift, resize copy) pair.
-  static constexpr size_t kMaxMappings = 2 + kTotalPossibleSlabs + 16;
+  // resize_, the initial slab, lazy per-CPU PerCpuClassData mappings (up to
+  // kMaxFuzzCpus), and every (shift, resize copy) pair.
+  static constexpr size_t kMaxMappings =
+      2 + kTotalPossibleSlabs + kMaxFuzzCpus + 16;
 
   static void Track(void* ptr, size_t size) {
     if (ptr == MAP_FAILED) return;
@@ -219,11 +226,6 @@ using PerClassMissType = CpuCache::PerClassMissType;
 // TestStaticForwarder's transfer cache only backs these size classes.
 constexpr std::array<size_t, 3> kSizeClasses = {
     1, 2, ThreeSizeClassForwarder::kColdSizeClass};
-
-// Cap the number of distinct fake CPUs so that each one sees enough traffic to
-// populate, resize, and be stolen from.  NumCPUs() is not overridable through
-// the forwarder, so accounting still spans every CPU.
-constexpr int kMaxFuzzCpus = 4;
 
 // Per-CPU cache limits, chosen so that StealFromOtherCache (available <
 // kMaxSize) and ResizeCpuSizeClasses (available < kMaxCpuCacheSize) are

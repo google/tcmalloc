@@ -235,6 +235,9 @@ TEST(CpuCacheTest, DrainShardedFromUnregisteredThread) {
 TEST(CpuCacheTest, ResizeInfoNoFalseSharing) {
   const size_t resize_info_size = CpuCachePeer::ResizeInfoSize<CpuCache>();
   EXPECT_EQ(resize_info_size % ABSL_CACHELINE_SIZE, 0) << resize_info_size;
+  EXPECT_LE(resize_info_size, 4 * ABSL_CACHELINE_SIZE) << resize_info_size;
+  const size_t class_data_size = CpuCachePeer::PerCpuClassDataSize<CpuCache>();
+  EXPECT_EQ(class_data_size % ABSL_CACHELINE_SIZE, 0) << class_data_size;
 }
 
 TEST(CpuCacheTest, Metadata) {
@@ -2708,6 +2711,71 @@ TEST(CpuCacheTest, PartitionShift) {
 
   forwarder.active_partitions_ = 4;
   EXPECT_EQ(CpuCachePeer::PartitionShift(cache), 2);
+}
+
+TEST(CpuCacheTest, LazyPerCpuClassDataLifecycle) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Init();
+  cache.Activate();
+
+  const int num_cpus = NumCPUs();
+  constexpr size_t kSizeClass = 2;
+
+  // Unpopulated CPUs must report zero misses and zero capacity stats without
+  // faulting per-size-class metadata.
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    EXPECT_FALSE(cache.HasPopulated(cpu));
+    EXPECT_EQ(CpuCachePeer::ClassData(cache, cpu), nullptr);
+    EXPECT_EQ(cache.GetIntervalSizeClassMisses(
+                  cpu, kSizeClass, CpuCache::PerClassMissType::kCapacityTotal,
+                  CpuCache::PerClassMissType::kCapacityResize),
+              0);
+  }
+  CpuCache::SizeClassCapacityStats empty_stats =
+      cache.GetSizeClassCapacityStats(kSizeClass);
+  EXPECT_EQ(empty_stats.min_capacity, 0);
+  EXPECT_DOUBLE_EQ(empty_stats.avg_capacity, 0);
+  EXPECT_EQ(empty_stats.max_capacity, 0);
+  EXPECT_EQ(empty_stats.max_capacity_misses, 0);
+  cache.ResizeSizeClasses();
+
+  // Populate a sparse subset of CPUs and exercise repeated reclaim/repopulate
+  // cycles so PerCpuClassData is reused across unpopulate and freed once on
+  // destruction.
+  const int sparse_cpus = std::min(num_cpus, 4);
+  const size_t batch_size = cache.forwarder().num_objects_to_move(kSizeClass);
+  std::vector<const void*> allocated_class_data(sparse_cpus, nullptr);
+  for (int round = 0; round < 3; ++round) {
+    for (int cpu = 0; cpu < sparse_cpus; ++cpu) {
+      ColdCacheOperations(cache, cpu, kSizeClass);
+      EXPECT_TRUE(cache.HasPopulated(cpu));
+      const void* class_data = CpuCachePeer::ClassData(cache, cpu);
+      EXPECT_NE(class_data, nullptr);
+      if (round == 0) {
+        allocated_class_data[cpu] = class_data;
+      } else {
+        EXPECT_EQ(class_data, allocated_class_data[cpu]);
+      }
+    }
+    for (int cpu = sparse_cpus; cpu < num_cpus; ++cpu) {
+      EXPECT_EQ(CpuCachePeer::ClassData(cache, cpu), nullptr);
+    }
+    CpuCache::SizeClassCapacityStats stats =
+        cache.GetSizeClassCapacityStats(kSizeClass);
+    EXPECT_EQ(stats.min_capacity, batch_size);
+    EXPECT_DOUBLE_EQ(stats.avg_capacity, batch_size);
+    EXPECT_EQ(stats.max_capacity, batch_size);
+    cache.ResizeSizeClasses();
+    for (int cpu = 0; cpu < sparse_cpus; ++cpu) {
+      CpuCachePeer::Reclaim(cache, cpu);
+      EXPECT_FALSE(cache.HasPopulated(cpu));
+      EXPECT_EQ(CpuCachePeer::ClassData(cache, cpu), allocated_class_data[cpu]);
+    }
+  }
 }
 
 }  // namespace
