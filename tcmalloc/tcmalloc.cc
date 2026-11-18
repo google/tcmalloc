@@ -1614,29 +1614,27 @@ TCMallocInternalSizeReturningNewAligned(size_t size,
 //   implemented in terms of `{::operator new(...), n}`
 // - tcmalloc provides strong implementations of `__size_returning_new`
 
-extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
-    google_malloc)
-__sized_ptr_t __size_returning_new(size_t size)
-    TCMALLOC_ALIAS(TCMallocInternalSizeReturningNew);
+extern "C" ABSL_ATTRIBUTE_SECTION(google_malloc)
+    TCMALLOC_INTERNAL_CACHELINE_ALIGNED __sized_ptr_t
+    __size_returning_new(size_t size)
+        TCMALLOC_ALIAS(TCMallocInternalSizeReturningNew);
 
-extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
-    google_malloc)
-__sized_ptr_t __size_returning_new_aligned(size_t size,
-                                           std::align_val_t alignment)
-    TCMALLOC_ALIAS(TCMallocInternalSizeReturningNewAligned);
+extern "C" ABSL_ATTRIBUTE_SECTION(google_malloc)
+    TCMALLOC_INTERNAL_CACHELINE_ALIGNED __sized_ptr_t
+    __size_returning_new_aligned(size_t size, std::align_val_t alignment)
+        TCMALLOC_ALIAS(TCMallocInternalSizeReturningNewAligned);
 
-extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
-    google_malloc)
-__sized_ptr_t __size_returning_new_hot_cold(size_t size,
-                                            __hot_cold_t hot_cold) {
+extern "C" ABSL_ATTRIBUTE_SECTION(google_malloc)
+    TCMALLOC_INTERNAL_CACHELINE_ALIGNED __sized_ptr_t
+    __size_returning_new_hot_cold(size_t size, __hot_cold_t hot_cold) {
   return fast_alloc(size, CppPolicy().AccessAs(hot_cold).SizeReturning());
 }
 
-extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
-    google_malloc)
-__sized_ptr_t __size_returning_new_aligned_hot_cold(size_t size,
-                                                    std::align_val_t alignment,
-                                                    __hot_cold_t hot_cold) {
+extern "C" ABSL_ATTRIBUTE_SECTION(google_malloc)
+    TCMALLOC_INTERNAL_CACHELINE_ALIGNED __sized_ptr_t
+    __size_returning_new_aligned_hot_cold(size_t size,
+                                          std::align_val_t alignment,
+                                          __hot_cold_t hot_cold) {
   return fast_alloc(
       size, CppPolicy().AlignAs(alignment).AccessAs(hot_cold).SizeReturning());
 }
@@ -1801,33 +1799,33 @@ TCMallocInternalReallocArray(void* ptr, size_t n, size_t elem_size) noexcept {
 }
 
 #ifndef TCMALLOC_INTERNAL_METHODS_ONLY
-extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
-    google_malloc)
-__sized_ptr_t tcmalloc_size_returning_operator_new_nothrow(
-    size_t size) noexcept {
+extern "C" ABSL_ATTRIBUTE_SECTION(google_malloc)
+    TCMALLOC_INTERNAL_CACHELINE_ALIGNED __sized_ptr_t
+    tcmalloc_size_returning_operator_new_nothrow(size_t size) noexcept {
   return fast_alloc(size, CppPolicy().Nothrow().SizeReturning());
 }
 
-extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
-    google_malloc)
-__sized_ptr_t tcmalloc_size_returning_operator_new_aligned_nothrow(
-    size_t size, std::align_val_t alignment) noexcept {
+extern "C" ABSL_ATTRIBUTE_SECTION(google_malloc)
+    TCMALLOC_INTERNAL_CACHELINE_ALIGNED __sized_ptr_t
+    tcmalloc_size_returning_operator_new_aligned_nothrow(
+        size_t size, std::align_val_t alignment) noexcept {
   return fast_alloc(size,
                     CppPolicy().AlignAs(alignment).Nothrow().SizeReturning());
 }
 
-extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
-    google_malloc)
-__sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold_nothrow(
-    size_t size, __hot_cold_t hot_cold) noexcept {
+extern "C" ABSL_ATTRIBUTE_SECTION(google_malloc)
+    TCMALLOC_INTERNAL_CACHELINE_ALIGNED __sized_ptr_t
+    tcmalloc_size_returning_operator_new_hot_cold_nothrow(
+        size_t size, __hot_cold_t hot_cold) noexcept {
   return fast_alloc(size,
                     CppPolicy().AccessAs(hot_cold).Nothrow().SizeReturning());
 }
 
-extern "C" TCMALLOC_INTERNAL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
-    google_malloc)
-__sized_ptr_t tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
-    size_t size, std::align_val_t alignment, __hot_cold_t hot_cold) noexcept {
+extern "C" ABSL_ATTRIBUTE_SECTION(google_malloc)
+    TCMALLOC_INTERNAL_CACHELINE_ALIGNED __sized_ptr_t
+    tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
+        size_t size, std::align_val_t alignment,
+        __hot_cold_t hot_cold) noexcept {
   return fast_alloc(size, CppPolicy()
                               .AlignAs(alignment)
                               .AccessAs(hot_cold)
