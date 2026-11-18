@@ -648,6 +648,19 @@ struct SetMinFreePagesToBreakSparseHugepage {
   }
 };
 
+struct SetSubreleaseOrderByAllocationTime {
+  bool value;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink,
+                            const SetSubreleaseOrderByAllocationTime& s) {
+    absl::Format(&sink, "SetSubreleaseOrderByAllocationTime{.value=%v}",
+                 s.value);
+  }
+};
+
 struct Instruction;
 
 template <typename Sink>
@@ -671,7 +684,8 @@ using ParamOp = std::variant<
     SetReleaseMaxFillerPages, SetPreferBackedFillerPages, SetFillerAppendOnFree,
     SetEnableReleaseStalePages, SetCollapseReleasedHugepages,
     SetMadvNoHugepageHugeRegions, UpdateBitmaps, SetUsageLimitPressure,
-    SetMinFreePagesToBreakDenseHugepage, SetMinFreePagesToBreakSparseHugepage>;
+    SetMinFreePagesToBreakDenseHugepage, SetMinFreePagesToBreakSparseHugepage,
+    SetSubreleaseOrderByAllocationTime>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -1374,6 +1388,12 @@ void SetMinFreePagesToBreakDenseHugepage::Perform(State& state) const {
 void SetMinFreePagesToBreakSparseHugepage::Perform(State& state) const {
   state.allocator.forwarder().min_free_pages_to_break_sparse_hugepage.set(
       std::clamp(Length(pages), Length(1), kPagesPerHugePage));
+}
+
+void SetSubreleaseOrderByAllocationTime::Perform(State& state) const {
+  state.allocator.forwarder().subrelease_order_by_allocation_time.set(
+      value ? SubreleaseOrderByAllocationTime::kEnabled
+            : SubreleaseOrderByAllocationTime::kDisabled);
 }
 
 void UpdateBitmaps::Perform(State& state) const {
@@ -2195,6 +2215,8 @@ TEST(HugePageAwareAllocatorTest, PrinterTest) {
             "SetMinFreePagesToBreakDenseHugepage{.pages=8}");
   EXPECT_EQ(absl::StrCat(SetMinFreePagesToBreakSparseHugepage{.pages = 16}),
             "SetMinFreePagesToBreakSparseHugepage{.pages=16}");
+  EXPECT_EQ(absl::StrCat(SetSubreleaseOrderByAllocationTime{.value = true}),
+            "SetSubreleaseOrderByAllocationTime{.value=true}");
 }
 
 // Regression tests for the three lock-drop interleavings while collapsing a
