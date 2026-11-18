@@ -299,8 +299,7 @@ class SubreleaseStatsTracker {
         // decisions.
         auto most_recent_record = tracker_.GetMostRecentRecord();
         if (most_recent_record.epoch_taken <= summary_epochs_) {
-          peak = std::max(
-              peak, most_recent_record.data.stats[kStatsAtMaxDemand].num_pages);
+          peak = std::max(peak, most_recent_record.data.max_demand_pages);
         }
         skipped_subrelease_correctness_.ReportUpdatedPeak(peak, now);
       }
@@ -428,14 +427,13 @@ class SubreleaseStatsTracker {
   }
 
  private:
-  // We collect subrelease statistics at four "interesting points" within each
-  // time step: at min/max demand of pages and at min/max use of hugepages. This
-  // allows us to approximate the envelope of the different metrics.
-  enum StatsType { kStatsAtMinDemand, kStatsAtMaxDemand, kNumStatsTypes };
-
   struct SubreleaseStatsEntry {
-    // Collect stats at "interesting points" (minimum/maximum page demand).
-    SubreleaseStats stats[kNumStatsTypes] = {};
+    // Collect demand bounds within this epoch. Only peak-demand free and
+    // unmapped counts are reported by Print().
+    Length min_demand_pages;
+    Length max_demand_pages;
+    Length max_demand_free_pages;
+    Length max_demand_unmapped_pages;
     static constexpr Length kDefaultValue = Length::max();
     Length min_free_pages = kDefaultValue;
     Length min_free_backed_pages = kDefaultValue;
@@ -447,17 +445,19 @@ class SubreleaseStatsTracker {
 
     void Report(const SubreleaseStats& e) {
       if (empty()) {
-        for (int i = 0; i < kNumStatsTypes; i++) {
-          stats[i] = e;
+        min_demand_pages = e.num_pages;
+        max_demand_pages = e.num_pages;
+        max_demand_free_pages = e.free_pages;
+        max_demand_unmapped_pages = e.unmapped_pages;
+      } else {
+        if (e.num_pages < min_demand_pages) {
+          min_demand_pages = e.num_pages;
         }
-      }
-
-      if (e.num_pages < stats[kStatsAtMinDemand].num_pages) {
-        stats[kStatsAtMinDemand] = e;
-      }
-
-      if (e.num_pages > stats[kStatsAtMaxDemand].num_pages) {
-        stats[kStatsAtMaxDemand] = e;
+        if (e.num_pages > max_demand_pages) {
+          max_demand_pages = e.num_pages;
+          max_demand_free_pages = e.free_pages;
+          max_demand_unmapped_pages = e.unmapped_pages;
+        }
       }
 
       min_free_pages =
@@ -471,6 +471,8 @@ class SubreleaseStatsTracker {
     [[nodiscard]] bool empty() const { return min_free_pages == kDefaultValue; }
   };
 
+  static_assert(sizeof(SubreleaseStatsEntry) == 56);
+
   // Gets the peak demand recorded in the time series over the last
   // <peak_interval>.
   [[nodiscard]] Length CalculateDemandPeak(absl::Duration peak_interval) {
@@ -482,8 +484,8 @@ class SubreleaseStatsTracker {
           if (!e.empty()) {
             // Identify the maximum number of demand pages we have seen within
             // the time interval.
-            if (e.stats[kStatsAtMaxDemand].num_pages > max_demand_pages) {
-              max_demand_pages = e.stats[kStatsAtMaxDemand].num_pages;
+            if (e.max_demand_pages > max_demand_pages) {
+              max_demand_pages = e.max_demand_pages;
             }
           }
         },
@@ -507,8 +509,7 @@ class SubreleaseStatsTracker {
     tracker_.IterBackwards(
         [&](size_t offset, size_t epoch_delta, const SubreleaseStatsEntry& e) {
           if (!e.empty()) {
-            Length demand_difference = e.stats[kStatsAtMaxDemand].num_pages -
-                                       e.stats[kStatsAtMinDemand].num_pages;
+            Length demand_difference = e.max_demand_pages - e.min_demand_pages;
             // Identifies the highest demand fluctuation (i.e., difference
             // between max_demand and min_demand) that we have seen within the
             // time interval.
@@ -523,8 +524,8 @@ class SubreleaseStatsTracker {
           if (!e.empty()) {
             // Identifies the long-term demand peak (i.e., largest minimum
             // demand) that we have seen within the time interval.
-            if (e.stats[kStatsAtMinDemand].num_pages > long_term_trend_pages) {
-              long_term_trend_pages = e.stats[kStatsAtMinDemand].num_pages;
+            if (e.min_demand_pages > long_term_trend_pages) {
+              long_term_trend_pages = e.min_demand_pages;
             }
           }
         },
@@ -574,8 +575,7 @@ void SubreleaseStatsTracker<kSlots>::Print(Printer& out,
       [&](size_t offset, size_t epoch_delta, const SubreleaseStatsEntry& e) {
         if (!e.empty()) {
           if (at_peak_demand.empty() ||
-              at_peak_demand.stats[kStatsAtMaxDemand].num_pages <
-                  e.stats[kStatsAtMaxDemand].num_pages) {
+              at_peak_demand.max_demand_pages < e.max_demand_pages) {
             at_peak_demand = e;
           }
         }
@@ -583,9 +583,9 @@ void SubreleaseStatsTracker<kSlots>::Print(Printer& out,
       summary_interval_);
 
   out.printf("%s: at peak demand: %v pages (and %v free, %v unmapped)\n", field,
-             at_peak_demand.stats[kStatsAtMaxDemand].num_pages,
-             at_peak_demand.stats[kStatsAtMaxDemand].free_pages,
-             at_peak_demand.stats[kStatsAtMaxDemand].unmapped_pages);
+             at_peak_demand.max_demand_pages,
+             at_peak_demand.max_demand_free_pages,
+             at_peak_demand.max_demand_unmapped_pages);
 
   out.printf(
       "\n%s: Since the start of the execution, %zu subreleases (%v"
@@ -665,8 +665,6 @@ void SubreleaseStatsTracker<kSlots>::PrintTimeseriesStatsInPbtxt(
   region.PrintI64("min_free_pages", free_pages.free.raw_num());
   region.PrintI64("min_free_backed_pages", free_pages.free_backed.raw_num());
 
-  static constexpr absl::string_view kLabels[kNumStatsTypes] = {
-      "at_minimum_demand", "at_maximum_demand"};
   int64_t accumulated_delta_ms = 0;
   tracker_.Iter(
       [&](size_t offset, size_t epoch_delta,
@@ -681,10 +679,13 @@ void SubreleaseStatsTracker<kSlots>::PrintTimeseriesStatsInPbtxt(
                            e.min_free_backed_pages.raw_num());
         subregion.PrintI64("num_pages_subreleased",
                            e.num_pages_subreleased.raw_num());
-        for (int i = 0; i < kNumStatsTypes; i++) {
-          auto m = subregion.CreateSubRegion(kLabels[i]);
-          SubreleaseStats stats = e.stats[i];
-          m.PrintI64("num_pages", stats.num_pages.raw_num());
+        {
+          auto m = subregion.CreateSubRegion("at_minimum_demand");
+          m.PrintI64("num_pages", e.min_demand_pages.raw_num());
+        }
+        {
+          auto m = subregion.CreateSubRegion("at_maximum_demand");
+          m.PrintI64("num_pages", e.max_demand_pages.raw_num());
         }
       });
 }
