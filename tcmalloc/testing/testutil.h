@@ -196,6 +196,9 @@ class ScopedAlwaysSample {
 using ScopedMadviseSampledAllocations =
     ScopedParameter<TCMalloc_Internal_GetMadviseSampledAllocations,
                     TCMalloc_Internal_SetMadviseSampledAllocations>;
+using ScopedReobserveHugepageBacked =
+    ScopedParameter<TCMalloc_Internal_GetReobserveHugepageBacked,
+                    TCMalloc_Internal_SetReobserveHugepageBacked>;
 
 inline void UnregisterRseq() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ

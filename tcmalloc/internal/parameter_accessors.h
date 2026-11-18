@@ -109,6 +109,9 @@ TCMalloc_Internal_SetHugePageFillerSkipSubreleaseColdLongInterval(
 TCMalloc_Internal_GetMadviseColdRegionsNoHugepage();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(
     bool v);
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetReobserveHugepageBacked();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReobserveHugepageBacked(bool v);
 [[nodiscard]] ABSL_ATTRIBUTE_WEAK
     tcmalloc::tcmalloc_internal::MadviseSampledAllocations
     TCMalloc_Internal_GetMadviseSampledAllocations();

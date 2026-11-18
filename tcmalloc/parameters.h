@@ -202,6 +202,15 @@ class Parameters {
     return madvise_cold_regions_nohugepage_.load(std::memory_order_relaxed);
   }
 
+  [[nodiscard]] static ReobserveHugepageBacked reobserve_hugepage_backed() {
+    return reobserve_hugepage_backed_.load(std::memory_order_relaxed);
+  }
+
+  static void set_reobserve_hugepage_backed(ReobserveHugepageBacked value) {
+    const bool enabled = value == ReobserveHugepageBacked::kEnabled;
+    TCMalloc_Internal_SetReobserveHugepageBacked(enabled);
+  }
+
   [[nodiscard]] static MadviseSampledAllocations madvise_sampled_allocations() {
     return madvise_sampled_allocations_.load(std::memory_order_relaxed);
   }
@@ -380,6 +389,7 @@ class Parameters {
       tcmalloc::tcmalloc_internal::MadviseSampledAllocations v);
   friend void ::TCMalloc_Internal_SetEventTraceMemoryLimit(size_t v);
   friend void ::TCMalloc_Internal_SetReleaseDrainedSlabMetadata(bool v);
+  friend void ::TCMalloc_Internal_SetReobserveHugepageBacked(bool v);
 
   static void InitializeFromExperiments();
 
@@ -421,6 +431,7 @@ class Parameters {
   static std::atomic<PreferBackedPages> prefer_backed_filler_pages_;
   static std::atomic<FillerAppendOnFree> filler_append_on_free_;
   static std::atomic<MadviseRegionsNoHugepage> madvise_cold_regions_nohugepage_;
+  static std::atomic<ReobserveHugepageBacked> reobserve_hugepage_backed_;
 };
 
 }  // namespace tcmalloc_internal
