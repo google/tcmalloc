@@ -13,7 +13,6 @@
 // limitations under the License.
 
 #include <cstdint>
-#include <limits>
 
 #include "gtest/gtest.h"
 #include "fuzztest/fuzztest.h"
