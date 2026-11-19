@@ -69,7 +69,12 @@ ABSL_CONST_INIT static std::atomic<bool> using_upstream_fence{false};
 ABSL_CONST_INIT RseqVcpuMode vcpu_mode = RseqVcpuMode::kNone;
 
 static bool InitThreadPerCpu() {
+  if (!TCMALLOC_INTERNAL_PERCPU_USE_RSEQ) {
+    return false;
+  }
+
   // If we're already registered, there's nothing further for us to do.
+  // NOLINTNEXTLINE(clang-diagnostic-unreachable-code)
   if (IsFastNoInit()) {
     return true;
   }
@@ -160,6 +165,10 @@ static void InitPerCpu() {
 // completed then only the thread-level will be completed.  A return of false
 // indicates that initialization failed and RSEQ is unavailable.
 bool InitFastPerCpu() {
+  if (!TCMALLOC_INTERNAL_PERCPU_USE_RSEQ) {
+    return false;
+  }
+
   // On the first trip through this function do the necessary process-wide
   // initialization work.
   //
@@ -341,6 +350,7 @@ static void FenceInterruptCPU(int cpu) {
 
   // TODO(b/149390298):  Provide an upstream extension for sys_membarrier to
   // interrupt ongoing restartable sequences.
+  // NOLINTNEXTLINE(clang-diagnostic-unreachable-code)
   SlowFence(cpu);
 }
 
