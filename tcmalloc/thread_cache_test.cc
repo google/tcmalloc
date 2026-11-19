@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "tcmalloc/thread_cache.h"
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -111,6 +113,25 @@ TEST_F(ThreadCacheTest, NoLeakOnThreadDestruction) {
   // of the allocation done.
   EXPECT_GE(192 * 1024, end_size - start_size)
       << "Before: " << start_size << " After: " << end_size;
+}
+
+TEST_F(ThreadCacheTest, NoOrphanedDuplicateHeapAcrossInitTSD) {
+  ASSERT_FALSE(MallocExtension::PerCpuCachesActive());
+
+  void* p = ::operator new(64);
+  benchmark::DoNotOptimize(p);
+  ::operator delete(p);
+
+  uint64_t total_bytes = 0;
+  EXPECT_EQ(
+      tcmalloc_internal::ThreadCache::GetStats(&total_bytes, nullptr).in_use,
+      1);
+
+  MallocExtension::MarkThreadIdle();
+
+  EXPECT_EQ(
+      tcmalloc_internal::ThreadCache::GetStats(&total_bytes, nullptr).in_use,
+      0);
 }
 
 }  // namespace
