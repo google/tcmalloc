@@ -150,6 +150,39 @@ class TcmallocSlabTest : public testing::Test {
   size_t metadata_bytes_ = 0;
 };
 
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+// Unregistering a thread from rseq must forget its cached slab address
+// outright, rather than rely on the unregister path zeroing cpu_id_start, which
+// overlaps the address's cached bit.
+TEST_F(TcmallocSlabTest, UnregisteringForgetsCachedSlab) {
+  if (MallocExtension::PerCpuCachesActive()) {
+    GTEST_SKIP() << "per-CPU TCMalloc is incompatible with unregistering rseq";
+  }
+  if (!IsFast()) {
+    GTEST_SKIP() << "Need fast percpu. Skipping.";
+  }
+
+  // The top 4 bytes of tcmalloc_slabs overlap __rseq_abi.cpu_id_start, which
+  // the kernel rewrites on every reschedule of a registered thread, so the
+  // cached bit may clear at any time.  The low 4 bytes keep the slab address
+  // until something forgets it, and nothing rewrites tcmalloc_slabs while the
+  // thread is unregistered: check the whole value there.  An earlier test on
+  // this thread may have left a slab cached.
+  slab_.UncacheCpuSlab();
+  {
+    const auto [cpu, ok] = slab_.CacheCpuSlab();
+    ASSERT_GE(cpu, 0);
+    ASSERT_TRUE(ok);
+  }
+
+  {
+    ScopedUnregisterRseq unregister;
+    EXPECT_EQ(uintptr_t{tcmalloc_slabs}, 0);
+  }
+  ASSERT_TRUE(IsFast());
+}
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+
 TEST_F(TcmallocSlabTest, Metadata) {
   if (!IsFast()) {
     GTEST_SKIP() << "Need fast percpu. Skipping.";

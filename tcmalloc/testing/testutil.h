@@ -206,6 +206,10 @@ inline void UnregisterRseq() {
           sizeof(tcmalloc_internal::subtle::percpu::__rseq_abi),
           tcmalloc_internal::subtle::percpu::kRseqUnregister,
           TCMALLOC_PERCPU_RSEQ_SIGNATURE);
+  // Unregistering zeroes cpu_id_start, which overlaps the top bytes of the
+  // cached slab address and so clears its cached bit.  Do not rely on the
+  // overlap: forget the address outright.
+  tcmalloc_internal::subtle::percpu::tcmalloc_slabs = 0;
 #else
   TC_BUG("rseq is is unavailable in this build");
 #endif
