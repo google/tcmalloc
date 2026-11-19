@@ -30,6 +30,7 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/constant_divisor.h"
 #include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/range_tracker.h"
@@ -353,8 +354,12 @@ class GuardedPageAllocator {
   uintptr_t pages_end_addr_;    // Points to the end of mapped region.
   uintptr_t first_page_addr_;   // Points to first page returnable by Allocate.
   size_t max_allocated_pages_;  // Max number of pages to allocate at once.
-  size_t total_pages_;          // Size of the page pool to allocate from.
-  size_t page_size_;            // Size of pages we allocate.
+  ConstantDivisor<size_t> max_allocated_pages_div_;
+  size_t total_pages_;  // Size of the page pool to allocate from.
+  ConstantDivisor<uint32_t> total_pages_div_;
+  size_t page_size_;  // Size of pages we allocate.
+  ConstantPowerOfTwoDivisor<uintptr_t> page_size_div_;
+  ConstantPowerOfTwoDivisor<uintptr_t> half_page_size_div_;
   Random rand_;
 
   // True if this object has been fully initialized.

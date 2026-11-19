@@ -33,6 +33,8 @@ TEST(ConstantDivisorUint8Test, Exhaustive) {
       const uint8_t num = static_cast<uint8_t>(n);
       ASSERT_EQ(divisor.div(num), num / d) << "n=" << n << " d=" << d;
       ASSERT_EQ(num / divisor, num / d) << "n=" << n << " d=" << d;
+      ASSERT_EQ(divisor.mod(num), num % d) << "n=" << n << " d=" << d;
+      ASSERT_EQ(num % divisor, num % d) << "n=" << n << " d=" << d;
     }
   }
 }
@@ -41,9 +43,18 @@ TEST(ConstantDivisorTest, ConstexprEvaluation) {
   constexpr ConstantDivisor<uint64_t> d64(1000);
   static_assert(25000 / d64 == 25);
   static_assert(d64.div(999) == 0);
+  static_assert(25007 % d64 == 7);
+  static_assert(d64.mod(999) == 999);
 
   constexpr ConstantDivisor<uint32_t> d32(1);
   static_assert(UINT32_MAX / d32 == UINT32_MAX);
+  static_assert(UINT32_MAX % d32 == 0);
+
+  constexpr ConstantPowerOfTwoDivisor<uint64_t> pow2_64(4096);
+  static_assert(8197 / pow2_64 == 2);
+  static_assert(8197 % pow2_64 == 5);
+  static_assert(UINT64_MAX / pow2_64 == UINT64_MAX / 4096);
+  static_assert(UINT64_MAX % pow2_64 == 4095);
 }
 
 template <typename T>
@@ -64,22 +75,40 @@ TYPED_TEST_SUITE(ConstantDivisorTypedTest, UnsignedTypes);
 TYPED_TEST(ConstantDivisorTypedTest, SimpleAndPowersOfTwo) {
   using T = TypeParam;
   const T max_n = this->MaxNumerator();
+  const T full_max = std::numeric_limits<T>::max();
 
   for (int k = 0; k < static_cast<int>(sizeof(T) * 8); ++k) {
     const T d = T{1} << k;
     const ConstantDivisor<T> div_pow2(d);
+    const ConstantPowerOfTwoDivisor<T> specialized_pow2(d);
+
     EXPECT_EQ(T{0} / div_pow2, 0);
+    EXPECT_EQ(T{0} % div_pow2, 0);
     EXPECT_EQ(T{1} / div_pow2, T{1} / d);
+    EXPECT_EQ(T{1} % div_pow2, T{1} % d);
     if (d <= max_n) {
       EXPECT_EQ(d / div_pow2, 1);
+      EXPECT_EQ(d % div_pow2, 0);
     }
     if (d - 1 <= max_n) {
       EXPECT_EQ(static_cast<T>(d - 1) / div_pow2, 0);
+      EXPECT_EQ(static_cast<T>(d - 1) % div_pow2, static_cast<T>(d - 1));
     }
     if (d <= max_n - 1) {
       EXPECT_EQ(static_cast<T>(d + 1) / div_pow2, static_cast<T>(d + 1) / d);
+      EXPECT_EQ(static_cast<T>(d + 1) % div_pow2, static_cast<T>(d + 1) % d);
     }
     EXPECT_EQ(max_n / div_pow2, max_n / d);
+    EXPECT_EQ(max_n % div_pow2, max_n % d);
+
+    for (T n : {T{0}, T{1}, static_cast<T>(d - 1), d,
+                static_cast<T>(d < full_max ? d + 1 : full_max),
+                static_cast<T>(full_max - 1), full_max}) {
+      EXPECT_EQ(n / specialized_pow2, n / d)
+          << "n=" << uint64_t{n} << " d=" << uint64_t{d};
+      EXPECT_EQ(n % specialized_pow2, n % d)
+          << "n=" << uint64_t{n} << " d=" << uint64_t{d};
+    }
   }
 }
 
@@ -90,10 +119,13 @@ TYPED_TEST(ConstantDivisorTypedTest, BoundaryCases) {
 
   const ConstantDivisor<T> div_max(max_d);
   EXPECT_EQ(T{0} / div_max, 0);
+  EXPECT_EQ(T{0} % div_max, 0);
   EXPECT_EQ(max_n / div_max, max_n / max_d);
+  EXPECT_EQ(max_n % div_max, max_n % max_d);
 
   const ConstantDivisor<T> div_max_minus_1(max_d - 1);
   EXPECT_EQ(max_n / div_max_minus_1, max_n / (max_d - 1));
+  EXPECT_EQ(max_n % div_max_minus_1, max_n % (max_d - 1));
 
   for (T d : {T{1}, T{2}, T{3}, T{5}, T{7}, T{10}, T{21}, T{99}, T{255}}) {
     const ConstantDivisor<T> divisor(d);
@@ -101,6 +133,8 @@ TYPED_TEST(ConstantDivisorTypedTest, BoundaryCases) {
                 static_cast<T>(std::min<uint64_t>(max_n, uint64_t{d} + 1)),
                 static_cast<T>(max_n - 1), max_n}) {
       EXPECT_EQ(n / divisor, n / d)
+          << "n=" << uint64_t{n} << " d=" << uint64_t{d};
+      EXPECT_EQ(n % divisor, n % d)
           << "n=" << uint64_t{n} << " d=" << uint64_t{d};
     }
   }
@@ -122,6 +156,8 @@ TYPED_TEST(ConstantDivisorTypedTest, RandomCases) {
     const T n = ChooseBiasedValue<T>(gen, max_n);
     const ConstantDivisor<T> divisor(d);
     ASSERT_EQ(n / divisor, n / d)
+        << "n=" << uint64_t{n} << " d=" << uint64_t{d};
+    ASSERT_EQ(n % divisor, n % d)
         << "n=" << uint64_t{n} << " d=" << uint64_t{d};
   }
 }

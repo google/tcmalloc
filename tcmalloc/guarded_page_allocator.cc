@@ -46,6 +46,7 @@
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/constant_divisor.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/page_size.h"
@@ -67,13 +68,17 @@ void GuardedPageAllocator::Init(size_t max_allocated_pages,
   TC_CHECK_LE(max_allocated_pages, total_pages);
   TC_CHECK_LE(total_pages, kGpaMaxPages);
   max_allocated_pages_ = max_allocated_pages;
+  max_allocated_pages_div_ = ConstantDivisor<size_t>(max_allocated_pages_);
   total_pages_ = total_pages;
+  total_pages_div_ = ConstantDivisor<uint32_t>(total_pages_);
 
   // If the system page size is larger than kPageSize, we need to use the
   // system page size for this allocator since mprotect operates on full pages
   // only.  This case happens on PPC.
   page_size_ = std::max(kPageSize, static_cast<size_t>(GetPageSize()));
   TC_ASSERT_EQ(page_size_ % kPageSize, 0);
+  page_size_div_ = ConstantPowerOfTwoDivisor<uintptr_t>(page_size_);
+  half_page_size_div_ = ConstantPowerOfTwoDivisor<uintptr_t>(page_size_ / 2);
 
   rand_.Reset(static_cast<uint64_t>(absl::base_internal::CycleClock::Now()) +
               reinterpret_cast<uintptr_t>(this));
@@ -165,7 +170,8 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
       // The probability that we skip a currently covered allocation scales
       // proportional to pool utilization, with pool utilization of 50% or more
       // resulting in always filtering currently covered allocations.
-      const size_t usage_pct = (allocated_pages() * 100) / max_allocated_pages_;
+      const size_t usage_pct =
+          (allocated_pages() * 100) / max_allocated_pages_div_;
       if (rand_.Next() % 50 <= usage_pct) {
         // Decay even if the current allocation is filtered, so that we keep
         // sampling even if we only see the same allocations over and over.
@@ -551,7 +557,7 @@ ssize_t GuardedPageAllocator::ReserveFreeSlot() {
 }
 
 size_t GuardedPageAllocator::GetFreeSlot() {
-  const size_t idx = rand_.Next() % total_pages_;
+  const size_t idx = rand_.Next() % total_pages_div_;
   // Find the closest adjacent free slot to the random index.
   ssize_t slot = used_pages_.FindClearBackwards(idx);
   if (slot >= 0) return slot;
@@ -582,11 +588,11 @@ uintptr_t GuardedPageAllocator::GetNearestValidPage(uintptr_t addr) const {
   uintptr_t offset = addr - first_page_addr_;
 
   // If addr is already on a valid page, just return addr.
-  if ((offset / page_size_) % 2 == 0) return addr;
+  if ((offset / page_size_div_) % 2 == 0) return addr;
 
   // ptr points to a guard page, so get nearest valid page.
   const size_t kHalfPageSize = page_size_ / 2;
-  if ((offset / kHalfPageSize) % 2 == 0) {
+  if ((offset / half_page_size_div_) % 2 == 0) {
     return addr - kHalfPageSize;  // Round down.
   }
   return addr + kHalfPageSize;  // Round up.
@@ -635,9 +641,9 @@ uintptr_t GuardedPageAllocator::SlotToAddr(size_t slot) const {
 
 size_t GuardedPageAllocator::AddrToSlot(uintptr_t addr) const {
   uintptr_t offset = addr - first_page_addr_;
-  TC_ASSERT_EQ(offset % page_size_, 0);
-  TC_ASSERT_EQ((offset / page_size_) % 2, 0);
-  int slot = offset / page_size_ / 2;
+  TC_ASSERT_EQ(offset % page_size_div_, 0);
+  TC_ASSERT_EQ((offset / page_size_div_) % 2, 0);
+  int slot = offset / page_size_div_ / 2;
   TC_ASSERT(slot >= 0 && slot < total_pages_);
   return slot;
 }
