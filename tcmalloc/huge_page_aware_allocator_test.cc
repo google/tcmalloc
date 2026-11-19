@@ -117,8 +117,14 @@ class HugePageAwareAllocatorTest
     void Back(Range r) {
       ASSERT_TRUE(back_small_allocations());
       TC_CHECK_LE(r.in_bytes(), back_size_threshold_bytes());
+      back_calls_.fetch_add(1, std::memory_order_relaxed);
       huge_page_allocator_internal::FakeHugePageStaticForwarder::Back(r);
     }
+
+    [[nodiscard]] size_t back_calls() const {
+      return back_calls_.load(std::memory_order_relaxed);
+    }
+    void clear_back_calls() { back_calls_.store(0, std::memory_order_relaxed); }
 
     void RecordAllocation(uintptr_t start_addr) {
       absl::base_internal::SpinLockHolder h(lock_);
@@ -136,6 +142,7 @@ class HugePageAwareAllocatorTest
 
    private:
     std::vector<uintptr_t> allocations_;
+    std::atomic<size_t> back_calls_{0};
     absl::base_internal::SpinLock lock_;
   };
   using MockedHugePageAwareAllocator =
@@ -328,6 +335,8 @@ class HugePageAwareAllocatorTest
     uint64_t bits = 0;
     bool unbroken = false;
     bool donated = false;
+    bool released = false;
+    bool was_released = false;
     Length released_pages;
   };
 
@@ -340,6 +349,8 @@ class HugePageAwareAllocatorTest
     if (state.tracker != nullptr) {
       state.unbroken = state.tracker->unbroken();
       state.donated = state.tracker->donated();
+      state.released = state.tracker->released();
+      state.was_released = state.tracker->was_released();
       state.released_pages = state.tracker->released_pages();
     }
     return state;
@@ -2779,23 +2790,32 @@ TEST_P(HugePageAwareAllocatorTest, BrokenHugepageStatePersistsAcrossReuse) {
   ExpectReusedBrokenHugePages(NHugePages(0));
 }
 
+class StubPageFlags final : public PageFlagsBase {
+ public:
+  std::optional<PageStats> Get(const void* addr, size_t size) override {
+    return PageStats{};
+  }
+  PageFlagsBitmaps GetSinglePageBitmaps(const void* addr) override {
+    return {.status = absl::StatusCode::kOk};
+  }
+  std::optional<bool> IsHugepageBacked(const void* addr) override {
+    return false;
+  }
+};
+
+class StubResidency final : public NoopResidency {
+ public:
+  SinglePageBitmaps GetUnbackedAndSwappedBitmaps(const void* addr) override {
+    return {unbacked_, {}, absl::StatusCode::kOk};
+  }
+  Bitmap<kMaxResidencyBits> unbacked_;
+};
+
 TEST_P(HugePageAwareAllocatorTest, PreserveDonatedOnCollapse) {
   if (allocator_->forwarder().subrelease_unbacked_hugepages() ==
       SubreleaseUnbackedMode::kDisabled) {
     GTEST_SKIP() << "Requires subrelease_unbacked_hugepages enabled";
   }
-  class StubPageFlags final : public PageFlagsBase {
-   public:
-    std::optional<PageStats> Get(const void* addr, size_t size) override {
-      return PageStats{};
-    }
-    PageFlagsBitmaps GetSinglePageBitmaps(const void* addr) override {
-      return {.status = absl::StatusCode::kOk};
-    }
-    std::optional<bool> IsHugepageBacked(const void* addr) override {
-      return false;
-    }
-  };
 
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
   StubPageFlags pageflags;
@@ -2902,6 +2922,110 @@ TEST_P(HugePageAwareAllocatorTest, FillerAppendOnFreeToggle) {
   Delete(b2, 1);
 }
 
+// When treatment observes a hugepage that is no longer hugepage-backed, but
+// whose pages are still backed:
+// 1. We touch/allocate a piece of memory and get a hugepage, so everything is
+//    backed.
+// 2. We treat the tracker and observe that it is no longer a hugepage (e.g.,
+//    the kernel swapped/unswapped or split it) and collapse fails. Because it
+//    is no longer a hugepage, MarkSubreleased puts the broken tracker on the
+//    released list (regular_alloc_partial_released_).
+// 3. Because the free pages are still backed (empty unbacked bitmap),
+//    allocating from that tracker on the released list does not call Back()
+//    and must not mark the tracker as was_released.
+TEST_P(HugePageAwareAllocatorTest,
+       TreatBrokenBackedHugepageDoesNotBackOrMarkPreviouslyReleased) {
+  if (allocator_->forwarder().subrelease_unbacked_hugepages() ==
+      SubreleaseUnbackedMode::kDisabled) {
+    GTEST_SKIP() << "Requires subrelease_unbacked_hugepages enabled";
+  }
+
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+  StubPageFlags pageflags;
+  NoopResidency residency;
+  allocator_->forwarder().back_size_threshold_bytes.set(kHugePageSize);
+  allocator_->forwarder().set_collapse_succeeds(false);
+  allocator_->forwarder().set_error_number(EINVAL);
+
+  AllocationState a1 = New(kPagesPerHugePage - Length(1), kSpanInfo);
+  ASSERT_TRUE(a1);
+  const HugePage hp = HugePageContaining(a1.r.p);
+
+  allocator_->TreatHugepageTrackers(EnableCollapse::kEnabled, &pageflags,
+                                    &residency);
+  HugepageEntryState state = GetHugepageState(hp);
+  ASSERT_NE(state.tracker, nullptr);
+  EXPECT_FALSE(state.unbroken);
+  EXPECT_FALSE(state.released);
+  EXPECT_EQ(state.released_pages, Length(0));
+
+  allocator_->forwarder().clear_back_calls();
+  AllocationState a2 = New(Length(1), kSpanInfo);
+  ASSERT_TRUE(a2);
+  ASSERT_EQ(HugePageContaining(a2.r.p), hp);
+  EXPECT_EQ(allocator_->forwarder().back_calls(), 0);
+  state = GetHugepageState(hp);
+  EXPECT_FALSE(state.released);
+  EXPECT_FALSE(state.was_released);
+  EXPECT_THAT(PrintInPbtxt(),
+              HasSubstr("filler_previously_released_huge_pages: 0"));
+
+  Delete(a2, 1);
+  Delete(a1, 1);
+}
+
+// When treatment observes a hugepage that is no longer hugepage-backed and has
+// unbacked free pages:
+// 1. We touch/allocate a piece of memory and get a hugepage.
+// 2. We treat the tracker and observe that it is no longer a hugepage, its
+//    free page is unbacked, and collapse fails. MarkSubreleased records the
+//    released page and puts the broken tracker on the released list
+//    (regular_alloc_released_).
+// 3. Because the free page is unbacked, allocating from that tracker fires
+//    Back() (when back_small_allocations is enabled) and marks the tracker as
+//    was_released.
+TEST_P(HugePageAwareAllocatorTest,
+       TreatBrokenUnbackedHugepageBacksAndMarksPreviouslyReleased) {
+  if (allocator_->forwarder().subrelease_unbacked_hugepages() ==
+      SubreleaseUnbackedMode::kDisabled) {
+    GTEST_SKIP() << "Requires subrelease_unbacked_hugepages enabled";
+  }
+
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+  StubPageFlags pageflags;
+  StubResidency residency;
+  residency.unbacked_.SetRange(0, kMaxResidencyBits);
+  allocator_->forwarder().back_size_threshold_bytes.set(kHugePageSize);
+  allocator_->forwarder().set_collapse_succeeds(false);
+  allocator_->forwarder().set_error_number(EINVAL);
+
+  AllocationState a1 = New(kPagesPerHugePage - Length(1), kSpanInfo);
+  ASSERT_TRUE(a1);
+  const HugePage hp = HugePageContaining(a1.r.p);
+
+  allocator_->TreatHugepageTrackers(EnableCollapse::kEnabled, &pageflags,
+                                    &residency);
+  HugepageEntryState state = GetHugepageState(hp);
+  ASSERT_NE(state.tracker, nullptr);
+  EXPECT_FALSE(state.unbroken);
+  EXPECT_TRUE(state.released);
+  EXPECT_EQ(state.released_pages, Length(1));
+
+  allocator_->forwarder().clear_back_calls();
+  AllocationState a2 = New(Length(1), kSpanInfo);
+  ASSERT_TRUE(a2);
+  ASSERT_EQ(HugePageContaining(a2.r.p), hp);
+  EXPECT_EQ(allocator_->forwarder().back_calls(),
+            allocator_->forwarder().back_small_allocations() ? 1 : 0);
+  state = GetHugepageState(hp);
+  EXPECT_FALSE(state.released);
+  EXPECT_TRUE(state.was_released);
+  EXPECT_THAT(PrintInPbtxt(),
+              HasSubstr("filler_previously_released_huge_pages: 1"));
+
+  Delete(a2, 1);
+  Delete(a1, 1);
+}
 TEST_P(HugePageAwareAllocatorTest, PreferBackedFillerPages) {
   allocator_->forwarder().hpaa_subrelease.set(true);
   allocator_->forwarder().release_partial_alloc_pages.set(
