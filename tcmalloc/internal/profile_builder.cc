@@ -167,7 +167,6 @@ struct SampleMergedData {
   std::optional<size_t> locked_size;
   std::optional<size_t> incompressible_size;
   std::optional<uint64_t> stale_scan_period;
-  size_t remote_numa_size = 0;
   size_t compressed_size = 0;
   size_t zero_size = 0;
 
@@ -229,9 +228,6 @@ struct SampleMergeResult {
   // Collection being enabled does not imply this: analysis is skipped for any
   // sample lacking residency information, a span address, or a requested size.
   bool measured_compressibility = false;
-  // Whether Residency::GetRemoteNumaBytes produced a result for at least one
-  // sample.
-  bool measured_numa = false;
 };
 
 SampleMergeResult MergeProfileSamplesAndMaybeGetResidencyInfo(
@@ -244,7 +240,6 @@ SampleMergeResult MergeProfileSamplesAndMaybeGetResidencyInfo(
     compression_analyzer.emplace();
   }
   absl::BitGen rng;
-  const int local_numa_node = GetCurrentNumaNode();
 
   profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
     SampleMergedData& data = map[entry];
@@ -273,17 +268,6 @@ SampleMergeResult MergeProfileSamplesAndMaybeGetResidencyInfo(
         } else {
           data.resident_size.value() += resident_size;
           data.swapped_size.value() += swapped_size;
-        }
-        if (residency_info->bytes_resident > 0 &&
-            entry.span_start_address != nullptr) {
-          std::optional<size_t> remote_bytes = residency->GetRemoteNumaBytes(
-              entry.span_start_address, size, local_numa_node);
-          if (remote_bytes.has_value()) {
-            result.measured_numa = true;
-            data.remote_numa_size +=
-                entry.count *
-                std::min(*remote_bytes, residency_info->bytes_resident);
-          }
         }
       }
     }
@@ -1105,9 +1089,6 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   // Bytes on pages marked incompressible by kernel pageflags (unit: "bytes").
   const int incompressible_space_id =
       builder.InternString("incompressible_space");
-  // Bytes resident on NUMA nodes other than the profiler collection thread's
-  // home NUMA node (unit: "bytes").
-  const int remote_numa_space_id = builder.InternString("remote_numa_space");
 
   // Sample types: content compressibility analysis (`kHeap` profiles).
   // Estimated ZSTD-compressed size of backed (`resident_space + swapped_space`)
@@ -1176,18 +1157,14 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
 
   bool collecting_compressibility = false;
 
-  // Only advertise space_compressed/zero_space and remote_numa_space when at
-  // least one sample was actually measured.  Emitting the columns with a zero
-  // in every sample is indistinguishable downstream from a genuinely
-  // incompressible or 100% NUMA-local heap.
-  const auto [samples, exporting_compressibility, exporting_numa] =
+  // Only advertise space_compressed/zero_space when at least one sample was
+  // actually analyzed.  Emitting the columns with a zero in every sample is
+  // indistinguishable downstream from a genuinely incompressible heap, so a
+  // profile that never ran the analyzer would otherwise be reported as 100%
+  // compressible rather than as having no data.
+  const auto [samples, exporting_compressibility] =
       MergeProfileSamplesAndMaybeGetResidencyInfo(profile, pageflags, residency,
                                                   collecting_compressibility);
-  if (exporting_residency && exporting_numa) {
-    perftools::profiles::ValueType* sample_type = converted.add_sample_type();
-    sample_type->set_type(remote_numa_space_id);
-    sample_type->set_unit(bytes_id);
-  }
   if (exporting_compressibility) {
     perftools::profiles::ValueType* sample_type = nullptr;
 
@@ -1230,9 +1207,6 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
       sample.add_value(data.stale_size.value_or(0));
       sample.add_value(data.locked_size.value_or(0));
       sample.add_value(data.incompressible_size.value_or(0));
-      if (exporting_numa) {
-        sample.add_value(data.remote_numa_size);
-      }
     }
     if (exporting_compressibility) {
       sample.add_value(data.zero_size);

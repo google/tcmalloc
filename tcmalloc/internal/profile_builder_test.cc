@@ -72,8 +72,8 @@ using ::testing::IsSupersetOf;
 using ::testing::Key;
 using ::testing::Not;
 using ::testing::Pair;
+using ::testing::SizeIs;
 using ::testing::UnorderedElementsAre;
-using ::testing::UnorderedElementsAreArray;
 
 class StubPageFlags final : public PageFlagsBase {
  public:
@@ -147,29 +147,13 @@ class StubResidency final : public NoopResidency {
     return std::nullopt;
   }
 
-  std::optional<size_t> GetRemoteNumaBytes(const void* addr, size_t size,
-                                           int local_node) override {
-    uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
-    auto it = remote_numa_bytes_.find(uaddr);
-    if (it != remote_numa_bytes_.end()) {
-      return std::min(it->second, size);
-    }
-    return std::nullopt;
-  }
-
   void SetInfo(const void* addr, Info info) {
     uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
     infos_[uaddr] = info;
   }
 
-  void SetRemoteNumaBytes(const void* addr, size_t bytes) {
-    uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
-    remote_numa_bytes_[uaddr] = bytes;
-  }
-
  private:
   absl::flat_hash_map<uintptr_t, Info> infos_;
-  absl::flat_hash_map<uintptr_t, size_t> remote_numa_bytes_;
 };
 
 // Returns the fully resolved path of this program.
@@ -636,26 +620,20 @@ TEST(ProfileConverterTest, HeapProfile) {
   // Require that the default_sample_type appeared in sample_type.
   EXPECT_THAT(sample_types, testing::Contains(converted.default_sample_type()));
 
+  constexpr int kNumSampleTypes = 7
+      ;
   // This is slightly redundant with the next line, but we need to loop over
   // each of the samples later.
   constexpr int kNumSamples = 6;
-  std::vector<std::pair<std::string, std::string>> expected_sample_types = {
-      {"objects", "count"},
-      {"space", "bytes"},
-      {"resident_space", "bytes"},
-      {"stale_space", "bytes"},
-      {"locked_space", "bytes"},
-      {"incompressible_space", "bytes"},
-      {"swapped_space", "bytes"},
-  };
-  if (ResidencyPageMap()
-          .GetRemoteNumaBytes(&converted, sizeof(converted),
-                              GetCurrentNumaNode())
-          .has_value()) {
-    expected_sample_types.emplace_back("remote_numa_space", "bytes");
-  }
-  EXPECT_THAT(extracted_sample_type,
-              UnorderedElementsAreArray(expected_sample_types));
+  EXPECT_THAT(extracted_sample_type, SizeIs(kNumSampleTypes));
+  EXPECT_THAT(
+      extracted_sample_type,
+      UnorderedElementsAre(
+          Pair("objects", "count"), Pair("space", "bytes"),
+          Pair("resident_space", "bytes"), Pair("stale_space", "bytes"),
+          Pair("locked_space", "bytes"), Pair("incompressible_space", "bytes"),
+          Pair("swapped_space", "bytes")
+          ));
 
   SampleLabels extracted_labels;
   {
@@ -1590,7 +1568,6 @@ TEST(ProfileConverterTest, NoCompressibilityColumnsWithoutMeasurements) {
   EXPECT_THAT(types, Not(Contains("space_compressed")));
   EXPECT_THAT(types, Not(Contains("zero_space")));
   EXPECT_THAT(types, Not(Contains("analyzed_compressibility_space")));
-  EXPECT_THAT(types, Not(Contains("remote_numa_space")));
 
   // Every sample must still agree with the advertised sample types.
   for (const auto& s : converted.sample()) {
@@ -1905,91 +1882,6 @@ TEST(ProfileBuilderTest, DisabledSamplingReturnsNotFound) {
   EXPECT_EQ(alloc_profile.Type(), ProfileType::kDoNotUse);
   EXPECT_EQ(MakeProfileProto(alloc_profile).status().code(),
             absl::StatusCode::kNotFound);
-}
-
-TEST(ProfileConverterTest, HeapProfileRemoteNumaSpace) {
-  std::vector<char> buf_local(64, 'a');
-  std::vector<char> buf_remote(64, 'b');
-  std::vector<char> buf_mixed(64, 'm');
-  std::vector<char> buf_clamped(64, 'd');
-  std::vector<char> buf_unbacked(64, 'c');
-
-  Profile::Sample sample_local = {};
-  sample_local.sum = 64;
-  sample_local.count = 1;
-  sample_local.requested_size = 64;
-  sample_local.allocated_size = 64;
-  sample_local.span_start_address = buf_local.data();
-  sample_local.depth = 2;
-  sample_local.stack[0] =
-      reinterpret_cast<void*>(&ProfileAccessor::MakeProfile);
-  sample_local.stack[1] = reinterpret_cast<void*>(&RealPath);
-  sample_local.guarded_status = Profile::Sample::GuardedStatus::NotAttempted;
-  sample_local.type = AllocationType::Malloc;
-
-  Profile::Sample sample_remote = sample_local;
-  sample_remote.sum = 128;
-  sample_remote.count = 2;
-  sample_remote.span_start_address = buf_remote.data();
-
-  Profile::Sample sample_mixed = sample_local;
-  sample_mixed.sum = 128;
-  sample_mixed.count = 2;
-  sample_mixed.span_start_address = buf_mixed.data();
-
-  Profile::Sample sample_clamped = sample_local;
-  sample_clamped.sum = 128;
-  sample_clamped.count = 2;
-  sample_clamped.span_start_address = buf_clamped.data();
-
-  Profile::Sample sample_unbacked = sample_local;
-  sample_unbacked.sum = 256;
-  sample_unbacked.count = 4;
-  sample_unbacked.span_start_address = buf_unbacked.data();
-
-  StubPageFlags pageflags;
-  StubResidency residency;
-  Residency::Info info;
-  info.bytes_resident = 64;
-  info.page_is_resident.SetBit(0);
-  residency.SetInfo(buf_local.data(), info);
-  residency.SetRemoteNumaBytes(buf_local.data(), 0);
-  residency.SetInfo(buf_remote.data(), info);
-  residency.SetRemoteNumaBytes(buf_remote.data(), 64);
-  residency.SetInfo(buf_mixed.data(), info);
-  residency.SetRemoteNumaBytes(buf_mixed.data(), 48);
-  Residency::Info clamped_info = info;
-  clamped_info.bytes_resident = 32;
-  residency.SetInfo(buf_clamped.data(), clamped_info);
-  residency.SetRemoteNumaBytes(buf_clamped.data(), 64);
-  Residency::Info unbacked_info;
-  unbacked_info.bytes_resident = 0;
-  residency.SetInfo(buf_unbacked.data(), unbacked_info);
-
-  auto fake_profile = std::make_unique<FakeProfile>();
-  fake_profile->SetType(ProfileType::kHeap);
-  fake_profile->SetDuration(absl::Milliseconds(100));
-  fake_profile->SetSamples({sample_unbacked, sample_local, sample_remote,
-                            sample_mixed, sample_clamped});
-  Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
-
-  auto converted_or = MakeProfileProto(profile, &pageflags, &residency);
-  CHECK_OK(converted_or.status());
-  const auto& converted = **converted_or;
-
-  // All five samples share identical labels and stack, so they merge into one
-  // sample: resident_space = 1 * 64 + 2 * 64 + 2 * 64 + 2 * 32 = 384, while
-  // remote_numa_space = 1 * 0 + 2 * 64 + 2 * 48 + 2 * min(64, 32) = 288.
-  ASSERT_EQ(converted.sample_size(), 1);
-  absl::flat_hash_map<std::string, int64_t> values;
-  for (int i = 0; i < converted.sample(0).value_size(); ++i) {
-    values.emplace(converted.string_table(converted.sample_type(i).type()),
-                   converted.sample(0).value(i));
-  }
-  EXPECT_EQ(values["objects"], 11);
-  EXPECT_EQ(values["space"], 704);
-  EXPECT_EQ(values["resident_space"], 384);
-  EXPECT_EQ(values["remote_numa_space"], 288);
 }
 
 }  // namespace
