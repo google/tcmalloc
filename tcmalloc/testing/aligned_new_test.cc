@@ -170,7 +170,7 @@ TYPED_TEST_P(AlignedNew, ArraySizeCheckSampling) {
     TypeParam p;
   };
 
-  static_assert(!std::is_trivially_destructible<NonTrivial>::value,
+  static_assert(!std::is_trivially_destructible_v<NonTrivial>,
                 "NonTrivial should have a nontrivial destructor.");
 
   // The HeapLeakChecker initializes malloc hooks which we call prior to looking
