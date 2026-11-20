@@ -343,6 +343,58 @@ TEST_F(StatsTrackerTest, NegativeAndUnboundedSubreleaseIntervals) {
             Length(150));
 }
 
+TEST_F(StatsTrackerTest, PeakDemandTieBreakingAndEmptyPrint) {
+  auto print_summary = [&]() {
+    return PrintToString(1024 * 1024, [&](Printer& printer) {
+      tracker_.Print(printer, "StatsTracker");
+    });
+  };
+
+  EXPECT_THAT(
+      print_summary(),
+      testing::HasSubstr(
+          "StatsTracker: at peak demand: 0 pages (and 0 free, 0 unmapped)\n"));
+
+  StatsTrackerType::SubreleaseStats first;
+  first.num_pages = Length(100);
+  first.free_pages = Length(20);
+  first.unmapped_pages = Length(5);
+  tracker_.Report(first, 0);
+
+  // Equal max demand in the same epoch must preserve the first peak's free and
+  // unmapped counts (strict '>').
+  StatsTrackerType::SubreleaseStats tied;
+  tied.num_pages = Length(100);
+  tied.free_pages = Length(99);
+  tied.unmapped_pages = Length(88);
+  tracker_.Report(tied, 0);
+
+  // Lower demand updates min_demand_pages without overwriting peak stats.
+  StatsTrackerType::SubreleaseStats lower;
+  lower.num_pages = Length(60);
+  lower.free_pages = Length(10);
+  lower.unmapped_pages = Length(1);
+  tracker_.Report(lower, 0);
+
+  EXPECT_THAT(print_summary(),
+              testing::HasSubstr("StatsTracker: at peak demand: 100 pages (and "
+                                 "20 free, 5 unmapped)\n"));
+  EXPECT_EQ(tracker_.GetRecentDemand(absl::Minutes(1), absl::Minutes(1)),
+            Length(100));
+
+  // Strictly higher demand updates peak pages, free pages, and unmapped pages.
+  StatsTrackerType::SubreleaseStats higher;
+  higher.num_pages = Length(150);
+  higher.free_pages = Length(40);
+  higher.unmapped_pages = Length(12);
+  tracker_.Report(higher, 0);
+
+  EXPECT_THAT(print_summary(),
+              testing::HasSubstr("StatsTracker: at peak demand: 150 pages (and "
+                                 "40 free, 12 unmapped)\n"));
+  EXPECT_EQ(tracker_.GetRecentPeak(absl::Minutes(1)), Length(150));
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
