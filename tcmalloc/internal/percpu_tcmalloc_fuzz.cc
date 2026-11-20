@@ -57,6 +57,8 @@ constexpr size_t kMaxBatchSize = 16;
 constexpr uint8_t kMinShift = 14;
 constexpr uint8_t kMaxShift = 18;
 constexpr Shift kShift{kMaxShift};
+// Allocation size hint passed to Pop.
+constexpr size_t kObjectSize = sizeof(void*);
 
 using SlabsType = TcmallocSlab<kNumClasses>;
 using MaxCapacities = std::array<uint8_t, kNumClasses - 1>;
@@ -278,12 +280,12 @@ struct Pop {
 
   void Perform(State& state) const {
     const size_t sc = 1 + (size_class % (kNumClasses - 1));
-    void* item = state.slab.Pop(sc);
+    void* item = state.slab.Pop(sc, kObjectSize);
     if (item == nullptr) {
       auto [got_cpu, cached] = state.slab.CacheCpuSlab();
       if (cached && got_cpu >= 0 && !state.cpu_stopped[got_cpu]) {
         state.EnsureCpuInitialized(got_cpu);
-        item = state.slab.Pop(sc);
+        item = state.slab.Pop(sc, kObjectSize);
       }
     }
     if (item != nullptr) {

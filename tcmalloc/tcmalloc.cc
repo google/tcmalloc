@@ -1314,7 +1314,7 @@ alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
                               Range(), /*donated=*/false);
   } else {
     if (ABSL_PREDICT_TRUE(UsePerCpuCache(tc_globals))) {
-      ptr.p = tc_globals.cpu_cache().AllocateSlow(size_class);
+      ptr.p = tc_globals.cpu_cache().AllocateSlow(size_class, size);
     } else {
       ptr.p = ThreadCache::GetCache()->Allocate(size_class);
     }
@@ -1357,7 +1357,7 @@ ABSL_ATTRIBUTE_NOINLINE static
 
   void* res;
   TCMALLOC_ALWAYS_INLINE_CALL res =
-      tc_globals.cpu_cache().AllocateSlowNoHooks(size_class);
+      tc_globals.cpu_cache().AllocateSlowNoHooks(size_class, size);
   if (ABSL_PREDICT_FALSE(res == nullptr)) return policy.handle_oom(size);
   return Policy::to_pointer(res, size_class);
 }
@@ -1415,7 +1415,7 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(size_t size,
   // - cpu / thread cache data has been initialized.
   // - the allocation is not subject to sampling / gwp-asan.
   // - no new/delete hook is installed and required to be called.
-  void* ret = tc_globals.cpu_cache().AllocateFast(size_class);
+  void* ret = tc_globals.cpu_cache().AllocateFast(size_class, size);
   if (ABSL_PREDICT_FALSE(ret == nullptr)) {
     SLOW_PATH_BARRIER();
     return slow_alloc_small(size, size_class, policy);

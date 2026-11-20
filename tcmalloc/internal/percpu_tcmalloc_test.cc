@@ -83,6 +83,8 @@ constexpr size_t kStressCapacity = 4;
 constexpr size_t kMaxStressCapacity = kStressCapacity * 2;
 
 constexpr size_t kShift = 18;
+// Allocation size hint passed to Pop.
+constexpr size_t kObjectSize = sizeof(void*);
 typedef class TcmallocSlab<kStressSlabs> TcmallocSlab;
 
 void* AllocSlabs(absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
@@ -261,13 +263,13 @@ TEST_F(TcmallocSlabTest, Unit) {
       ASSERT_EQ(slab_.Capacity(cpu, size_class), 0);
 
       if (!initialized[cpu]) {
-        ASSERT_EQ(slab_.Pop(size_class), nullptr);
+        ASSERT_EQ(slab_.Pop(size_class, kObjectSize), nullptr);
         slab_.InitCpu(cpu, [](size_t size_class) { return kCapacity; });
         initialized[cpu] = true;
       }
 
       // Test that operations on uncached slab fail.
-      ASSERT_EQ(slab_.Pop(size_class), nullptr);
+      ASSERT_EQ(slab_.Pop(size_class, kObjectSize), nullptr);
       EXPECT_FALSE(slab_.Push(size_class, &objects[0]));
       EXPECT_FALSE(slab_.Push(size_class, &objects[0]));
       EXPECT_FALSE(slab_.Push(size_class, &objects[0]));
@@ -289,12 +291,12 @@ TEST_F(TcmallocSlabTest, Unit) {
                 kCapacity / 2);
       ASSERT_EQ(slab_.Length(cpu, size_class), 0);
       ASSERT_EQ(slab_.Capacity(cpu, size_class), kCapacity / 2);
-      ASSERT_EQ(slab_.Pop(size_class), nullptr);
+      ASSERT_EQ(slab_.Pop(size_class, kObjectSize), nullptr);
       ASSERT_TRUE(slab_.Push(size_class, &objects[0]));
 
       ASSERT_EQ(slab_.Length(cpu, size_class), 1);
       ASSERT_EQ(slab_.Capacity(cpu, size_class), kCapacity / 2);
-      ASSERT_EQ(slab_.Pop(size_class), &objects[0]);
+      ASSERT_EQ(slab_.Pop(size_class, kObjectSize), &objects[0]);
       ASSERT_EQ(slab_.Length(cpu, size_class), 0);
       for (size_t i = 0; i < kCapacity / 2; ++i) {
         ASSERT_TRUE(slab_.Push(size_class, &objects[i]));
@@ -302,7 +304,7 @@ TEST_F(TcmallocSlabTest, Unit) {
       }
       EXPECT_FALSE(slab_.Push(size_class, &objects[0]));
       for (size_t i = kCapacity / 2; i > 0; --i) {
-        ASSERT_EQ(slab_.Pop(size_class), &objects[i - 1]);
+        ASSERT_EQ(slab_.Pop(size_class, kObjectSize), &objects[i - 1]);
         ASSERT_EQ(slab_.Length(cpu, size_class), i - 1);
       }
 
@@ -317,7 +319,7 @@ TEST_F(TcmallocSlabTest, Unit) {
       }
       EXPECT_FALSE(slab_.Push(size_class, &objects[0]));
       for (size_t i = kCapacity; i > 0; --i) {
-        ASSERT_EQ(slab_.Pop(size_class), &objects[i - 1]);
+        ASSERT_EQ(slab_.Pop(size_class, kObjectSize), &objects[i - 1]);
         ASSERT_EQ(slab_.Length(cpu, size_class), i - 1);
       }
 
@@ -359,12 +361,12 @@ TEST_F(TcmallocSlabTest, Unit) {
         ASSERT_EQ(slab_.PushBatch(size_class, batch, i), expect);
         ASSERT_EQ(slab_.Length(cpu, size_class), expect);
         for (size_t j = 0; j < expect; ++j) {
-          slabs_result[j] = slab_.Pop(size_class);
+          slabs_result[j] = slab_.Pop(size_class, kObjectSize);
         }
         ASSERT_THAT(
             std::vector<void*>(&slabs_result[0], &slabs_result[expect]),
             UnorderedElementsAreArray(&object_ptrs[i - expect], expect));
-        ASSERT_EQ(slab_.Pop(size_class), nullptr);
+        ASSERT_EQ(slab_.Pop(size_class, kObjectSize), nullptr);
       }
       // Push a batch of size i into non-empty slab.
       for (size_t i = 1; i < kCapacity / 2; ++i) {
@@ -374,14 +376,14 @@ TEST_F(TcmallocSlabTest, Unit) {
         ASSERT_EQ(slab_.Length(cpu, size_class), i + expect);
         // Because slabs are LIFO fill in this array from the end.
         for (int j = i + expect - 1; j >= 0; --j) {
-          slabs_result[j] = slab_.Pop(size_class);
+          slabs_result[j] = slab_.Pop(size_class, kObjectSize);
         }
         ASSERT_THAT(std::vector<void*>(&slabs_result[0], &slabs_result[i]),
                     UnorderedElementsAreArray(&object_ptrs[0], i));
         ASSERT_THAT(
             std::vector<void*>(&slabs_result[i], &slabs_result[i + expect]),
             UnorderedElementsAreArray(&object_ptrs[i - expect], expect));
-        ASSERT_EQ(slab_.Pop(size_class), nullptr);
+        ASSERT_EQ(slab_.Pop(size_class, kObjectSize), nullptr);
       }
       for (size_t i = 0; i < kCapacity + 1; ++i) {
         batch[i] = nullptr;
@@ -393,7 +395,7 @@ TEST_F(TcmallocSlabTest, Unit) {
         }
         ASSERT_EQ(slab_.PopBatch(size_class, batch, i), i);
         ASSERT_EQ(slab_.Length(cpu, size_class), 0);
-        ASSERT_EQ(slab_.Pop(size_class), nullptr);
+        ASSERT_EQ(slab_.Pop(size_class, kObjectSize), nullptr);
 
         ASSERT_THAT(absl::MakeSpan(&batch[0], i),
                     UnorderedElementsAreArray(&object_ptrs[0], i));
@@ -412,10 +414,11 @@ TEST_F(TcmallocSlabTest, Unit) {
         ASSERT_EQ(slab_.Length(cpu, size_class), i - want);
 
         for (size_t j = 0; j < i - want; ++j) {
-          ASSERT_EQ(slab_.Pop(size_class), &objects[i - want - j - 1]);
+          ASSERT_EQ(slab_.Pop(size_class, kObjectSize),
+                    &objects[i - want - j - 1]);
         }
 
-        ASSERT_EQ(slab_.Pop(size_class), nullptr);
+        ASSERT_EQ(slab_.Pop(size_class, kObjectSize), nullptr);
 
         ASSERT_GE(i, want);
         ASSERT_THAT(absl::MakeSpan(&batch[0], want),
@@ -433,7 +436,7 @@ TEST_F(TcmallocSlabTest, Unit) {
         }
         ASSERT_EQ(slab_.PopBatch(size_class, batch, i * 2), i);
         ASSERT_EQ(slab_.Length(cpu, size_class), 0);
-        ASSERT_EQ(slab_.Pop(size_class), nullptr);
+        ASSERT_EQ(slab_.Pop(size_class, kObjectSize), nullptr);
 
         ASSERT_THAT(absl::MakeSpan(&batch[0], i),
                     UnorderedElementsAreArray(&object_ptrs[0], i));
@@ -765,8 +768,8 @@ TEST_F(TcmallocSlabTest, ResizeSlabKeepsCapacity) {
 
   // Both the two elements and the remaining capacity should still be there.
   EXPECT_EQ(3, slab_.Capacity(kCpu, kSizeClass));
-  EXPECT_EQ((void*)0x80, slab_.Pop(kSizeClass));
-  EXPECT_EQ((void*)0x40, slab_.Pop(kSizeClass));
+  EXPECT_EQ((void*)0x80, slab_.Pop(kSizeClass, kObjectSize));
+  EXPECT_EQ((void*)0x40, slab_.Pop(kSizeClass, kObjectSize));
 }
 
 TEST_F(TcmallocSlabTest, SimulatedMadviseFailure) {
@@ -872,7 +875,7 @@ void StressThread(size_t thread_id,
         }
       }
     } else if (what < 20) {
-      if (void* item = ctx.slab->Pop(size_class)) {
+      if (void* item = ctx.slab->Pop(size_class, kObjectSize)) {
         // Ensure that we never return a null item which could be indicative
         // of a bug in lazy InitCpu initialization (b/148973091, b/147974701).
         EXPECT_NE(item, nullptr);
@@ -1614,7 +1617,7 @@ void BM_PushPop(benchmark::State& state) {
       TC_CHECK(slab.Push(size_class, batch[x]));
     }
     for (size_t x = 0; x < kBatchSize; x++) {
-      void* item = slab.Pop(size_class);
+      void* item = slab.Pop(size_class, kObjectSize);
       TC_CHECK_NE(item, nullptr);
       benchmark::DoNotOptimize(item);
     }
