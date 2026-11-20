@@ -9663,6 +9663,76 @@ TEST_F(FillerTest, SampledDonatedTrackerReceivesAnonVmaName) {
   Delete(donated);
   EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 2);
 }
+
+TEST_F(FillerTest, SampledOrColdMemorySkipsIsHugepageBacked) {
+  const SpanAllocInfo kSparse = {.objects_per_span = 1,
+                                 .density = AccessDensityPrediction::kSparse};
+  FakePageFlags pageflags;
+  FakeResidency residency;
+
+  int pageflags_hp_checks = 0;
+  int residency_scans = 0;
+  pageflags.unlocked_hook_ = [&](const void*) { ++pageflags_hp_checks; };
+  residency.unlocked_hook_ = [&](const void*) { ++residency_scans; };
+
+  for (MemoryTag tag :
+       {MemoryTag::kSampledOrCold, MemoryTag::kSampledOrColdP1}) {
+    HugePageFiller<PageTracker> cold_filler(
+        Clock{.now = FakeClock::now, .freq = FakeClock::freq}, tag,
+        blocking_unback_without_lock_, collapse_, set_anon_vma_name_,
+        SubreleaseUnbackedMode::kDisabled);
+
+    PageTracker pt(GetBacking(), /*was_donated=*/false, FakeClock::now());
+    PageId p;
+    {
+      PageHeapSpinLockHolder l;
+      p = pt.Get(Length(1), kSparse, PreferBackedPages::kDisabled).page;
+      cold_filler.Contribute(&pt, /*donated=*/false, kSparse);
+    }
+
+    pageflags.MarkHugePageBacked(pt.location().start_addr(),
+                                 /*is_hugepage_backed=*/false);
+    residency.SetUnbackedAndSwappedBitmaps(pt.location().start_addr(), {}, {});
+    pageflags.SetStaleBitmap(pt.location().start_addr(), {});
+
+    pageheap_lock.lock();
+    cold_filler.TreatHugepageTrackers(
+        EnableCollapse::kDisabled, EnableUnfilteredCollapse::kDisabled,
+        ReleaseStalePages::kEnabled, PreserveDonatedOnCollapse::kDisabled,
+        CollapseReleasedHugePages::kEnabled, ReobserveHugepageBacked::kDisabled,
+        &pageflags, &residency);
+    pageheap_lock.unlock();
+
+    PageTracker* ret = nullptr;
+    {
+      PageHeapSpinLockHolder l;
+      ret = cold_filler.Put(&pt, Range(p, Length(1)), kSparse,
+                            FillerAppendOnFree::kDisabled);
+    }
+    EXPECT_EQ(ret, &pt);
+  }
+
+  EXPECT_EQ(pageflags_hp_checks, 0);
+  EXPECT_EQ(residency_scans, 2);
+
+  // Normal partition still queries IsHugepageBacked.
+  PAlloc normal_alloc = AllocateWithSpanAllocInfo(Length(1), kSparse);
+  pageflags.MarkHugePageBacked(normal_alloc.pt->location().start_addr(),
+                               /*is_hugepage_backed=*/false);
+  residency.SetUnbackedAndSwappedBitmaps(
+      normal_alloc.pt->location().start_addr(), {}, {});
+  pageflags.SetStaleBitmap(normal_alloc.pt->location().start_addr(), {});
+
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kEnabled, &pageflags, &residency);
+  EXPECT_EQ(pageflags_hp_checks, 1);
+  EXPECT_EQ(residency_scans, 3);
+
+  pageflags.unlocked_hook_ = nullptr;
+  residency.unlocked_hook_ = nullptr;
+  Delete(normal_alloc);
+}
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

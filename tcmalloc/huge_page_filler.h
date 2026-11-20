@@ -571,6 +571,7 @@ class HugePageFiller {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   [[nodiscard]] HugeLength size() const { return size_; }
+  [[nodiscard]] MemoryTag tag() const { return tag_; }
 
   // Useful statistics
   [[nodiscard]] Length pages_allocated(AccessDensityPrediction type) const {

@@ -661,9 +661,13 @@ class HugePageUnbackedTrackerTreatment final : public HugePageTreatment {
   [[nodiscard]] PageTracker::HugePageResidencyState Observe(
       PageTracker& tracker, PageFlagsBase& pf, Residency& res,
       size_t pages_per_huge_page, double max_collapse_cycles) {
-    // Assume element is hugepage if we can't read the value.
-    bool is_hugepage =
-        pf.IsHugepageBacked(tracker.location().start_addr()).value_or(true);
+    // Sampled and cold regions are mapped MADV_NOHUGEPAGE; otherwise assume
+    // hugepage-backed if pageflags cannot be read.
+    const bool is_hugepage =
+        IsSampledOrColdMemory(page_filler_.tag())
+            ? false
+            : pf.IsHugepageBacked(tracker.location().start_addr())
+                  .value_or(true);
 
     PageTracker::HugePageResidencyState state;
     state.entry_valid = true;
