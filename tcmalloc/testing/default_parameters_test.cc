@@ -51,7 +51,7 @@ constexpr absl::Duration kDefaultSkipSubreleaseLongInterval =
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
     absl::ZeroDuration()
 #else
-    absl::Seconds(120)
+    absl::Seconds(60)
 #endif
     ;
 constexpr int32_t kDefaultMaxPerCpuCacheSize =

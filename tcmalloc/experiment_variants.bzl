@@ -44,7 +44,7 @@ experiment_variants = [
         "name": "tcmalloc_demand_cycle_60s",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_DEMAND_CYCLE_60S"},
+        "env": {"BORG_DISABLE_EXPERIMENTS": "TCMALLOC_SONIC_DEMAND_CYCLE_60S"},
     },
     {
         "name": "tcmalloc_filler_append_on_free",

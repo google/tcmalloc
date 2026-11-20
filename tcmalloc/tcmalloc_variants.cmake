@@ -352,7 +352,7 @@ function(tcmalloc_cc_test_variants)
     COPTS ${TCMALLOC_COPTS}
     LINKOPTS ${TCMALLOC_LINKOPTS}
     DEPS ${TCMALLOC_DEPS} tcmalloc::tcmalloc tcmalloc::common_8k_pages
-    ENV ${TCMALLOC_ENV} "BORG_EXPERIMENTS=TCMALLOC_SONIC_DEMAND_CYCLE_60S"
+    ENV ${TCMALLOC_ENV} "BORG_DISABLE_EXPERIMENTS=TCMALLOC_SONIC_DEMAND_CYCLE_60S"
   )
   tcmalloc_cc_test(NAME ${TCMALLOC_NAME}_tcmalloc_filler_append_on_free
     ${EXTRA_ARGS}
