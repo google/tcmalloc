@@ -715,13 +715,6 @@ MemoryModifyStatus MockUnbackWithoutLock::operator()(Range r) {
 
 void MockSetAnonVmaName::operator()(Range r,
                                     std::optional<absl::string_view> name) {
-  // Treatments name with pageheap_lock dropped, but HandleFullyFreedTracker
-  // and FetchFullyFreedTracker reset the name under it.
-  //
-  // TODO(b/73749855): Move the reset off the lock, then drop this check.
-  if (pageheap_lock.IsHeld()) {
-    return;
-  }
   state_.OnLockDropped();
 }
 

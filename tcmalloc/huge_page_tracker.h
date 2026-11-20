@@ -391,7 +391,8 @@ class PageTracker : public TList<PageTracker>::Elem {
   void SetTagState(const TagState& state) { tagged_state_ = state; }
 
   void SetAnonVmaName(MemoryTagFunction& set_anon_vma_name,
-                      std::optional<absl::string_view> name);
+                      std::optional<absl::string_view> name)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   struct HardwarePageResidencyInfo {
     HardwareLength n_free_swapped;

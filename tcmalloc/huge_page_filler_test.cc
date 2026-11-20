@@ -9733,6 +9733,58 @@ TEST_F(FillerTest, SampledOrColdMemorySkipsIsHugepageBacked) {
   residency.unlocked_hook_ = nullptr;
   Delete(normal_alloc);
 }
+
+TEST_F(FillerTest, SetAnonVmaNameResetDropsPageHeapLock) {
+  randomize_density_ = false;
+  SpanAllocInfo info = {1, AccessDensityPrediction::kSparse};
+  FakePageFlags pageflags;
+  FakeResidency residency;
+
+  int resets_unlocked = 0;
+  set_anon_vma_name_.SetIgnoreName(true);
+  set_anon_vma_name_.unlocked_hook_ = [&](Range r,
+                                          std::optional<absl::string_view> n) {
+    // Acquire and immediately release pageheap_lock to verify this thread
+    // dropped it (unlike !pageheap_lock.IsHeld(), which can race with
+    // background threads) without holding it across the rest of the hook.
+    {
+      PageHeapSpinLockHolder l;
+    }
+    if (!n.has_value()) {
+      ++resets_unlocked;
+    }
+  };
+
+  // Case 1: Direct retirement in HandleFullyFreedTracker.
+  PAlloc direct = AllocateWithSpanAllocInfo(Length(1), info);
+  direct.pt->SetTagState({.sampled_for_tagging = true});
+  pageflags.MarkHugePageBacked(direct.p.start_addr(),
+                               /*is_hugepage_backed=*/true);
+  FakeClock::Advance(absl::Minutes(6));
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  Delete(direct);
+  EXPECT_EQ(resets_unlocked, 1);
+
+  // Case 2: Parked retirement drained via FetchFullyFreedTracker.
+  PAlloc parked = AllocateWithSpanAllocInfo(Length(1), info);
+  parked.pt->SetTagState({.sampled_for_tagging = true});
+  pageflags.MarkHugePageBacked(parked.p.start_addr(),
+                               /*is_hugepage_backed=*/true);
+  FakeClock::Advance(absl::Minutes(6));
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  parked.pt->SetDontFreeTracker(HugePageTreatmentType::kCollapse);
+  EXPECT_FALSE(DeleteRaw(parked));
+  EXPECT_EQ(resets_unlocked, 1);
+  parked.pt->ClearDontFreeTracker(HugePageTreatmentType::kCollapse);
+  EXPECT_EQ(DrainFreedTrackers(), 1);
+  EXPECT_EQ(resets_unlocked, 2);
+
+  set_anon_vma_name_.unlocked_hook_ = nullptr;
+}
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

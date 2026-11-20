@@ -1214,7 +1214,9 @@ HugePageFiller<TrackerType>::HandleFullyFreedTracker(TrackerType* pt,
   }
   if (pt->GetTagState().sampled_for_tagging) {
     // Set the default region name if the tracked was sampled.
+    pageheap_lock.unlock();
     pt->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
+    pageheap_lock.lock();
   }
   return pt;
 }
@@ -2556,7 +2558,9 @@ HugePageFiller<TrackerType>::FetchFullyFreedTracker() {
     if (pt->GetTagState().sampled_for_tagging) {
       // Set the default region name if the tracker was sampled.  No pin
       // remains, so no treatment can name it again.
+      pageheap_lock.unlock();
       pt->SetAnonVmaName(set_anon_vma_name_, /*name=*/std::nullopt);
+      pageheap_lock.lock();
     }
     return pt;
   }
