@@ -1813,6 +1813,7 @@ inline void HugePageFiller<TrackerType>::TreatHugepageTrackers(
   donated_alloc_.Iter(
       [&](TrackerType& pt)
           GOOGLE_MALLOC_SECTION ABSL_NO_THREAD_SAFETY_ANALYSIS {
+            sampled_tracker_treatment.SelectEligibleTrackers(pt);
             unbacked_tracker_treatment.SelectEligibleTrackers(pt);
           },
       /*start=*/0);

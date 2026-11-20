@@ -9635,6 +9635,34 @@ TEST_F(FillerTest, PutLastSpanDuringCollapseUnbacksCollapsedHugepage) {
     }
   }
 }
+
+TEST_F(FillerTest, SampledDonatedTrackerReceivesAnonVmaName) {
+  randomize_density_ = false;
+  FakePageFlags pageflags;
+  FakeResidency residency;
+
+  PAlloc donated = Allocate(Length(1), /*donated=*/true);
+  ASSERT_TRUE(donated.pt->donated());
+  donated.pt->SetTagState({.sampled_for_tagging = true});
+  pageflags.MarkHugePageBacked(donated.pt->location().start_addr(),
+                               /*is_hugepage_backed=*/true);
+
+  const std::string expected_name = absl::StrFormat(
+      "tcmalloc_region_NORMAL_pg_%zu_lfr_%zu_na_0_no_1_d_0_r_0_a_1", kPageSize,
+      RoundDown((kPagesPerHugePage - Length(1)).raw_num(), /*align=*/16));
+  set_anon_vma_name_.SetExpectedName(expected_name);
+
+  FakeClock::Advance(absl::Minutes(10));
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 1);
+  EXPECT_TRUE(set_anon_vma_name_.LastCallNamed());
+
+  set_anon_vma_name_.SetExpectedName("tcmalloc_region_NORMAL");
+  Delete(donated);
+  EXPECT_EQ(set_anon_vma_name_.TimesCalled(), 2);
+}
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
