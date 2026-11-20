@@ -42,6 +42,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/metadata_allocator.h"
 #include "tcmalloc/internal/packed_ptr.h"
+#include "tcmalloc/internal/page_allocation_status.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal/prefetch.h"
@@ -195,8 +196,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // IsValidSizeClass verifies size class parameters from the HPAA perspective.
   [[nodiscard]] static bool IsValidSizeClass(size_t size, Length pages);
 
-  [[nodiscard]] bool GetPageAllocationStatus(HugePage hp,
-                                             PageBitmap& pages) const
+  [[nodiscard]] bool GetPageAllocationStatus(
+      HugePage hp, PageBitmap& pages, PageSuballocator& suballocator) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   [[nodiscard]] Forwarder& forwarder() { return forwarder_; }
@@ -1254,28 +1255,38 @@ HugePageAwareAllocator<Forwarder>::min_free_pages_to_break(
 
 template <class Forwarder>
 inline bool HugePageAwareAllocator<Forwarder>::GetPageAllocationStatus(
-    HugePage hp, PageBitmap& pages) const {
+    HugePage hp, PageBitmap& pages, PageSuballocator& suballocator) const {
   // 1. Check PageTracker (HugePageFiller).
   FillerType::Tracker* pt = GetTracker(hp);
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {
     pages = pt->allocated_pages_bitmap();
+    if (pt->HasDenseSpans()) {
+      suballocator = PageSuballocator::kFillerDense;
+    } else if (pt->donated()) {
+      suballocator = PageSuballocator::kFillerDonated;
+    } else {
+      suballocator = PageSuballocator::kFillerSparse;
+    }
     return true;
   }
 
   // 2. Check HugeRegions.
   if (regions_.GetPageAllocationStatus(hp, pages)) {
+    suballocator = PageSuballocator::kHugeRegion;
     return true;
   }
 
   // 3. Check HugeCache / HugeAllocator (unallocated / free hugepages).
   if (cache_.Contains(hp) || alloc_.Contains(hp)) {
     pages.Clear();
+    suballocator = PageSuballocator::kHugeCacheOrAlloc;
     return true;
   }
 
   // 4. If the pagemap leaf exists, the hugepage was allocated to TCMalloc and
   // is in active use (e.g. allocated via AllocRawHugepages).
   pages.SetRange(0, kPagesPerHugePage.raw_num());
+  suballocator = PageSuballocator::kRawHugepages;
   return true;
 }
 

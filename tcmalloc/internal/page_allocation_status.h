@@ -15,14 +15,27 @@
 #ifndef TCMALLOC_INTERNAL_PAGE_ALLOCATION_STATUS_H_
 #define TCMALLOC_INTERNAL_PAGE_ALLOCATION_STATUS_H_
 
+#include <cstdint>
 #include <optional>
 
 #include "tcmalloc/internal/range_tracker.h"
 
 namespace tcmalloc::tcmalloc_internal {
 
+enum class PageSuballocator : uint8_t {
+  kUnknown = 0,
+  kFillerDense,
+  kFillerSparse,
+  kFillerDonated,
+  kHugeRegion,
+  kHugeCacheOrAlloc,
+  kRawHugepages,
+  kGuarded,
+};
+
 struct PageAllocationStatus {
   Bitmap<512> allocated;
+  PageSuballocator suballocator = PageSuballocator::kUnknown;
 };
 
 // Queries TCMalloc for the page allocation status of the hugepage starting at
