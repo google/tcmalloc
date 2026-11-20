@@ -1851,11 +1851,19 @@ TEST(TCMalloc, GetPageAllocationStatus) {
   // allocated.
   const size_t kAllocSize = 128 * 1024;
   void* ptr;
+  void* dense_ptr;
+  void* raw_hp_ptr;
+  const size_t kDenseSize = 64;
+  const size_t kRawHpSize = 4 * 1024 * 1024;
   {
     ScopedNeverSample never;
     ptr = ::operator new(kAllocSize);
+    dense_ptr = ::operator new(kDenseSize);
+    raw_hp_ptr = ::operator new(kRawHpSize);
   }
   ASSERT_NE(ptr, nullptr);
+  ASSERT_NE(dense_ptr, nullptr);
+  ASSERT_NE(raw_hp_ptr, nullptr);
 
   HugePage hp = HugePageContaining(ptr);
 
@@ -1870,6 +1878,7 @@ TEST(TCMalloc, GetPageAllocationStatus) {
     EXPECT_EQ(status, std::nullopt);
   } else {
     ASSERT_TRUE(status.has_value());
+    EXPECT_EQ(status->suballocator, PageSuballocator::kFillerSparse);
 
     const size_t hardware_page_size = GetPageSize();
     const size_t start_page = (reinterpret_cast<uintptr_t>(ptr) -
@@ -1879,8 +1888,26 @@ TEST(TCMalloc, GetPageAllocationStatus) {
 
     // All pages overlapping with ptr must be allocated in the bitmap.
     EXPECT_EQ(status->allocated.CountBits(start_page, num_pages), num_pages);
+
+    HugePage dense_hp = HugePageContaining(dense_ptr);
+    auto dense_status = GetPageAllocationStatus(dense_hp.start_addr());
+    ASSERT_TRUE(dense_status.has_value());
+    EXPECT_EQ(dense_status->suballocator, PageSuballocator::kFillerDense);
+    const size_t dense_page =
+        (reinterpret_cast<uintptr_t>(dense_ptr) -
+         reinterpret_cast<uintptr_t>(dense_hp.start_addr())) /
+        hardware_page_size;
+    EXPECT_TRUE(dense_status->allocated.GetBit(dense_page));
+
+    HugePage raw_hp = HugePageContaining(raw_hp_ptr);
+    auto raw_status = GetPageAllocationStatus(raw_hp.start_addr());
+    ASSERT_TRUE(raw_status.has_value());
+    EXPECT_EQ(raw_status->suballocator, PageSuballocator::kRawHugepages);
+    EXPECT_EQ(raw_status->allocated.CountBits(0, 512), 512);
   }
 
+  ::operator delete(raw_hp_ptr, kRawHpSize);
+  ::operator delete(dense_ptr, kDenseSize);
   ::operator delete(ptr, kAllocSize);
 
   // Random addresses do not crash and unmanaged addresses return std::nullopt.

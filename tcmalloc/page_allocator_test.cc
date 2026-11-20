@@ -33,6 +33,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_tag.h"
+#include "tcmalloc/internal/page_allocation_status.h"
 #include "tcmalloc/internal/page_allocator_hooks.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/malloc_extension.h"
@@ -656,18 +657,19 @@ TEST_F(PageAllocatorTest, GetPageAllocationStatusInactivePartitions) {
     void* old_pt = tc_globals.pagemap().GetHugepage(hp.first_page());
     tc_globals.pagemap().SetHugepage(hp.first_page(), nullptr);
     PageBitmap pages;
+    PageSuballocator suballocator = PageSuballocator::kUnknown;
     if (Parameters::heap_partitioning_mode() != HeapPartitioningMode::kFull) {
       EXPECT_FALSE(allocator_->GetPageAllocationStatus(
-          hp, pages, MemoryTag::kSampledOrColdP1));
+          hp, pages, suballocator, MemoryTag::kSampledOrColdP1));
     }
     if (tc_globals.active_partitions() <= 1) {
-      EXPECT_FALSE(
-          allocator_->GetPageAllocationStatus(hp, pages, MemoryTag::kNormalP1));
+      EXPECT_FALSE(allocator_->GetPageAllocationStatus(hp, pages, suballocator,
+                                                       MemoryTag::kNormalP1));
     }
-    EXPECT_FALSE(
-        allocator_->GetPageAllocationStatus(hp, pages, MemoryTag::kGuarded));
-    EXPECT_FALSE(
-        allocator_->GetPageAllocationStatus(hp, pages, MemoryTag::kMetadata));
+    EXPECT_FALSE(allocator_->GetPageAllocationStatus(hp, pages, suballocator,
+                                                     MemoryTag::kGuarded));
+    EXPECT_FALSE(allocator_->GetPageAllocationStatus(hp, pages, suballocator,
+                                                     MemoryTag::kMetadata));
     tc_globals.pagemap().SetHugepage(hp.first_page(), old_pt);
   }
   Delete(s, kSpanInfo, MemoryTag::kNormal);
