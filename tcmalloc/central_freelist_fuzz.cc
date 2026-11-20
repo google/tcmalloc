@@ -28,11 +28,13 @@
 #include "absl/types/span.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/mock_static_forwarder.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/sizemap.h"
+#include "tcmalloc/span.h"
 #include "tcmalloc/span_stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -53,9 +55,12 @@ struct State {
 
   State(size_t object_size, Length num_pages, size_t num_objects_to_move,
         central_freelist_internal::CflSubbucketPrioritization
-            cfl_subbucket_prioritization)
+            cfl_subbucket_prioritization,
+        central_freelist_internal::CflHugepageOccupancyPrioritization
+            cfl_hugepage_occupancy_prioritization)
       : env(object_size, Bytes(num_pages.in_bytes()), num_objects_to_move,
-            cfl_subbucket_prioritization) {}
+            cfl_subbucket_prioritization,
+            cfl_hugepage_occupancy_prioritization) {}
 
   ~State();
 
@@ -165,6 +170,25 @@ struct CheckStats {
   void Perform(State& state) const { state.CheckInvariants(); }
 };
 
+// Changes the hugepage occupancy reported for new spans and for the span of
+// the most recently allocated object, so that spans move between tiers.
+struct SetHugepageOccupancy {
+  Length used_pages;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SetHugepageOccupancy& s) {
+    absl::Format(&sink, "SetHugepageOccupancy{.used_pages=%v}", s.used_pages);
+  }
+
+  void Perform(State& state) const {
+    state.env.forwarder().set_default_hugepage_used_pages(used_pages);
+    if (state.objects.empty()) return;
+    Span* span = state.env.forwarder().MapObjectToSpan(state.objects.back());
+    TC_CHECK_NE(span, nullptr);
+    state.env.forwarder().SetHugepageUsedPages(span, used_pages);
+  }
+};
+
 struct PrintStats {
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const PrintStats&) {
@@ -186,8 +210,8 @@ struct PrintStats {
   }
 };
 
-using Instruction =
-    std::variant<Allocate, Deallocate, Shuffle, CheckStats, PrintStats>;
+using Instruction = std::variant<Allocate, Deallocate, Shuffle, CheckStats,
+                                 SetHugepageOccupancy, PrintStats>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const Instruction& i) {
@@ -197,13 +221,16 @@ void AbslStringify(Sink& sink, const Instruction& i) {
 void FuzzCFL(size_t object_size, Length num_pages, size_t num_objects_to_move,
              const std::vector<Instruction>& instructions,
              central_freelist_internal::CflSubbucketPrioritization
-                 cfl_subbucket_prioritization) {
+                 cfl_subbucket_prioritization,
+             central_freelist_internal::CflHugepageOccupancyPrioritization
+                 cfl_hugepage_occupancy_prioritization) {
   // TODO(271282540): Add support for multiple size classes for fuzzing.
   if (!SizeMap::IsValidSizeClass(object_size, num_pages, num_objects_to_move)) {
     return;
   }
   State state(object_size, num_pages, num_objects_to_move,
-              cfl_subbucket_prioritization);
+              cfl_subbucket_prioritization,
+              cfl_hugepage_occupancy_prioritization);
 
   for (const auto& instruction : instructions) {
     std::visit([&](const auto& arg) { arg.Perform(state); }, instruction);
@@ -221,16 +248,24 @@ auto GetInstructionDomain() {
                     fuzztest::Arbitrary<int>()),
       fuzztest::Map([](CheckStats c) { return Instruction{c}; },
                     fuzztest::Arbitrary<CheckStats>()),
+      fuzztest::Map(
+          [](size_t used_pages) {
+            return Instruction{SetHugepageOccupancy{Length(used_pages)}};
+          },
+          fuzztest::InRange<size_t>(0, kPagesPerHugePage.raw_num())),
       fuzztest::Map([](PrintStats p) { return Instruction{p}; },
                     fuzztest::Arbitrary<PrintStats>()));
 }
 
 FUZZ_TEST(CentralFreeListTest, FuzzCFL)
-    .WithDomains(fuzztest::InRange<size_t>(0, kMaxSize), AnyLength(),
-                 fuzztest::Arbitrary<size_t>(),
-                 fuzztest::VectorOf(GetInstructionDomain()),
-                 fuzztest::Arbitrary<
-                     central_freelist_internal::CflSubbucketPrioritization>());
+    .WithDomains(
+        fuzztest::InRange<size_t>(0, kMaxSize), AnyLength(),
+        fuzztest::Arbitrary<size_t>(),
+        fuzztest::VectorOf(GetInstructionDomain()),
+        fuzztest::Arbitrary<
+            central_freelist_internal::CflSubbucketPrioritization>(),
+        fuzztest::Arbitrary<
+            central_freelist_internal::CflHugepageOccupancyPrioritization>());
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

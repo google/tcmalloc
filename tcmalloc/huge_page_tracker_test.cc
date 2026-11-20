@@ -285,6 +285,7 @@ TEST_F(PageTrackerTest, AllocSane) {
   while (n <= free) {
     ASSERT_GE(tracker_.longest_free_range(), n);
     EXPECT_EQ(tracker_.used_pages(), kPagesPerHugePage - free);
+    EXPECT_EQ(tracker_.used_pages_unlocked(), kPagesPerHugePage - free);
     EXPECT_EQ(tracker_.free_pages(), free);
     PAlloc a = Get(n, {1, AccessDensityPrediction::kSparse});
     Mark(a, n.raw_num());
@@ -296,6 +297,13 @@ TEST_F(PageTrackerTest, AllocSane) {
   // All should be distinct
   for (auto alloc : allocs) {
     Check(alloc, alloc.n.raw_num());
+  }
+
+  for (auto alloc : allocs) {
+    Put(alloc);
+    free += alloc.n;
+    EXPECT_EQ(tracker_.used_pages(), kPagesPerHugePage - free);
+    EXPECT_EQ(tracker_.used_pages_unlocked(), kPagesPerHugePage - free);
   }
 }
 
