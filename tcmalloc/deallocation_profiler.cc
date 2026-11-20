@@ -718,7 +718,7 @@ void DeallocationProfiler::DeallocationStackTraceTable::AddTrace(
       (life_time_ns - old_mean_ns) / static_cast<double>(v.counts[index] + 1);
   v.variance_life_times_ns[index] +=
       (life_time_ns - v.mean_life_times_ns[index]) *
-      (v.mean_life_times_ns[index] - old_mean_ns);
+      (life_time_ns - old_mean_ns);
 
   v.min_life_times_ns[index] =
       std::min(v.min_life_times_ns[index], life_time_ns);
