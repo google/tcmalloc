@@ -23,10 +23,12 @@
 #include "absl/base/optimization.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/hash/hash.h"
+#include "absl/random/distributions.h"
 #include "absl/random/random.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/internal/compressibility.h"
@@ -232,7 +234,8 @@ struct SampleMergeResult {
 
 SampleMergeResult MergeProfileSamplesAndMaybeGetResidencyInfo(
     const tcmalloc::Profile& profile, PageFlagsBase* pageflags,
-    Residency* residency, bool collecting_compressibility) {
+    Residency* residency, bool collecting_compressibility,
+    double compressibility_fraction) {
   SampleMergeResult result;
   SampleMergedMap& map = result.samples;
   std::optional<CompressionAnalyzer> compression_analyzer;
@@ -339,6 +342,13 @@ SampleMergeResult MergeProfileSamplesAndMaybeGetResidencyInfo(
           break;
         }
         const CompressibilityCandidate& cand = data.candidates[round];
+        // Reading the span sets its pages' accessed bits and resets their
+        // kstaled aging; see CompressibilityThrottle. Unselected candidates
+        // are neither read nor counted, as if they had not been sampled.
+        if (compressibility_fraction < 1.0 &&
+            !absl::Bernoulli(rng, compressibility_fraction)) {
+          continue;
+        }
         absl::Span<const char> sample_mem(
             reinterpret_cast<const char*>(cand.span_start_address), cand.size);
         absl::StatusOr<CompressionAnalyzer::Results> res =
@@ -1034,9 +1044,34 @@ std::unique_ptr<perftools::profiles::Profile> ProfileBuilder::Finalize() && {
   return std::move(profile_);
 }
 
+double CompressibilityThrottle::Fraction(absl::Time now,
+                                         absl::Duration period) {
+  const int64_t now_nanos = absl::ToUnixNanos(now);
+  const int64_t last_nanos =
+      last_conversion_nanos_.exchange(now_nanos, std::memory_order_relaxed);
+  if (period <= absl::ZeroDuration() || last_nanos == 0) {
+    return 1.0;
+  }
+  const absl::Duration elapsed = absl::Nanoseconds(now_nanos - last_nanos);
+  if (elapsed <= absl::ZeroDuration()) {
+    return 0.0;
+  }
+  if (elapsed >= period) {
+    return 1.0;
+  }
+  return absl::FDivDuration(elapsed, period);
+}
+
 absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     const ::tcmalloc::Profile& profile, PageFlagsBase* pageflags,
     Residency* residency) {
+  return MakeProfileProto(profile, pageflags, residency,
+                          /*compressibility_fraction=*/1.0);
+}
+
+absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
+    const ::tcmalloc::Profile& profile, PageFlagsBase* pageflags,
+    Residency* residency, double compressibility_fraction) {
   if (profile.Type() == ProfileType::kDoNotUse) {
     if (MallocExtension::GetProfileSamplingInterval() == 0) {
       return absl::NotFoundError("Profile sampling is disabled");
@@ -1164,7 +1199,8 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   // compressible rather than as having no data.
   const auto [samples, exporting_compressibility] =
       MergeProfileSamplesAndMaybeGetResidencyInfo(profile, pageflags, residency,
-                                                  collecting_compressibility);
+                                                  collecting_compressibility,
+                                                  compressibility_fraction);
   if (exporting_compressibility) {
     perftools::profiles::ValueType* sample_type = nullptr;
 
@@ -1254,12 +1290,20 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   PageFlags* p = nullptr;
   Residency* r = nullptr;
 
+  double compressibility_fraction = 1.0;
   if (profile.Type() == ProfileType::kHeap) {
     p = &pageflags.emplace();
     r = &residency.emplace();
+
+    absl::Duration period = absl::ZeroDuration();
+    bool collecting_compressibility = false;
+    if (collecting_compressibility) {
+      ABSL_CONST_INIT static CompressibilityThrottle throttle;
+      compressibility_fraction = throttle.Fraction(absl::Now(), period);
+    }
   }
 
-  return MakeProfileProto(profile, p, r);
+  return MakeProfileProto(profile, p, r, compressibility_fraction);
 }
 
 }  // namespace tcmalloc_internal
