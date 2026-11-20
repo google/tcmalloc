@@ -19,6 +19,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# TCMalloc captures allocation stack traces with absl::GetStackTrace(), whose
+# x86 and aarch64 implementations walk the frame-pointer chain. Omitting frame
+# pointers anywhere in the process -- including inside Abseil itself, where the
+# unwind starts -- truncates every stack to zero frames. Apply this before the
+# FetchContent calls below so the dependencies inherit it.
+add_compile_options(-fno-omit-frame-pointer)
+
 set(CMAKE_SKIP_INSTALL_RULES ON)
 set(ABSL_PROPAGATE_CXX_STD ON)
 set(protobuf_ABSL_PROVIDER "package" CACHE STRING "" FORCE)
