@@ -474,7 +474,7 @@ class MemorySimulation final : public MemoryModifyFunction {
     // syscall (b/73749855).  Mark each page kUnbacking while unlocked: if
     // another thread allocates or unbacks an overlapping range before we
     // finish, its exchange or ours will see a non-zero value and fail.
-    mu_.Unlock();
+    mu_.unlock();
 
     const size_t index = (r.p - base_).raw_num();
     const size_t n = r.n.raw_num();
@@ -489,7 +489,7 @@ class MemorySimulation final : public MemoryModifyFunction {
       TC_CHECK_EQ(old, static_cast<int>(kUnbacking));
     }
 
-    mu_.Lock();
+    mu_.lock();
     return {.success = success_.load(std::memory_order_relaxed),
             .error_number = 0};
   }
