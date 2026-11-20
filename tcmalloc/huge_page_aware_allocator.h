@@ -21,6 +21,8 @@
 
 #include <cstdint>
 #include <optional>
+#include <type_traits>
+#include <utility>
 
 #include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
@@ -77,6 +79,14 @@ struct HugePageAwareAllocatorOptions {
 // optimized for slightly different purposes.  This file has two main purposes:
 // - pick the right one for a given allocation
 // - provide enough data to figure out what we picked last time!
+
+template <typename F, typename = void>
+struct HasCountNonResidentPages : std::false_type {};
+
+template <typename F>
+struct HasCountNonResidentPages<
+    F, std::void_t<decltype(std::declval<const F&>().CountNonResidentPages(
+           std::declval<Range>()))>> : std::true_type {};
 
 template <typename Forwarder>
 class HugePageAwareAllocator final : public PageAllocatorInterface {
@@ -353,7 +363,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   [[nodiscard]] PageId RefillFiller(Length n, SpanAllocInfo span_alloc_info,
-                                    bool* from_released)
+                                    ReleasedPages* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Allocate the first <n> from p, and contribute the rest to the filler.  If
@@ -366,25 +376,68 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 
   [[nodiscard]] AllocationState LockAndAlloc(Length n,
                                              SpanAllocInfo span_alloc_info,
-                                             bool* from_released);
+                                             ReleasedPages* from_released);
 
   [[nodiscard]] AllocationState AllocSmall(Length n,
                                            SpanAllocInfo span_alloc_info,
-                                           bool* from_released)
+                                           ReleasedPages* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   [[nodiscard]] AllocationState AllocLarge(Length n,
                                            SpanAllocInfo span_alloc_info,
-                                           bool* from_released)
+                                           ReleasedPages* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   [[nodiscard]] AllocationState AllocEnormous(Length n,
                                               SpanAllocInfo span_alloc_info,
-                                              bool* from_released)
+                                              ReleasedPages* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   [[nodiscard]] AllocationState AllocRawHugepages(Length n,
                                                   SpanAllocInfo span_alloc_info,
-                                                  bool* from_released)
+                                                  ReleasedPages* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+
+  [[nodiscard]] PageAllocatorInterface::AllocationState FinishNew(
+      AllocationState f, ReleasedPages from_released);
+
+  [[nodiscard]] size_t DebugBackedBytes() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+#ifndef NDEBUG
+    const BackingStats s = stats();
+    TC_ASSERT_GE(s.system_bytes, s.unmapped_bytes);
+    return s.system_bytes - s.unmapped_bytes;
+#else
+    return 0;
+#endif
+  }
+
+  void VerifyAllocatedRange(Range r, ReleasedPages from_released,
+                            size_t backed_before) const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+#ifndef NDEBUG
+    const size_t backed_after = DebugBackedBytes();
+    TC_ASSERT_GE(backed_after, backed_before);
+    const size_t delta = backed_after - backed_before;
+    TC_ASSERT_EQ(from_released != ReleasedPages::kNone, delta > 0);
+    if (from_released == ReleasedPages::kAll) {
+      TC_ASSERT_GE(delta, r.in_bytes());
+    }
+#else
+    (void)r;
+    (void)from_released;
+    (void)backed_before;
+#endif
+    if constexpr (HasCountNonResidentPages<Forwarder>::value) {
+      const FillerType::Tracker* pt = GetTracker(HugePageContaining(r.p));
+      if (pt == nullptr || !pt->BeingCollapsed()) {
+        const Length non_resident = forwarder_.CountNonResidentPages(r);
+        if (from_released == ReleasedPages::kAll) {
+          TC_CHECK_EQ(non_resident, r.n);
+        } else if (from_released == ReleasedPages::kPartial) {
+          TC_CHECK_GT(non_resident, Length(0));
+        }
+      }
+    }
+  }
 
   [[nodiscard]] bool AddRegion() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
@@ -494,9 +547,17 @@ inline PageId HugePageAwareAllocator<Forwarder>::AllocAndContribute(
 
 template <class Forwarder>
 inline PageId HugePageAwareAllocator<Forwarder>::RefillFiller(
-    Length n, SpanAllocInfo span_alloc_info, bool* from_released) {
-  HugeRange r = cache_.Get(NHugePages(1), from_released);
-  if (!r.valid()) return PageId{0};
+    Length n, SpanAllocInfo span_alloc_info, ReleasedPages* from_released) {
+  const size_t backed_before = DebugBackedBytes();
+  bool cache_released;
+  HugeRange r = cache_.Get(NHugePages(1), &cache_released);
+  if (!r.valid()) {
+    *from_released = ReleasedPages::kNone;
+    return PageId{0};
+  }
+  *from_released = cache_released ? ReleasedPages::kAll : ReleasedPages::kNone;
+  VerifyAllocatedRange(Range(r.start().first_page(), n), *from_released,
+                       backed_before);
   // This is duplicate to Finalize, but if we need to break up
   // hugepages to get to our usage limit it would be very bad to break
   // up what's left of r after we allocate from there--while r is
@@ -505,7 +566,7 @@ inline PageId HugePageAwareAllocator<Forwarder>::RefillFiller(
   // pages. Otherwise, we're nearly guaranteed to release r (if n
   // isn't very large), and the next allocation will just repeat this
   // process.
-  forwarder_.ShrinkToUsageLimit(n, *from_released);
+  forwarder_.ShrinkToUsageLimit(n, cache_released);
   return AllocAndContribute(r.start(), n, span_alloc_info, /*donated=*/false);
 }
 
@@ -525,12 +586,14 @@ template <class Forwarder>
 inline typename HugePageAwareAllocator<Forwarder>::AllocationState
 HugePageAwareAllocator<Forwarder>::AllocSmall(Length n,
                                               SpanAllocInfo span_alloc_info,
-                                              bool* from_released) {
+                                              ReleasedPages* from_released) {
+  const size_t backed_before = DebugBackedBytes();
   auto [pt, page, released] = filler_.TryGet(
       n, span_alloc_info, forwarder_.prefer_backed_filler_pages());
-  *from_released = released;
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {
-    return Finalize(Range(page, n), *from_released);
+    *from_released = released;
+    VerifyAllocatedRange(Range(page, n), released, backed_before);
+    return Finalize(Range(page, n), released != ReleasedPages::kNone);
   }
 
   page = RefillFiller(n, span_alloc_info, from_released);
@@ -538,10 +601,10 @@ HugePageAwareAllocator<Forwarder>::AllocSmall(Length n,
     return {};
   }
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
-  return Finalize(Range(page, n), *from_released);
+  return Finalize(Range(page, n), *from_released != ReleasedPages::kNone);
 #else
-  // RefillFiller already called ShrinkToUsageLimit(n, *from_released) before
-  // contributing the new hugepage to the filler.
+  // RefillFiller already called ShrinkToUsageLimit(n, *from_released !=
+  // ReleasedPages::kNone) before contributing the new hugepage to the filler.
   return Finalize(Range(page, n), /*may_have_grown=*/false);
 #endif
 }
@@ -550,7 +613,7 @@ template <class Forwarder>
 inline typename HugePageAwareAllocator<Forwarder>::AllocationState
 HugePageAwareAllocator<Forwarder>::AllocLarge(Length n,
                                               SpanAllocInfo span_alloc_info,
-                                              bool* from_released) {
+                                              ReleasedPages* from_released) {
   // If it's an exact page multiple, just pull it from pages directly.
   HugeLength hl = HLFromPages(n);
   if (hl.in_pages() == n) {
@@ -558,20 +621,25 @@ HugePageAwareAllocator<Forwarder>::AllocLarge(Length n,
   }
 
   PageId page;
+  size_t backed_before;
   // If we fit in a single hugepage, try the Filler.p.
   if (n < kPagesPerHugePage) {
+    backed_before = DebugBackedBytes();
     auto [pt, page, released] = filler_.TryGet(
         n, span_alloc_info, forwarder_.prefer_backed_filler_pages());
-    *from_released = released;
     if (ABSL_PREDICT_TRUE(pt != nullptr)) {
-      return Finalize(Range(page, n), *from_released);
+      *from_released = released;
+      VerifyAllocatedRange(Range(page, n), released, backed_before);
+      return Finalize(Range(page, n), released != ReleasedPages::kNone);
     }
   }
 
   // If we're using regions in this binary (see below comment), is
   // there currently available space there?
+  backed_before = DebugBackedBytes();
   if (regions_.MaybeGet(n, &page, from_released)) {
-    return Finalize(Range(page, n), *from_released);
+    VerifyAllocatedRange(Range(page, n), *from_released, backed_before);
+    return Finalize(Range(page, n), *from_released != ReleasedPages::kNone);
   }
 
   // We have two choices here: allocate a new region or go to
@@ -609,26 +677,36 @@ HugePageAwareAllocator<Forwarder>::AllocLarge(Length n,
     return AllocRawHugepages(n, span_alloc_info, from_released);
   }
 
+  backed_before = DebugBackedBytes();
   TC_CHECK(regions_.MaybeGet(n, &page, from_released));
-  return Finalize(Range(page, n), /*may_have_grown=*/true);
+  VerifyAllocatedRange(Range(page, n), *from_released, backed_before);
+  return Finalize(Range(page, n), *from_released != ReleasedPages::kNone);
 }
 
 template <class Forwarder>
 inline typename HugePageAwareAllocator<Forwarder>::AllocationState
 HugePageAwareAllocator<Forwarder>::AllocEnormous(Length n,
                                                  SpanAllocInfo span_alloc_info,
-                                                 bool* from_released) {
+                                                 ReleasedPages* from_released) {
   return AllocRawHugepages(n, span_alloc_info, from_released);
 }
 
 template <class Forwarder>
 inline typename HugePageAwareAllocator<Forwarder>::AllocationState
 HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
-    Length n, SpanAllocInfo span_alloc_info, bool* from_released) {
+    Length n, SpanAllocInfo span_alloc_info, ReleasedPages* from_released) {
   HugeLength hl = HLFromPages(n);
 
-  HugeRange r = cache_.Get(hl, from_released);
-  if (!r.valid()) return {};
+  const size_t backed_before = DebugBackedBytes();
+  bool cache_released;
+  HugeRange r = cache_.Get(hl, &cache_released);
+  if (!r.valid()) {
+    *from_released = ReleasedPages::kNone;
+    return {};
+  }
+  *from_released = cache_released ? ReleasedPages::kAll : ReleasedPages::kNone;
+  VerifyAllocatedRange(Range(r.start().first_page(), n), *from_released,
+                       backed_before);
 
   // We now have a huge page range that covers our request.  There
   // might be some slack in it if n isn't a multiple of
@@ -645,7 +723,7 @@ HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
     SetTracker(last, nullptr,
                IsHugepageBroken(last) ? HugePageSplitState::kBroken
                                       : HugePageSplitState::kUnbroken);
-    return Finalize(Range(r.start().first_page(), total), *from_released);
+    return Finalize(Range(r.start().first_page(), total), cache_released);
   }
 
   ++donated_huge_pages_;
@@ -653,24 +731,21 @@ HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
   Length here = kPagesPerHugePage - slack;
   TC_ASSERT_GT(here, Length(0));
   AllocAndContribute(last, here, span_alloc_info, /*donated=*/true);
-  auto span = Finalize(Range(r.start().first_page(), n), *from_released);
+  auto span = Finalize(Range(r.start().first_page(), n), cache_released);
   span.donated = true;
   return span;
 }
 
-// public
 template <class Forwarder>
-inline PageAllocatorInterface::AllocationState
-HugePageAwareAllocator<Forwarder>::New(Length n,
-                                       SpanAllocInfo span_alloc_info) {
-  TC_CHECK_GT(n, Length(0));
-  bool from_released;
-  AllocationState f = LockAndAlloc(n, span_alloc_info, &from_released);
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline PageAllocatorInterface::AllocationState
+HugePageAwareAllocator<Forwarder>::FinishNew(AllocationState f,
+                                             ReleasedPages from_released) {
   if (ABSL_PREDICT_TRUE(f)) {
     Range r = f.r;
     // Prefetch for writing, as we anticipate using the memory soon.
     PrefetchW(r.p.start_addr());
-    if (ABSL_PREDICT_FALSE(from_released && ShouldBack(r))) {
+    if (ABSL_PREDICT_FALSE(from_released != ReleasedPages::kNone &&
+                           ShouldBack(r))) {
       forwarder_.Back(r);
     }
     TC_ASSERT(GetMemoryTag(r.p.start_addr()) == tag_);
@@ -679,11 +754,22 @@ HugePageAwareAllocator<Forwarder>::New(Length n,
   return {};
 }
 
+// public
+template <class Forwarder>
+inline PageAllocatorInterface::AllocationState
+HugePageAwareAllocator<Forwarder>::New(Length n,
+                                       SpanAllocInfo span_alloc_info) {
+  TC_CHECK_GT(n, Length(0));
+  ReleasedPages from_released;
+  AllocationState f = LockAndAlloc(n, span_alloc_info, &from_released);
+  return FinishNew(f, from_released);
+}
+
 template <class Forwarder>
 inline typename HugePageAwareAllocator<Forwarder>::AllocationState
 HugePageAwareAllocator<Forwarder>::LockAndAlloc(Length n,
                                                 SpanAllocInfo span_alloc_info,
-                                                bool* from_released) {
+                                                ReleasedPages* from_released) {
   PageHeapSpinLockHolder l;
   // Our policy depends on size.  For small things, we will pack them
   // into single hugepages.
@@ -713,25 +799,13 @@ HugePageAwareAllocator<Forwarder>::NewAligned(Length n, Length align,
 
   // we can do better than this, but...
   TC_CHECK_LE(align, kPagesPerHugePage);
-  bool from_released;
+  ReleasedPages from_released;
   AllocationState f;
   {
     PageHeapSpinLockHolder l;
     f = AllocRawHugepages(n, span_alloc_info, &from_released);
   }
-  if (f) {
-    Range r = f.r;
-    if (from_released) {
-      // Prefetch for writing, as we anticipate using the memory soon.
-      PrefetchW(r.p.start_addr());
-      if (ShouldBack(r)) {
-        forwarder_.Back(r);
-      }
-    }
-    TC_ASSERT(GetMemoryTag(r.p.start_addr()) == tag_);
-    return f;
-  }
-  return {};
+  return FinishNew(f, from_released);
 }
 
 template <class Forwarder>

@@ -342,7 +342,7 @@ void Get::Perform(State& state) const {
   const HugeLength n = NHugePages(std::max<size_t>(1, count % 1024));
   const HugeLength size_before = state.cache.size();
   const HugeLength limit_before = state.cache.limit();
-  bool from_released = false;
+  bool from_released = true;
   HugeRange r = state.cache.Get(n, &from_released);
   if (!r.valid()) {
     // Only the backing allocator can fail, leaving the cache untouched.
