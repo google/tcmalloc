@@ -7557,6 +7557,13 @@ HugePageFiller: 130 of sparsely-accessed released used native pages are unbacked
               testing::HasSubstr("free_swapped_histogram { lower_bound: 104 "
                                  "upper_bound: 135 value: 1}"));
   EXPECT_THAT(buffer_pbtxt,
+              testing::HasSubstr(
+                  "stale_histogram { lower_bound: 2 upper_bound: 2 value: 1}"));
+  EXPECT_THAT(
+      buffer_pbtxt,
+      testing::HasSubstr(
+          "free_stale_histogram { lower_bound: 0 upper_bound: 0 value: 1}"));
+  EXPECT_THAT(buffer_pbtxt,
               testing::HasSubstr("num_free_pages_non_hugepage_backed: 0"));
   EXPECT_THAT(buffer_pbtxt,
               testing::HasSubstr("num_used_pages_non_hugepage_backed: 129"));

@@ -354,6 +354,8 @@ class UsageInfo {
     records.swapped_histo.PrintInPbtxt(scoped, "swapped_histogram");
     records.free_unbacked_histo.PrintInPbtxt(scoped, "free_unbacked_histogram");
     records.free_swapped_histo.PrintInPbtxt(scoped, "free_swapped_histogram");
+    records.stale_histo.PrintInPbtxt(scoped, "stale_histogram");
+    records.free_stale_histo.PrintInPbtxt(scoped, "free_stale_histogram");
     PrintSampledTrackers(scoped, type, "sampled_trackers", records);
     scoped.PrintI64("total_pages", records.total_hugepages.raw_num());
     scoped.PrintI64("num_pages_hugepage_backed",
