@@ -925,11 +925,17 @@ tcmalloc_cc_test_variants(
     "GTest::gmock_main"
     "GTest::gmock"
     "absl::core_headers"
+    "absl::flat_hash_map"
+    "absl::flat_hash_map"
+    "absl::flat_hash_set"
+    "absl::inlined_vector"
     "absl::log"
+    "absl::span"
     "absl::strings"
     "absl::symbolize"
     "absl::time"
     "tcmalloc::malloc_extension"
+    "tcmalloc::malloc_hook"
     "tcmalloc::testing_testutil"
 )
 
