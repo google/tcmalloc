@@ -28,6 +28,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/exponential_biased.h"
@@ -185,6 +186,7 @@ class GuardedPageAllocator {
     const uintptr_t addr = absl::bit_cast<uintptr_t>(ptr);
     size_t slot = GetNearestSlot(addr);
     const SlotMetadata& metadata = data_[slot];
+    AllocationGuardSpinLockHolder h(metadata.lock);
     return metadata.allocation_start == addr;
   }
 
@@ -221,17 +223,19 @@ class GuardedPageAllocator {
  private:
   // Structure for storing data about a slot.
   struct SlotMetadata {
-    GuardedAllocationsStackTrace alloc_trace;
-    GuardedAllocationsStackTrace dealloc_trace;
-    size_t requested_size = 0;             // requested allocaton size
-    std::align_val_t requested_alignment;  // requested alignment
-    uintptr_t allocation_start = 0;        // allocation start address
-    std::atomic<int> dealloc_count = 0;    // deallocation counter
-    bool write_overflow_detected = false;  // write overflow detected
+    mutable absl::base_internal::SpinLock lock{
+        absl::base_internal::SCHEDULE_KERNEL_ONLY};
+    GuardedAllocationsStackTrace alloc_trace ABSL_GUARDED_BY(lock);
+    GuardedAllocationsStackTrace dealloc_trace ABSL_GUARDED_BY(lock);
+    size_t requested_size ABSL_GUARDED_BY(lock) = 0;
+    std::align_val_t requested_alignment ABSL_GUARDED_BY(lock);
+    uintptr_t allocation_start ABSL_GUARDED_BY(lock) = 0;
+    int dealloc_count ABSL_GUARDED_BY(lock) = 0;
+    bool write_overflow_detected ABSL_GUARDED_BY(lock) = false;
     // True when the page is quarantined with mprotect() rather than with a
     // guard region.  Set by ProtectPage and consumed by UnprotectPage;
     // initialized to match how MapPages quarantined the pool.
-    bool mprotect_quarantined = false;
+    bool mprotect_quarantined ABSL_GUARDED_BY(lock) = false;
   };
 
   // Max number of magic bytes we use to detect write-overflows at deallocation.
@@ -264,12 +268,15 @@ class GuardedPageAllocator {
   [[nodiscard]] size_t GetNearestSlot(uintptr_t addr) const;
 
   // Returns true if magic bytes for slot were overwritten.
-  [[nodiscard]] bool WriteOverflowOccurred(size_t slot) const;
+  [[nodiscard]] bool WriteOverflowOccurred(size_t slot,
+                                           const SlotMetadata& d) const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(d.lock);
 
   // Returns the likely error type for the given access address and metadata
   // associated with the nearest slot.
   [[nodiscard]] GuardedAllocationsErrorType GetErrorType(
-      uintptr_t addr, const SlotMetadata& d) const;
+      uintptr_t addr, const SlotMetadata& d) const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(d.lock);
 
   // Magic constant used for detecting write-overflows at deallocation time.
   [[nodiscard]] static uint8_t GetWriteOverflowMagic(size_t slot) {
