@@ -133,20 +133,26 @@ TEST(StaticForwarderTest, AllocReportedImpending) {
   constexpr size_t kSize = 64;
   const ArenaStats before = tc_globals.arena().stats();
 
+  ProdForwarder::ArenaUpdateAllocatedAndNonresident(kSize, 0);
+  const ArenaStats after_impending = tc_globals.arena().stats();
+  constexpr size_t kCpuCache = static_cast<size_t>(ArenaAlloc::kCpuCache);
+  EXPECT_EQ(after_impending.bytes_allocated - before.bytes_allocated, kSize);
+  EXPECT_EQ(after_impending.bytes_allocated_per_type[kCpuCache] -
+                before.bytes_allocated_per_type[kCpuCache],
+            kSize);
+
   void* p = ProdForwarder::AllocReportedImpending(kSize, kAlignment);
   EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % static_cast<size_t>(kAlignment),
             0);
 
-  // The allocation is accounted to kCpuCache, but bytes_allocated excludes
-  // kSize, which the caller already reported via
-  // ArenaUpdateAllocatedAndNonresident.
+  // The allocation is accounted to kCpuCache, and bytes_allocated and
+  // bytes_allocated_per_type[kCpuCache] exclude the kSize that the caller
+  // already reported via ArenaUpdateAllocatedAndNonresident.
   const ArenaStats after = tc_globals.arena().stats();
-  constexpr size_t kCpuCache = static_cast<size_t>(ArenaAlloc::kCpuCache);
   const size_t cpu_cache_bytes = after.bytes_allocated_per_type[kCpuCache] -
                                  before.bytes_allocated_per_type[kCpuCache];
   EXPECT_GE(cpu_cache_bytes, kSize);
-  EXPECT_EQ(after.bytes_allocated - before.bytes_allocated,
-            cpu_cache_bytes - kSize);
+  EXPECT_EQ(after.bytes_allocated - before.bytes_allocated, cpu_cache_bytes);
 }
 
 TEST(StaticForwarderTest, ArenaUpdateAllocatedAndNonresident) {

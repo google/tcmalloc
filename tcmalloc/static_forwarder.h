@@ -153,7 +153,8 @@ class StaticForwarder : private Parameters {
     // present a consistent view of memory usage.
     PageHeapSpinLockHolder l;
     // Negate previous update to allocated that accounted for this allocation.
-    state.arena().UpdateAllocatedAndNonresident(-static_cast<int64_t>(size), 0);
+    state.arena().UpdateAllocatedAndNonresident(-static_cast<int64_t>(size), 0,
+                                                ArenaAlloc::kCpuCache);
     return state.arena().Alloc(ArenaAlloc::kCpuCache, size, alignment);
   }
 
@@ -173,7 +174,8 @@ class StaticForwarder : private Parameters {
           BytesToLengthCeil(allocated),
           /*may_have_grown=*/allocated > nonresident);
     }
-    state.arena().UpdateAllocatedAndNonresident(allocated, nonresident);
+    state.arena().UpdateAllocatedAndNonresident(allocated, nonresident,
+                                                ArenaAlloc::kCpuCache);
   }
 
   static void SetAnonVmaName(void* ptr, size_t size,

@@ -189,11 +189,20 @@ TEST(MallocExtension, DynamicSlabMallocMetadata) {
 
   ScopedBackgroundProcessActionsEnabled background(false);
 
+  const auto stats_before = tc_globals.arena().stats();
   auto& cpu_cache = tc_globals.cpu_cache();
   for (int i = 0; i < 100; ++i) {
     CpuCachePeer::ResizeSlab(cpu_cache, /*should_grow=*/true);
     CpuCachePeer::ResizeSlab(cpu_cache, /*should_grow=*/false);
   }
+  const auto stats_after = tc_globals.arena().stats();
+  constexpr size_t kCpuCache =
+      static_cast<size_t>(tcmalloc_internal::ArenaAlloc::kCpuCache);
+  EXPECT_EQ(stats_after.bytes_allocated_per_type[kCpuCache] -
+                stats_before.bytes_allocated_per_type[kCpuCache],
+            stats_after.bytes_allocated - stats_before.bytes_allocated);
+  EXPECT_LE(stats_after.bytes_allocated_per_type[kCpuCache],
+            stats_after.bytes_allocated);
   auto properties = MallocExtension::GetProperties();
   EXPECT_THAT(
       properties["tcmalloc.metadata_bytes"],
