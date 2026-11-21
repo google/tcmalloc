@@ -3119,6 +3119,142 @@ TEST_F(FillerTest, ReobservesStaleHugepageBackedTracker) {
   DeleteVector(p1);
 }
 
+// Stale trackers are selected oldest record first, so a pass does not
+// repeatedly scan the same head-of-list trackers when more than the per-pass
+// budget are stale.
+TEST_F(FillerTest, SplitCandidateSelectionPrefersOldestRecords) {
+  constexpr size_t kTrackers = kMinCandidateTrackersToScan + 1;
+  constexpr size_t kYoungest = kTrackers / 2;
+  randomize_density_ = false;
+  set_anon_vma_name_.SetIgnoreName(true);
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  std::vector<PAlloc> allocs;
+  allocs.reserve(kTrackers);
+  for (size_t i = 0; i < kTrackers; ++i) {
+    allocs.push_back(Allocate(kPagesPerHugePage - Length(1)));
+    void* addr = allocs.back().pt->location().start_addr();
+    Bitmap<kMaxResidencyBits> unbacked, swapped;
+    residency.SetUnbackedAndSwappedBitmaps(addr, unbacked, swapped);
+    pageflags.SetStaleBitmap(addr, {});
+    pageflags.MarkHugePageBacked(addr, /*is_hugepage_backed=*/false);
+  }
+  ASSERT_EQ(filler_.size(), NHugePages(kTrackers));
+
+  FakeClock::Advance(2 * kRecordInterval);
+  const double now = FakeClock::now();
+  const double second = FakeClock::freq();
+  const double interval = absl::ToDoubleSeconds(kRecordInterval) * second;
+  auto record_time = [&](size_t i) {
+    if (i == kYoungest) return now - interval - second;
+    return now - interval - 2 * second - i * second;
+  };
+  for (size_t i = 0; i < kTrackers; ++i) {
+    PageHeapSpinLockHolder l;
+    allocs[i].pt->SetHugePageResidencyState({.record_time = record_time(i),
+                                             .maybe_hugepage_backed = false,
+                                             .entry_valid = true});
+  }
+
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  for (size_t i = 0; i < kTrackers; ++i) {
+    const double recorded = GetResidencyState(*allocs[i].pt).record_time;
+    if (i == kYoungest) {
+      EXPECT_EQ(recorded, record_time(i)) << i;
+    } else {
+      EXPECT_EQ(recorded, now) << i;
+    }
+  }
+
+  TreatHugepageTrackers(EnableCollapse::kDisabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+  EXPECT_EQ(GetResidencyState(*allocs[kYoungest].pt).record_time, now);
+
+  for (const PAlloc& pa : allocs) {
+    Delete(pa);
+  }
+}
+
+// On a heap large enough for CandidateTrackersToScan to exceed
+// kMaxCollapseAttemptsPerPass, a single pass observes residency for all
+// selected candidates while capping userspace collapse attempts at
+// kMaxCollapseAttemptsPerPass (prioritized by CompareForHugePageTreatment).
+TEST_F(FillerTest, CandidateScanScalesWithHeapAndCapsCollapseAttempts) {
+  using Treatment = HugePageUnbackedTrackerTreatment<PageTracker>;
+  EXPECT_EQ(Treatment::CandidateTrackersToScan(NHugePages(0)),
+            kMinCandidateTrackersToScan);
+  EXPECT_EQ(Treatment::CandidateTrackersToScan(NHugePages(60 * 100)), 100);
+  EXPECT_EQ(Treatment::CandidateTrackersToScan(NHugePages(60 * 5000)),
+            kMaxCandidateTrackersToScan);
+
+  constexpr size_t kCandidateBudget = kMaxCollapseAttemptsPerPass + 1;
+  constexpr size_t kPassesPerInterval = 60;
+  constexpr size_t kTotalTrackers = kCandidateBudget * kPassesPerInterval;
+  randomize_density_ = false;
+  set_anon_vma_name_.SetIgnoreName(true);
+  FakePageFlags pageflags;
+  FakeResidency residency;
+  std::vector<PAlloc> allocs;
+  allocs.reserve(kTotalTrackers);
+
+  FakeClock::Advance(kRecordInterval);
+  const double now = FakeClock::now();
+  for (size_t i = 0; i < kTotalTrackers; ++i) {
+    SpanAllocInfo info = {
+        .objects_per_span = (i == 0) ? 1u : 2u,
+        .density = AccessDensityPrediction::kSparse,
+    };
+    allocs.push_back(
+        AllocateWithSpanAllocInfo(kPagesPerHugePage - Length(1), info));
+    PageTracker* pt = allocs.back().pt;
+    void* addr = pt->location().start_addr();
+    if (i < kCandidateBudget) {
+      // Never-observed split candidate.
+      Bitmap<kMaxResidencyBits> unbacked, swapped;
+      residency.SetUnbackedAndSwappedBitmaps(addr, unbacked, swapped);
+      pageflags.SetStaleBitmap(addr, {});
+      pageflags.MarkHugePageBacked(addr, /*is_hugepage_backed=*/false);
+    } else {
+      // Freshly observed hugepage-backed tracker.
+      MarkHugePageBackedInResidency(*pt, pageflags, residency);
+      PageHeapSpinLockHolder l;
+      pt->SetHugePageResidencyState({.record_time = now,
+                                     .maybe_hugepage_backed = true,
+                                     .entry_valid = true});
+    }
+  }
+  ASSERT_EQ(filler_.size(), NHugePages(kTotalTrackers));
+
+  TreatHugepageTrackers(EnableCollapse::kEnabled,
+                        EnableUnfilteredCollapse::kDisabled,
+                        ReleaseStalePages::kDisabled, &pageflags, &residency);
+
+  HugePageTreatmentStats stats = GetHugePageTreatmentStats();
+  EXPECT_EQ(stats.collapse_eligible, NHugePages(kCandidateBudget));
+  EXPECT_EQ(stats.collapse_attempted, NHugePages(kMaxCollapseAttemptsPerPass));
+  EXPECT_EQ(stats.collapse_succeeded, NHugePages(kMaxCollapseAttemptsPerPass));
+
+  // allocs[0] had fewer objects (nobjects == 1 vs 2), so the 64 higher-object
+  // candidates took the collapse cap while allocs[0] still had its residency
+  // recorded with collapse_skipped set.
+  PageTracker::HugePageResidencyState low_priority_state =
+      GetResidencyState(*allocs[0].pt);
+  EXPECT_TRUE(low_priority_state.entry_valid);
+  EXPECT_FALSE(low_priority_state.maybe_hugepage_backed);
+  EXPECT_TRUE(low_priority_state.collapse_skipped);
+  EXPECT_FALSE(low_priority_state.collapse_skipped_due_to_backoff);
+  for (size_t i = 1; i < kCandidateBudget; ++i) {
+    EXPECT_TRUE(GetResidencyState(*allocs[i].pt).maybe_hugepage_backed) << i;
+  }
+
+  for (const PAlloc& pa : allocs) {
+    Delete(pa);
+  }
+}
+
 // Checks that the anonymous VMA name is being recorded correctly for the
 // sampled tracker.
 TEST_F(FillerTest, SetAnonVmaName) {
