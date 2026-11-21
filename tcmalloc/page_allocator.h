@@ -475,10 +475,15 @@ template <typename Forwarder>
 inline void PageAllocatorImpl<Forwarder>::set_limit(size_t limit,
                                                     LimitKind limit_kind) {
   PageHeapSpinLockHolder h;
+  const size_t old_soft = limits_[kSoft];
+  const size_t old_hard = limits_[kHard];
   limits_[limit_kind] = limit;
   if (limits_[kHard] < limits_[kSoft]) {
     // Soft limit can not be higher than hard limit.
     limits_[kSoft] = limits_[kHard];
+  }
+  if (limits_[kSoft] == old_soft && limits_[kHard] == old_hard) {
+    return;
   }
   // Attempt to shed memory to get below the new limit.
   ShrinkToUsageLimit(Length(0), /*may_have_grown=*/true);
