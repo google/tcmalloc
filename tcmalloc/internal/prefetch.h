@@ -108,6 +108,47 @@ inline void PrefetchWT2(const void*) {}
 inline void PrefetchWT3(const void*) {}
 #endif
 
+#if defined(__aarch64__)
+// AArch64 prefetches with an explicit target cache level and access intent,
+// for call sites that choose their placement individually. All are temporal
+// (KEEP): PLD prefetches for load, PST prefetches for store (requests the line
+// in a unique state). `__builtin_prefetch` cannot express an L2 target with
+// write intent, and inline assembly on Clang defeats folding the address
+// computation into the PRFM addressing mode, so use `__builtin_arm_prefetch`.
+inline void PrefetchPldL1Keep(const void* addr) {
+#if defined(__clang__)
+  __builtin_arm_prefetch(addr, /*rw=*/0, /*cache_level=*/0,
+                         /*retention_policy=*/0, /*is_data=*/1);
+#else
+  asm volatile("prfm pldl1keep, [%0]" : : "r"(addr));
+#endif
+}
+inline void PrefetchPldL2Keep(const void* addr) {
+#if defined(__clang__)
+  __builtin_arm_prefetch(addr, /*rw=*/0, /*cache_level=*/1,
+                         /*retention_policy=*/0, /*is_data=*/1);
+#else
+  asm volatile("prfm pldl2keep, [%0]" : : "r"(addr));
+#endif
+}
+inline void PrefetchPstL1Keep(const void* addr) {
+#if defined(__clang__)
+  __builtin_arm_prefetch(addr, /*rw=*/1, /*cache_level=*/0,
+                         /*retention_policy=*/0, /*is_data=*/1);
+#else
+  asm volatile("prfm pstl1keep, [%0]" : : "r"(addr));
+#endif
+}
+inline void PrefetchPstL2Keep(const void* addr) {
+#if defined(__clang__)
+  __builtin_arm_prefetch(addr, /*rw=*/1, /*cache_level=*/1,
+                         /*retention_policy=*/0, /*is_data=*/1);
+#else
+  asm volatile("prfm pstl2keep, [%0]" : : "r"(addr));
+#endif
+}
+#endif  // defined(__aarch64__)
+
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
