@@ -1123,6 +1123,7 @@ tcmalloc_cc_test(
     "GTest::gtest"
     "GTest::gmock"
     "absl::check"
+    "absl::core_headers"
     "absl::flat_hash_set"
     "absl::function_ref"
     "absl::str_format"

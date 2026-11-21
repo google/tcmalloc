@@ -32,6 +32,7 @@
 
 #include "gtest/gtest.h"
 #include "fuzztest/fuzztest.h"
+#include "absl/base/optimization.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/functional/function_ref.h"
 #include "absl/log/check.h"
@@ -131,9 +132,20 @@ struct State {
 };
 
 // We select different sizes for different size classes, so that ASan can notice
-// if we confuse objects across size classes.
+// if we confuse objects across size classes, and span smaller than, equal to,
+// and larger than a cache line to exercise Pop prefetch offset calculations.
 static size_t FakeSizeForSizeClass(size_t size_class) {
-  return 16 + size_class;
+  static_assert(kNumClasses == 5);
+  static constexpr std::array<size_t, kNumClasses> kSizes = {
+      0,
+      16,
+      ABSL_CACHELINE_SIZE,
+      ABSL_CACHELINE_SIZE + 1,
+      2 * ABSL_CACHELINE_SIZE,
+  };
+  TC_CHECK_GT(size_class, 0);
+  TC_CHECK_LT(size_class, kSizes.size());
+  return kSizes[size_class];
 }
 
 void* State::AllocateObject(size_t size_class) {
@@ -270,20 +282,22 @@ struct Push {
 
 struct Pop {
   unsigned size_class;
+  size_t size = 0;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Pop& p) {
-    absl::Format(&sink, "Pop{.size_class=%v}", p.size_class);
+    absl::Format(&sink, "Pop{.size_class=%v, .size=%v}", p.size_class, p.size);
   }
 
   void Perform(State& state) const {
     const size_t sc = 1 + (size_class % (kNumClasses - 1));
-    void* item = state.slab.Pop(sc);
+    const size_t obj_size = size % (FakeSizeForSizeClass(sc) + 1);
+    void* item = state.slab.Pop(sc, obj_size);
     if (item == nullptr) {
       auto [got_cpu, cached] = state.slab.CacheCpuSlab();
       if (cached && got_cpu >= 0 && !state.cpu_stopped[got_cpu]) {
         state.EnsureCpuInitialized(got_cpu);
-        item = state.slab.Pop(sc);
+        item = state.slab.Pop(sc, obj_size);
       }
     }
     if (item != nullptr) {
