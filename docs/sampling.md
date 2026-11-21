@@ -50,7 +50,7 @@ identify that the object was sampled and needs special handling on deallocation.
 
 For the sampled page heap, the virtual addresses associated with the allocation
 are
-[`madvise`d with the `MADV_NOHUGEPAGE` flag](https://github.com/google/tcmalloc/blob/master/tcmalloc/system_allocator.h).
+[`madvise`d with the `MADV_NOHUGEPAGE` flag](https://github.com/google/tcmalloc/blob/master/tcmalloc/internal/system_allocator.h).
 This, combined with the whole-page behavior above, means that *every allocation
 gets its own native (OS) page(s)* shared with no other allocations.
 
