@@ -19,6 +19,7 @@
 #include <unistd.h>
 
 #include <cstddef>
+#include <cstdio>
 #include <optional>
 
 #include "gtest/gtest.h"
@@ -108,6 +109,23 @@ TEST(CacheTopology, MissingNumCpusFallsBackToSingleL3) {
   EXPECT_EQ(topology.GetL3FromCpuId(0), 0);
   EXPECT_EQ(topology.GetL3FromCpuId(NumCPUs() - 1), 0);
   EXPECT_EQ(topology.GetL3FromCpuId(2047), 0);
+}
+
+TEST(CacheTopology, MoreThan256L3Caches) {
+  CacheTopology topology;
+  constexpr int kNumCpus = 300;
+  topology.InitForTest(
+      [](size_t cpu) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%zu\n", cpu);
+        return CreateCpuListFd(buf);
+      },
+      /*maybe_numcpus=*/kNumCpus);
+  EXPECT_EQ(topology.l3_count(), 255);
+  EXPECT_EQ(topology.GetL3FromCpuId(0), 0);
+  EXPECT_EQ(topology.GetL3FromCpuId(254), 254);
+  EXPECT_EQ(topology.GetL3FromCpuId(255), 254);
+  EXPECT_EQ(topology.GetL3FromCpuId(kNumCpus - 1), 254);
 }
 
 }  // namespace

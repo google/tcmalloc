@@ -16,8 +16,11 @@
 
 #include <fcntl.h>
 
+#include <algorithm>
 #include <cerrno>
+#include <cstdint>
 #include <cstdio>
+#include <limits>
 #include <optional>
 
 #include "tcmalloc/internal/config.h"
@@ -86,7 +89,11 @@ void CacheTopology::InitImpl(std::optional<int> maybe_numcpus,
     cpus_to_check.CLR(cpu);
 
     const int first_cpu = cpu;
-    l3_cache_index_[first_cpu] = l3_count_++;
+    if (l3_count_ < std::numeric_limits<uint8_t>::max()) {
+      l3_cache_index_[first_cpu] = l3_count_++;
+    } else {
+      l3_cache_index_[first_cpu] = std::numeric_limits<uint8_t>::max() - 1;
+    }
     // Set the remaining in the parsed cpu set to the l3_cache_index of
     // the first one.
     while (true) {
