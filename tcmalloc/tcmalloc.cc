@@ -1485,12 +1485,17 @@ extern "C" bool TCMalloc_Internal_GetPageAllocationStatus(
     return false;
   }
   tcmalloc::tcmalloc_internal::PageBitmap pages;
+  tcmalloc::tcmalloc_internal::PageSuballocator suballocator =
+      tcmalloc::tcmalloc_internal::PageSuballocator::kUnknown;
   bool ok =
       tc_globals.guardedpage_allocator().GetPageAllocationStatus(hp, pages);
-  if (!ok) {
+  if (ok) {
+    suballocator = tcmalloc::tcmalloc_internal::PageSuballocator::kGuarded;
+  } else {
     auto tag = tcmalloc::tcmalloc_internal::GetMemoryTag(ptr);
     tcmalloc::tcmalloc_internal::PageHeapSpinLockHolder l;
-    ok = tc_globals.page_allocator().GetPageAllocationStatus(hp, pages, tag);
+    ok = tc_globals.page_allocator().GetPageAllocationStatus(hp, pages,
+                                                             suballocator, tag);
   }
   if (!ok) {
     return false;
@@ -1499,6 +1504,7 @@ extern "C" bool TCMalloc_Internal_GetPageAllocationStatus(
   status->allocated = tcmalloc::tcmalloc_internal::Scale<512>(
       pages, tcmalloc::tcmalloc_internal::kPagesPerHugePage.raw_num(),
       tcmalloc::tcmalloc_internal::ReductionOp::kAny);
+  status->suballocator = suballocator;
   return true;
 }
 
