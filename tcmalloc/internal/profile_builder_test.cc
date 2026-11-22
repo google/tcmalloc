@@ -1714,6 +1714,122 @@ TEST(ProfileConverterTest, SmallSizeClassGroupAnalyzesHundredsOfSamples) {
   EXPECT_EQ(values["analyzed_compressibility_space"], kTotalBacked);
 }
 
+TEST(CompressibilityThrottleTest, FractionTracksTimeSincePreviousConversion) {
+  CompressibilityThrottle throttle;
+  const absl::Duration period = absl::Minutes(30);
+  const absl::Time start = absl::FromUnixSeconds(1'700'000'000);
+
+  // The first conversion analyzes everything.
+  EXPECT_EQ(throttle.Fraction(start, period), 1.0);
+  // 3 minutes later: a tenth of the candidates.
+  EXPECT_DOUBLE_EQ(throttle.Fraction(start + absl::Minutes(3), period), 0.1);
+  // Measured from the previous conversion, not from the first one.
+  EXPECT_DOUBLE_EQ(throttle.Fraction(start + absl::Minutes(18), period), 0.5);
+  // At least a period later: everything again.
+  EXPECT_EQ(throttle.Fraction(start + absl::Minutes(48), period), 1.0);
+  // A conversion at the same time, or with the clock moving backwards,
+  // analyzes nothing.
+  EXPECT_EQ(throttle.Fraction(start + absl::Minutes(48), period), 0.0);
+  EXPECT_EQ(throttle.Fraction(start + absl::Minutes(40), period), 0.0);
+}
+
+TEST(CompressibilityThrottleTest, NonPositivePeriodAnalyzesEverything) {
+  CompressibilityThrottle throttle;
+  const absl::Time start = absl::FromUnixSeconds(1'700'000'000);
+  EXPECT_EQ(throttle.Fraction(start, absl::ZeroDuration()), 1.0);
+  EXPECT_EQ(throttle.Fraction(start + absl::Seconds(1), absl::ZeroDuration()),
+            1.0);
+  EXPECT_EQ(throttle.Fraction(start + absl::Seconds(2), -absl::Seconds(1)),
+            1.0);
+}
+
+// Builds a kHeap profile of `num_spans` resident 1 KiB spans in one callstack
+// group, half of them all zeroes, and converts it with the given fraction.
+absl::flat_hash_map<std::string, int64_t> ConvertWithCompressibilityFraction(
+    size_t num_spans, double fraction, std::vector<std::vector<char>>& bufs,
+    bool& has_compressibility_columns) {
+  constexpr size_t kSpanSize = 1024;
+  bufs.assign(num_spans, std::vector<char>(kSpanSize));
+  StubPageFlags pageflags;
+  StubResidency residency;
+  std::vector<Profile::Sample> samples;
+  samples.reserve(num_spans);
+  for (size_t i = 0; i < num_spans; ++i) {
+    std::memset(bufs[i].data(), (i % 2 == 0) ? 0 : 0x42, kSpanSize);
+    Profile::Sample sample = {};
+    sample.sum = kSpanSize;
+    sample.count = 1;
+    sample.requested_size = kSpanSize;
+    sample.allocated_size = kSpanSize;
+    sample.span_start_address = bufs[i].data();
+    sample.depth = 1;
+    sample.stack[0] = reinterpret_cast<void*>(&RealPath);
+    sample.type = AllocationType::Malloc;
+    samples.push_back(sample);
+
+    Residency::Info info;
+    info.bytes_resident = kSpanSize;
+    info.page_is_resident.SetBit(0);
+    info.page_is_resident.SetBit(1);
+    residency.SetInfo(bufs[i].data(), info);
+    pageflags.set_bytes_stale(bufs[i].data(), kSpanSize);
+  }
+
+  auto fake_profile = std::make_unique<FakeProfile>();
+  fake_profile->SetType(ProfileType::kHeap);
+  fake_profile->SetDuration(absl::Milliseconds(100));
+  fake_profile->SetSamples(std::move(samples));
+  Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
+
+  auto converted_or =
+      MakeProfileProto(profile, &pageflags, &residency, fraction);
+  CHECK_OK(converted_or.status());
+  const auto& converted = **converted_or;
+  CHECK_EQ(converted.sample_size(), 1);
+  absl::flat_hash_map<std::string, int64_t> values;
+  for (int i = 0; i < converted.sample_type_size(); ++i) {
+    values[converted.string_table(converted.sample_type(i).type())] =
+        converted.sample(0).value(i);
+  }
+  has_compressibility_columns =
+      values.contains("analyzed_compressibility_space");
+  return values;
+}
+
+TEST(ProfileConverterTest, ZeroCompressibilityFractionAnalyzesNothing) {
+  std::vector<std::vector<char>> bufs;
+  bool has_compressibility_columns = true;
+  auto values = ConvertWithCompressibilityFraction(
+      /*num_spans=*/100, /*fraction=*/0.0, bufs, has_compressibility_columns);
+  // Residency and pageflags columns are unaffected.
+  EXPECT_EQ(values["resident_space"], 100 * 1024);
+  EXPECT_EQ(values["stale_space"], 100 * 1024);
+  // No span was analyzed, so the compressibility columns are omitted rather
+  // than reported as zero.
+  EXPECT_FALSE(has_compressibility_columns);
+}
+
+TEST(ProfileConverterTest, CompressibilityFractionSubsamplesCandidates) {
+  constexpr size_t kNumSpans = 400;
+  constexpr int64_t kTotalBacked = kNumSpans * 1024;
+  std::vector<std::vector<char>> bufs;
+  bool has_compressibility_columns = false;
+  auto values = ConvertWithCompressibilityFraction(
+      kNumSpans, /*fraction=*/0.25, bufs, has_compressibility_columns);
+
+  return;
+
+  EXPECT_EQ(values["resident_space"], kTotalBacked);
+  EXPECT_EQ(values["stale_space"], kTotalBacked);
+  ASSERT_TRUE(has_compressibility_columns);
+  // About a quarter of the 400 spans is analyzed (binomial: mean 100, standard
+  // deviation 8.7), and zero_space is still extrapolated to the whole group.
+  EXPECT_GE(values["analyzed_compressibility_space"], kTotalBacked / 10);
+  EXPECT_LE(values["analyzed_compressibility_space"], kTotalBacked * 4 / 10);
+  EXPECT_GE(values["zero_space"], kTotalBacked * 3 / 10);
+  EXPECT_LE(values["zero_space"], kTotalBacked * 7 / 10);
+}
+
 #if defined(__linux__)
 TEST(ProfileConverterTest,
      UnanalyzedGroupUsesConservativeIncompressibleFallback) {

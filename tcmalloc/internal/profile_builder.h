@@ -20,6 +20,7 @@
 #include <link.h>
 #endif  // defined(__linux__)
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -30,6 +31,7 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/malloc_extension.h"
 
@@ -90,10 +92,45 @@ class PageFlagsBase;
 class PageFlags;
 class Residency;
 
-// Exposed to facilitate testing.
+// Exposed to facilitate testing. Analyzes every compressibility candidate.
 [[nodiscard]] absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>>
 MakeProfileProto(const ::tcmalloc::Profile& profile, PageFlagsBase* pageflags,
                  Residency* residency);
+
+// Exposed to facilitate testing. Analyzes each compressibility candidate with
+// probability `compressibility_fraction` (see CompressibilityThrottle).
+[[nodiscard]] absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>>
+MakeProfileProto(const ::tcmalloc::Profile& profile, PageFlagsBase* pageflags,
+                 Residency* residency, double compressibility_fraction);
+
+// Bounds how often heap profile conversions read sampled spans for
+// compressibility analysis, independently of how often heap profiles are
+// requested.
+//
+// Compressibility analysis copies the contents of sampled resident spans, which
+// sets their pages' accessed bits. kstaled then treats those pages as recently
+// used and `stale_space` reports them as not stale for the next one or two scan
+// periods. A process that converts heap profiles more often than the stale scan
+// period would therefore hide the staleness of its sampled pages from every
+// other heap profile. To keep the average rate at which a sampled span is read
+// at about once per `period` regardless of the number of callers, each
+// conversion analyzes each candidate with probability
+// min(1, elapsed / period), where `elapsed` is the time since the previous
+// conversion that collected compressibility in this process.
+class CompressibilityThrottle {
+ public:
+  constexpr CompressibilityThrottle() = default;
+
+  // Returns the fraction of compressibility candidates to analyze for a
+  // conversion at `now`, and records `now` as the latest conversion. Returns 1
+  // for the first conversion, when `period` is not positive, or when at least
+  // `period` has elapsed; 0 if `now` is not after the previous conversion.
+  double Fraction(absl::Time now, absl::Duration period);
+
+ private:
+  // absl::ToUnixNanos() of the previous conversion; 0 if there was none.
+  std::atomic<int64_t> last_conversion_nanos_{0};
+};
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
