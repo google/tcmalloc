@@ -180,11 +180,6 @@ void Parameters::InitializeFromExperiments() {
                                       std::memory_order_relaxed);
   }
 
-  if (IsExperimentActive(Experiment::TCMALLOC_SONIC_FILLER_APPEND_ON_FREE)) {
-    filler_append_on_free_.store(FillerAppendOnFree::kEnabled,
-                                 std::memory_order_relaxed);
-  }
-
   if (IsExperimentActive(
           Experiment::
               TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE_DENSE_128K)) {
