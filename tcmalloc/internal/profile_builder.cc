@@ -1048,7 +1048,7 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
         "Program was built with sanitizers enabled, which do not support heap "
         "profiling");
 #else
-    return absl::InvalidArgumentError(
+    return absl::NotFoundError(
         "Empty heap profile: TCMalloc appears disabled or unavailable (e.g. a "
         "custom allocator may be linked)");
 #endif

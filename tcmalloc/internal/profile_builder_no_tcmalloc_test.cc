@@ -36,7 +36,7 @@ TEST(ProfileBuilderNoTCMallocTest, StatusErrorTest) {
               StatusIs(absl::StatusCode::kUnimplemented,
                        HasSubstr("Program was built with sanitizers enabled")));
 #else
-  EXPECT_THAT(profile_st, StatusIs(absl::StatusCode::kInvalidArgument,
+  EXPECT_THAT(profile_st, StatusIs(absl::StatusCode::kNotFound,
                                    HasSubstr("Empty heap profile")));
 #endif
 }
