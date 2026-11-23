@@ -20,6 +20,7 @@
 #include <array>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <utility>
 
 #include "absl/base/attributes.h"
@@ -122,28 +123,28 @@ class PageAllocatorImpl {
   [[nodiscard]] PageReleaseStats GetReleaseStats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  [[nodiscard]] bool GetPageAllocationStatus(HugePage hp, PageBitmap& pages,
-                                             MemoryTag tag) const
+  [[nodiscard]] std::optional<HugePageAllocationStatus> GetPageAllocationStatus(
+      HugePage hp, MemoryTag tag) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     switch (tag) {
       case MemoryTag::kNormalP1:
         if (active_partitions() <= 1) {
-          return false;
+          return std::nullopt;
         }
         ABSL_FALLTHROUGH_INTENDED;
       case MemoryTag::kSampledOrColdP1:
         if (tag == MemoryTag::kSampledOrColdP1 && !sampled_partition_active_) {
-          return false;
+          return std::nullopt;
         }
         ABSL_FALLTHROUGH_INTENDED;
       case MemoryTag::kNormal:
       case MemoryTag::kSampledOrCold:
-        return impl(tag)->GetPageAllocationStatus(hp, pages);
+        return impl(tag)->GetPageAllocationStatus(hp);
       case MemoryTag::kGuarded:
       case MemoryTag::kMetadata:
-        return false;
+        return std::nullopt;
     }
-    return false;
+    return std::nullopt;
   }
 
   // Prints stats about the page heap to *out.

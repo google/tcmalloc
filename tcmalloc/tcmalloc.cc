@@ -1484,21 +1484,28 @@ extern "C" bool TCMalloc_Internal_GetPageAllocationStatus(
   if (!tc_globals.pagemap().HasLeaf(hp.first_page())) {
     return false;
   }
-  tcmalloc::tcmalloc_internal::PageBitmap pages;
-  bool ok =
-      tc_globals.guardedpage_allocator().GetPageAllocationStatus(hp, pages);
-  if (!ok) {
+  std::optional<tcmalloc::tcmalloc_internal::HugePageAllocationStatus>
+      hp_status;
+  if (tcmalloc::tcmalloc_internal::PageBitmap pages;
+      tc_globals.guardedpage_allocator().GetPageAllocationStatus(hp, pages)) {
+    hp_status = tcmalloc::tcmalloc_internal::HugePageAllocationStatus{
+        .allocated = pages,
+        .suballocator = tcmalloc::tcmalloc_internal::PageSuballocator::kGuarded,
+    };
+  } else {
     auto tag = tcmalloc::tcmalloc_internal::GetMemoryTag(ptr);
     tcmalloc::tcmalloc_internal::PageHeapSpinLockHolder l;
-    ok = tc_globals.page_allocator().GetPageAllocationStatus(hp, pages, tag);
+    hp_status = tc_globals.page_allocator().GetPageAllocationStatus(hp, tag);
   }
-  if (!ok) {
+  if (!hp_status.has_value()) {
     return false;
   }
   // Scale from TCMalloc pages to 4K pages.
   status->allocated = tcmalloc::tcmalloc_internal::Scale<512>(
-      pages, tcmalloc::tcmalloc_internal::kPagesPerHugePage.raw_num(),
+      hp_status->allocated,
+      tcmalloc::tcmalloc_internal::kPagesPerHugePage.raw_num(),
       tcmalloc::tcmalloc_internal::ReductionOp::kAny);
+  status->suballocator = hp_status->suballocator;
   return true;
 }
 

@@ -655,19 +655,19 @@ TEST_F(PageAllocatorTest, GetPageAllocationStatusInactivePartitions) {
     PageHeapSpinLockHolder l;
     void* old_pt = tc_globals.pagemap().GetHugepage(hp.first_page());
     tc_globals.pagemap().SetHugepage(hp.first_page(), nullptr);
-    PageBitmap pages;
     if (Parameters::heap_partitioning_mode() != HeapPartitioningMode::kFull) {
-      EXPECT_FALSE(allocator_->GetPageAllocationStatus(
-          hp, pages, MemoryTag::kSampledOrColdP1));
+      EXPECT_EQ(
+          allocator_->GetPageAllocationStatus(hp, MemoryTag::kSampledOrColdP1),
+          std::nullopt);
     }
     if (tc_globals.active_partitions() <= 1) {
-      EXPECT_FALSE(
-          allocator_->GetPageAllocationStatus(hp, pages, MemoryTag::kNormalP1));
+      EXPECT_EQ(allocator_->GetPageAllocationStatus(hp, MemoryTag::kNormalP1),
+                std::nullopt);
     }
-    EXPECT_FALSE(
-        allocator_->GetPageAllocationStatus(hp, pages, MemoryTag::kGuarded));
-    EXPECT_FALSE(
-        allocator_->GetPageAllocationStatus(hp, pages, MemoryTag::kMetadata));
+    EXPECT_EQ(allocator_->GetPageAllocationStatus(hp, MemoryTag::kGuarded),
+              std::nullopt);
+    EXPECT_EQ(allocator_->GetPageAllocationStatus(hp, MemoryTag::kMetadata),
+              std::nullopt);
     tc_globals.pagemap().SetHugepage(hp.first_page(), old_pt);
   }
   Delete(s, kSpanInfo, MemoryTag::kNormal);
