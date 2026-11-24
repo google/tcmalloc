@@ -864,9 +864,9 @@ tcmalloc_cc_library(
 
 tcmalloc_cc_library(
   NAME
-    tcmalloc_tcmalloc_write_prefetch
+    tcmalloc_tcmalloc_no_write_prefetch
   ALIAS
-    tcmalloc::tcmalloc_write_prefetch
+    tcmalloc::tcmalloc_no_write_prefetch
   ALWAYSLINK
   SRCS
     "libc_override.h"
@@ -874,7 +874,7 @@ tcmalloc_cc_library(
     "tcmalloc.h"
   COPTS
     "-DTCMALLOC_INTERNAL_8K_PAGES"
-    "-DTCMALLOC_INTERNAL_WRITE_PREFETCH=1"
+    "-DTCMALLOC_INTERNAL_WRITE_PREFETCH=0"
   DEPS
     "absl::base"
     "absl::bits"
@@ -891,7 +891,7 @@ tcmalloc_cc_library(
     "absl::symbolize"
     "absl::time"
     "tcmalloc::alloc_at_least"
-    "tcmalloc::common_write_prefetch"
+    "tcmalloc::common_no_write_prefetch"
     "tcmalloc::experiment"
     "tcmalloc::internal_allocation_guard"
     "tcmalloc::internal_central_freelist_hooks"

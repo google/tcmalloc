@@ -660,7 +660,7 @@ cc_library(
 )
 
 cc_library(
-    name = "tcmalloc_write_prefetch",
+    name = "tcmalloc_no_write_prefetch",
     srcs = [
         "libc_override.h",
         "tcmalloc.cc",
@@ -668,13 +668,13 @@ cc_library(
     ],
     copts = [
         "-DTCMALLOC_INTERNAL_8K_PAGES",
-        "-DTCMALLOC_INTERNAL_WRITE_PREFETCH=1",
+        "-DTCMALLOC_INTERNAL_WRITE_PREFETCH=0",
     ] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = [":tcmalloc_tests"],
     deps = tcmalloc_deps + [
         ":alloc_at_least",
-        ":common_write_prefetch",
+        ":common_no_write_prefetch",
         ":malloc_hook",
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:is_aligned_to",

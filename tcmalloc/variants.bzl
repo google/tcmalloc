@@ -57,8 +57,8 @@ build_variants = [
         "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_LEGACY_LOCKING2"],
     },
     {
-        "name": "write_prefetch",
-        "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_WRITE_PREFETCH=1"],
+        "name": "no_write_prefetch",
+        "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_WRITE_PREFETCH=0"],
     },
 ]
 
@@ -245,10 +245,10 @@ test_variants = [
         "tags": ["noubsan"],
     },
     {
-        "name": "write_prefetch",
-        "malloc": "//tcmalloc:tcmalloc_write_prefetch",
-        "deps": ["//tcmalloc:common_write_prefetch"],
-        "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_WRITE_PREFETCH=1"],
+        "name": "no_write_prefetch",
+        "malloc": "//tcmalloc:tcmalloc_no_write_prefetch",
+        "deps": ["//tcmalloc:common_no_write_prefetch"],
+        "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_WRITE_PREFETCH=0"],
         "tags": ["noubsan"],
     },
     {
