@@ -115,8 +115,9 @@ class HugeCache {
         cache_time_(cache_time) {}
   // Allocate a usable set of <n> contiguous hugepages.  Try to give out
   // memory that's currently backed from the kernel if we have it available.
-  // *from_released is set to false if the return range is already backed;
-  // otherwise, it is set to true (and the caller should back it.)
+  // *from_released is set to true if the return range is valid and came from
+  // unbacked memory (and the caller should back it); otherwise (cache hit or
+  // allocation failure), it is set to false.
   [[nodiscard]] HugeRange Get(HugeLength n, bool* absl_nonnull from_released);
 
   // Deallocate <r> (assumed to be backed by the kernel.)

@@ -203,6 +203,48 @@ struct Range {
   Length n;
 };
 
+// Describes how much of a newly allocated Range came from pages tracked as
+// unbacked (freshly mapped or previously released to the OS).
+//
+// Sub-allocators may conservatively treat untouched tail slices of
+// already-backed hugepages as backed:
+// - kNone: 0 pages transitioned from tracked-unbacked to backed (pages may
+//   contain prior user data, and BackingStats backed bytes did not grow).
+// - kPartial: some, but not all, pages transitioned from tracked-unbacked to
+//   backed (BackingStats backed bytes grew, so usage limits and ShouldBack
+//   apply, but the range is not wholly OS-zeroed).
+// - kAll: every page in the range came from unbacked memory (BackingStats
+//   backed bytes grew, and every page is guaranteed unbacked/OS-zeroed unless
+//   MADV_FREE or a custom AddressRegionFactory was used).
+enum class ReleasedPages : uint8_t {
+  kNone,
+  kPartial,
+  kAll,
+};
+
+template <typename Sink>
+inline void AbslStringify(Sink& sink, ReleasedPages v) {
+  switch (v) {
+    case ReleasedPages::kNone:
+      sink.Append("ReleasedPages::kNone");
+      return;
+    case ReleasedPages::kPartial:
+      sink.Append("ReleasedPages::kPartial");
+      return;
+    case ReleasedPages::kAll:
+      sink.Append("ReleasedPages::kAll");
+      return;
+  }
+}
+
+[[nodiscard]] TCMALLOC_ATTRIBUTE_CONST inline constexpr ReleasedPages
+ClassifyReleasedPages(Length released, Length total) {
+  TC_ASSERT_LE(released, total);
+  if (released == Length(0)) return ReleasedPages::kNone;
+  if (released == total) return ReleasedPages::kAll;
+  return ReleasedPages::kPartial;
+}
+
 [[nodiscard]] TCMALLOC_ATTRIBUTE_CONST inline constexpr Length LengthFromBytes(
     size_t bytes) {
   return Length(bytes >> kPageShift);

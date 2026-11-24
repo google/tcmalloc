@@ -30,5 +30,18 @@ TEST(LengthDeathTest, UnderflowChecks) {
   EXPECT_DEBUG_DEATH(benchmark::DoNotOptimize(kSmall - kBig), "n_.*n_");
 }
 
+TEST(PagesTest, ClassifyReleasedPages) {
+  EXPECT_EQ(ClassifyReleasedPages(Length(0), Length(0)), ReleasedPages::kNone);
+  EXPECT_EQ(ClassifyReleasedPages(Length(0), Length(5)), ReleasedPages::kNone);
+  EXPECT_EQ(ClassifyReleasedPages(Length(1), Length(5)),
+            ReleasedPages::kPartial);
+  EXPECT_EQ(ClassifyReleasedPages(Length(4), Length(5)),
+            ReleasedPages::kPartial);
+  EXPECT_EQ(ClassifyReleasedPages(Length(5), Length(5)), ReleasedPages::kAll);
+  EXPECT_DEBUG_DEATH(
+      benchmark::DoNotOptimize(ClassifyReleasedPages(Length(5), Length(1))),
+      "released.*total");
+}
+
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal
