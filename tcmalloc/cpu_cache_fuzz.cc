@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -43,6 +44,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/fake_clock.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/percpu_tcmalloc.h"
@@ -267,15 +269,17 @@ struct Config {
   bool use_real_size_map;
   ShardedBacking sharded_backing;
   uint8_t cache_limit_index;
+  bool capacity_pi;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const Config& c) {
     absl::Format(&sink,
                  "Config{.dynamic_slab_enabled=%v, "
                  ".release_drained_slab_metadata=%v, .use_real_size_map=%v, "
-                 ".sharded_backing=%v, .cache_limit_index=%v}",
+                 ".sharded_backing=%v, .cache_limit_index=%v, .capacity_pi=%v}",
                  c.dynamic_slab_enabled, c.release_drained_slab_metadata,
-                 c.use_real_size_map, c.sharded_backing, c.cache_limit_index);
+                 c.use_real_size_map, c.sharded_backing, c.cache_limit_index,
+                 c.capacity_pi);
   }
 };
 
@@ -289,11 +293,12 @@ class State {
     forwarder.dynamic_slab_enabled_ = config.dynamic_slab_enabled;
     forwarder.release_drained_slab_metadata_ =
         config.release_drained_slab_metadata;
-    if (config.use_real_size_map) {
+    if (config.use_real_size_map || config.capacity_pi) {
       SizeMap size_map;
       TC_CHECK(size_map.Init(size_map.CurrentClasses().classes));
       forwarder.size_map_ = size_map;
     }
+    forwarder.capacity_pi_ = config.capacity_pi;
     const bool generic = config.sharded_backing == ShardedBacking::kGeneric;
     const bool large_classes_only =
         config.sharded_backing == ShardedBacking::kLargeClassesOnly;
@@ -403,37 +408,39 @@ void State::CheckInvariants() {
   TC_CHECK_GE(shift, bounds.initial_shift);
   TC_CHECK_LE(shift, bounds.max_shift);
 
-  uint64_t total_capacity = 0;
-  uint64_t total_used = 0;
-  for (int cpu = 0; cpu < num_cpus_; ++cpu) {
-    const uint64_t allocated = cache_.Allocated(cpu);
-    const uint64_t unallocated = cache_.Unallocated(cpu);
-    const uint64_t capacity = cache_.Capacity(cpu);
-    TC_CHECK_EQ(allocated + unallocated, capacity, "cpu=%v", cpu);
-    total_capacity += capacity;
-    const uint64_t used = cache_.UsedBytes(cpu);
-    TC_CHECK_LE(used, allocated, "cpu=%v", cpu);
-    total_used += used;
-    if (!cache_.HasPopulated(cpu)) {
-      TC_CHECK_EQ(allocated, 0, "cpu=%v", cpu);
+  if (!cache_.capacity_pi()) {
+    uint64_t total_capacity = 0;
+    uint64_t total_used = 0;
+    for (int cpu = 0; cpu < num_cpus_; ++cpu) {
+      const uint64_t allocated = cache_.Allocated(cpu);
+      const uint64_t unallocated = cache_.Unallocated(cpu);
+      const uint64_t capacity = cache_.Capacity(cpu);
+      TC_CHECK_EQ(allocated + unallocated, capacity, "cpu=%v", cpu);
+      total_capacity += capacity;
+      const uint64_t used = cache_.UsedBytes(cpu);
+      TC_CHECK_LE(used, allocated, "cpu=%v", cpu);
+      total_used += used;
+      if (!cache_.HasPopulated(cpu)) {
+        TC_CHECK_EQ(allocated, 0, "cpu=%v", cpu);
+      }
     }
-  }
-  // Shuffling moves capacity between CPUs but never creates or destroys it,
-  // and SetCacheLimit changes every CPU by the same amount.
-  TC_CHECK_EQ(total_capacity, cache_.CacheLimit() * num_cpus_);
-  TC_CHECK_EQ(cache_.TotalUsedBytes(), total_used);
+    // Shuffling moves capacity between CPUs but never creates or destroys it,
+    // and SetCacheLimit changes every CPU by the same amount.
+    TC_CHECK_EQ(total_capacity, cache_.CacheLimit() * num_cpus_);
+    TC_CHECK_EQ(cache_.TotalUsedBytes(), total_used);
 
-  uint64_t used_by_class = 0;
-  for (size_t size_class : kSizeClasses) {
-    used_by_class += cache_.TotalObjectsOfClass(size_class) *
-                     forwarder().class_to_size(size_class);
-    const CpuCache::SizeClassCapacityStats stats =
-        cache_.GetSizeClassCapacityStats(size_class);
-    TC_CHECK_LE(static_cast<double>(stats.min_capacity), stats.avg_capacity);
-    TC_CHECK_LE(stats.avg_capacity, static_cast<double>(stats.max_capacity));
-    TC_CHECK_LE(stats.max_capacity, cache_.GetMaxCapacity(size_class));
+    uint64_t used_by_class = 0;
+    for (size_t size_class : kSizeClasses) {
+      used_by_class += cache_.TotalObjectsOfClass(size_class) *
+                       forwarder().class_to_size(size_class);
+      const CpuCache::SizeClassCapacityStats stats =
+          cache_.GetSizeClassCapacityStats(size_class);
+      TC_CHECK_LE(static_cast<double>(stats.min_capacity), stats.avg_capacity);
+      TC_CHECK_LE(stats.avg_capacity, static_cast<double>(stats.max_capacity));
+      TC_CHECK_LE(stats.max_capacity, cache_.GetMaxCapacity(size_class));
+    }
+    TC_CHECK_EQ(used_by_class, total_used);
   }
-  TC_CHECK_EQ(used_by_class, total_used);
 }
 
 State::~State() {
@@ -648,6 +655,10 @@ struct ShuffleCpuCaches {
   }
 
   void Perform(State& state) const {
+    if (state.cache().capacity_pi()) {
+      // Not used in the PI controller.
+      return;
+    }
     state.cache().ShuffleCpuCaches();
     state.Fence();
   }
@@ -662,7 +673,16 @@ struct ResizeSizeClasses {
   void Perform(State& state) const {
     CpuCache& cache = state.cache();
     const uint64_t resizes_before = cache.GetNumResizes();
-    cache.ResizeSizeClasses();
+    if (cache.capacity_pi()) {
+      std::array<float, tcmalloc::tcmalloc_internal::kNumClasses>
+          max_uncapped_desire;
+      absl::Span<float> max_uncapped_desire_span(max_uncapped_desire.data(),
+                                                 max_uncapped_desire.size());
+      cache.ResizeSizeClassesPI(max_uncapped_desire_span,
+                                FakeClock::GetClock());
+    } else {
+      cache.ResizeSizeClassesClassic();
+    }
     state.Fence();
     TC_CHECK_GE(cache.GetNumResizes(), resizes_before);
   }
@@ -671,9 +691,12 @@ struct ResizeSizeClasses {
 // Raising one size class's maximum capacity lowers others by the same slab
 // bytes, so the sum over all size classes at the maximum shift is conserved.
 struct ResizeSizeClassMaxCapacities {
+  bool can_resize_slab;  // Only used when the PI controller is active.
+
   template <typename Sink>
-  friend void AbslStringify(Sink& sink, const ResizeSizeClassMaxCapacities&) {
-    absl::Format(&sink, "ResizeSizeClassMaxCapacities{}");
+  friend void AbslStringify(Sink& sink, const ResizeSizeClassMaxCapacities& r) {
+    absl::Format(&sink, "ResizeSizeClassMaxCapacities{.can_resize_slab=%v}",
+                 r.can_resize_slab);
   }
 
   static uint64_t SumMaxCapacities(const CpuCache& cache) {
@@ -687,9 +710,29 @@ struct ResizeSizeClassMaxCapacities {
   void Perform(State& state) const {
     CpuCache& cache = state.cache();
     const uint64_t before = SumMaxCapacities(cache);
-    cache.ResizeSizeClassMaxCapacities();
-    state.Fence();
-    TC_CHECK_EQ(SumMaxCapacities(cache), before);
+    if (cache.capacity_pi()) {
+      const uint8_t shift_before = CpuCachePeer::GetSlabShift(cache);
+      std::array<float, tcmalloc::tcmalloc_internal::kNumClasses>
+          max_uncapped_desire;
+      absl::Span<float> max_uncapped_desire_span(max_uncapped_desire.data(),
+                                                 max_uncapped_desire.size());
+      cache.ResizeSizeClassesPI(max_uncapped_desire_span,
+                                FakeClock::GetClock());
+      cache.ResizeSizeClassMaxCapacitiesPI(max_uncapped_desire_span,
+                                           can_resize_slab);
+      state.Fence();
+      if (CpuCachePeer::GetSlabShift(cache) == shift_before) {
+        TC_CHECK_EQ(SumMaxCapacities(cache), before);
+      } else if (CpuCachePeer::GetSlabShift(cache) > shift_before) {
+        TC_CHECK_GE(SumMaxCapacities(cache), before);
+      } else {
+        TC_CHECK_LE(SumMaxCapacities(cache), before);
+      }
+    } else {
+      cache.ResizeSizeClassMaxCapacitiesClassic();
+      state.Fence();
+      TC_CHECK_EQ(SumMaxCapacities(cache), before);
+    }
   }
 };
 
@@ -705,6 +748,11 @@ struct ResizeSlab {
   }
 
   void Perform(State& state) const {
+    if (state.cache().capacity_pi()) {
+      // Not used in the PI controller; part of ResizeSizeClassMaxCapacities()
+      // instead.
+      return;
+    }
     CpuCache& cache = state.cache();
     constexpr std::array<DynamicSlab, 3> kModes = {
         DynamicSlab::kNoop, DynamicSlab::kGrow, DynamicSlab::kShrink};
@@ -748,6 +796,11 @@ struct SetCacheLimit {
 
   void Perform(State& state) const {
     CpuCache& cache = state.cache();
+    if (cache.capacity_pi()) {
+      // Not used in the PI controller.
+      return;
+    }
+
     const uint64_t limit = kCacheLimits[limit_index % kCacheLimits.size()];
     const uint64_t prev = cache.CacheLimit();
     std::vector<uint64_t> capacities(state.num_cpus());
@@ -848,11 +901,49 @@ struct ReadStats {
   }
 };
 
+// NOTE: The clock is not mocked out fully in all instructions.
+struct TickFakeClock {
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const TickFakeClock& tick) {
+    absl::Format(&sink, "TickFakeClock{}");
+  }
+
+  void Perform(State& state) const {
+    FakeClock::Advance(absl::Milliseconds(100));
+  }
+};
+
+struct ChangePIParameters {
+  float multi_span_lambda;
+  float single_span_lambda;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const ChangePIParameters& param) {
+    absl::Format(
+        &sink,
+        "ChangePIParameters{.multi_span_lambda=%v, .single_span_lambda=%v}",
+        param.multi_span_lambda, param.single_span_lambda);
+  }
+
+  void Perform(State& state) const {
+    state.forwarder().capacity_multi_span_lambda_ =
+        ClampLambda(multi_span_lambda);
+    state.forwarder().capacity_single_span_lambda_ =
+        ClampLambda(single_span_lambda);
+  }
+
+  static float ClampLambda(float lambda) {
+    // Matches the parameter testing done on the flags.
+    return std::isnan(lambda) ? 0.0f : std::clamp(lambda, 0.0f, 1e12f);
+  }
+};
+
 using Instruction =
     std::variant<Allocate, Deallocate, Churn, Drain, Reclaim,
                  ReleaseDrainedMetadata, TryDrainingCaches, ShuffleCpuCaches,
                  ResizeSizeClasses, ResizeSizeClassMaxCapacities, ResizeSlab,
-                 SetCacheLimit, Print, PrintInPbtxt, ReadStats>;
+                 SetCacheLimit, Print, PrintInPbtxt, ReadStats, TickFakeClock,
+                 ChangePIParameters>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const Instruction& i) {
@@ -875,6 +966,8 @@ void FuzzCpuCache(const Config& config,
     return;
   }
 
+  FakeClock::ResetClock();
+
   // State embeds a SizeMap and is too large for the stack.
   auto state = std::make_unique<State>(config);
   state->CheckInvariants();
@@ -891,49 +984,53 @@ TEST(CpuCacheFuzzTest, Smoke) {
     GTEST_SKIP() << "rseq unavailable";
   }
   for (const bool dynamic_slab_enabled : {false, true}) {
-    FuzzCpuCache(
-        Config{.dynamic_slab_enabled = dynamic_slab_enabled,
-               .release_drained_slab_metadata = true,
-               .use_real_size_map = false,
-               .sharded_backing = ShardedBacking::kNone,
-               .cache_limit_index = 0},
-        {Allocate{.cpu_index = 0, .size_class_index = 0, .count = 100},
-         Allocate{.cpu_index = 1, .size_class_index = 1, .count = 8},
-         Allocate{.cpu_index = 2, .size_class_index = 2, .count = 5},
-         Deallocate{.cpu_index = 0, .size_class_index = 0, .count = 100},
-         Churn{.cpu_index = 0, .size_class_index = 0, .rounds = 8},
-         Churn{.cpu_index = 1, .size_class_index = 1, .rounds = 4},
-         ReadStats{.cpu_index = 0, .size_class_index = 0},
-         ShuffleCpuCaches{},
-         ResizeSizeClasses{},
-         ResizeSizeClassMaxCapacities{},
-         Print{},
-         PrintInPbtxt{},
-         ResizeSlab{.mode = 1},
-         ResizeSlab{.mode = 2},
-         ResizeSlab{.mode = 0},
-         Drain{.cpu_index = 1},
-         SetCacheLimit{.limit_index = 4},
-         ShuffleCpuCaches{},
-         TryDrainingCaches{},
-         Allocate{.cpu_index = 3, .size_class_index = 0, .count = 40},
-         TryDrainingCaches{},
-         Reclaim{.cpu_index = 0},
-         Reclaim{.cpu_index = 3},
-         Allocate{.cpu_index = 0, .size_class_index = 0, .count = 10},
-         Deallocate{.cpu_index = 0, .size_class_index = 0, .count = 10},
-         Drain{.cpu_index = 0},
-         ReleaseDrainedMetadata{},
-         PrintInPbtxt{},
-         Churn{.cpu_index = 1, .size_class_index = 0, .rounds = 4},
-         Allocate{.cpu_index = 2, .size_class_index = 1, .count = 8},
-         Drain{.cpu_index = 1},
-         Allocate{.cpu_index = 3, .size_class_index = 0, .count = 20},
-         Deallocate{.cpu_index = 3, .size_class_index = 0, .count = 20},
-         Deallocate{.cpu_index = 1, .size_class_index = 1, .count = 16},
-         Deallocate{.cpu_index = 2, .size_class_index = 2, .count = 5},
-         Deallocate{.cpu_index = 3, .size_class_index = 0, .count = 40},
-         PrintInPbtxt{}});
+    for (const bool capacity_pi : {false, true}) {
+      FuzzCpuCache(
+          Config{.dynamic_slab_enabled = dynamic_slab_enabled,
+                 .release_drained_slab_metadata = true,
+                 .use_real_size_map = false,
+                 .sharded_backing = ShardedBacking::kNone,
+                 .cache_limit_index = 0,
+                 .capacity_pi = capacity_pi},
+          {Allocate{.cpu_index = 0, .size_class_index = 0, .count = 100},
+           Allocate{.cpu_index = 1, .size_class_index = 1, .count = 8},
+           Allocate{.cpu_index = 2, .size_class_index = 2, .count = 5},
+           Deallocate{.cpu_index = 0, .size_class_index = 0, .count = 100},
+           Churn{.cpu_index = 0, .size_class_index = 0, .rounds = 8},
+           Churn{.cpu_index = 1, .size_class_index = 1, .rounds = 4},
+           ReadStats{.cpu_index = 0, .size_class_index = 0},
+           ShuffleCpuCaches{},
+           ResizeSizeClasses{},
+           ResizeSizeClassMaxCapacities{.can_resize_slab = false},
+           ResizeSizeClassMaxCapacities{.can_resize_slab = true},
+           Print{},
+           PrintInPbtxt{},
+           ResizeSlab{.mode = 1},
+           ResizeSlab{.mode = 2},
+           ResizeSlab{.mode = 0},
+           Drain{.cpu_index = 1},
+           SetCacheLimit{.limit_index = 4},
+           ShuffleCpuCaches{},
+           TryDrainingCaches{},
+           Allocate{.cpu_index = 3, .size_class_index = 0, .count = 40},
+           TryDrainingCaches{},
+           Reclaim{.cpu_index = 0},
+           Reclaim{.cpu_index = 3},
+           Allocate{.cpu_index = 0, .size_class_index = 0, .count = 10},
+           Deallocate{.cpu_index = 0, .size_class_index = 0, .count = 10},
+           Drain{.cpu_index = 0},
+           ReleaseDrainedMetadata{},
+           PrintInPbtxt{},
+           Churn{.cpu_index = 1, .size_class_index = 0, .rounds = 4},
+           Allocate{.cpu_index = 2, .size_class_index = 1, .count = 8},
+           Drain{.cpu_index = 1},
+           Allocate{.cpu_index = 3, .size_class_index = 0, .count = 20},
+           Deallocate{.cpu_index = 3, .size_class_index = 0, .count = 20},
+           Deallocate{.cpu_index = 1, .size_class_index = 1, .count = 16},
+           Deallocate{.cpu_index = 2, .size_class_index = 2, .count = 5},
+           Deallocate{.cpu_index = 3, .size_class_index = 0, .count = 40},
+           PrintInPbtxt{}});
+    }
   }
 }
 
@@ -945,7 +1042,8 @@ TEST(CpuCacheFuzzTest, RealSizeMap) {
                       .release_drained_slab_metadata = false,
                       .use_real_size_map = true,
                       .sharded_backing = ShardedBacking::kNone,
-                      .cache_limit_index = 4},
+                      .cache_limit_index = 4,
+                      .capacity_pi = false},
                {Churn{.cpu_index = 0, .size_class_index = 0, .rounds = 16},
                 Churn{.cpu_index = 1, .size_class_index = 1, .rounds = 16},
                 ResizeSizeClassMaxCapacities{}, ResizeSlab{.mode = 1},
@@ -965,7 +1063,8 @@ TEST(CpuCacheFuzzTest, ShardedBacking) {
                .release_drained_slab_metadata = true,
                .use_real_size_map = false,
                .sharded_backing = sharded_backing,
-               .cache_limit_index = 2},
+               .cache_limit_index = 2,
+               .capacity_pi = false},
         {Allocate{.cpu_index = 0, .size_class_index = 0, .count = 200},
          Churn{.cpu_index = 1, .size_class_index = 0, .rounds = 12},
          Churn{.cpu_index = 2, .size_class_index = 1, .rounds = 6},
@@ -999,7 +1098,8 @@ FUZZ_TEST(CpuCacheFuzzTest, FuzzCpuCache)
                      fuzztest::ElementOf({ShardedBacking::kNone,
                                           ShardedBacking::kLargeClassesOnly,
                                           ShardedBacking::kGeneric}),
-                     fuzztest::InRange<uint8_t>(0, kCacheLimits.size() - 1)),
+                     fuzztest::InRange<uint8_t>(0, kCacheLimits.size() - 1),
+                     fuzztest::Arbitrary<bool>()),
                  fuzztest::Arbitrary<std::vector<Instruction>>());
 
 }  // namespace

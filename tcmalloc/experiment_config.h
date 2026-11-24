@@ -38,6 +38,7 @@ enum class Experiment : int {
   TCMALLOC_SONIC_SPAN_BITMAP_ABLATION,  // TODO: b/575736447 - Complete experiment.
   TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES,  // TODO: b/572530574 - Complete experiment.
   TEST_ONLY_MM_VCPU,  // TODO: b/245776120 - Complete experiment.
+  TEST_ONLY_TCMALLOC_CAPACITY_PI,  // TODO: b/586418139 - Complete experiment.
   TEST_ONLY_TCMALLOC_POW2_SIZECLASS,
   TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE,
   // go/keep-sorted end
@@ -74,6 +75,7 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TCMALLOC_SONIC_SPAN_BITMAP_ABLATION, "TCMALLOC_SONIC_SPAN_BITMAP_ABLATION", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.1},
     {Experiment::TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES, "TCMALLOC_SONIC_TRACK_BROKEN_HUGEPAGES", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
     {Experiment::TEST_ONLY_MM_VCPU, "TEST_ONLY_MM_VCPU"},
+    {Experiment::TEST_ONLY_TCMALLOC_CAPACITY_PI, "TEST_ONLY_TCMALLOC_CAPACITY_PI"},
     {Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS, "TEST_ONLY_TCMALLOC_POW2_SIZECLASS", /*brittle=*/true},
     {Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE, "TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE", /*brittle=*/true},
     // go/keep-sorted end

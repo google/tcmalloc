@@ -343,6 +343,20 @@ class Parameters {
   [[nodiscard]] static central_freelist_internal::CflSubbucketPrioritization
   cfl_subbucket_prioritization();
 
+  // NOTE: There is no setter, as we cannot change to and from PI mode at
+  // runtime; this can only be activated through experiments.
+  [[nodiscard]] static bool capacity_pi() {
+    return capacity_pi_.load(std::memory_order_relaxed);
+  }
+
+  [[nodiscard]] static float capacity_multi_span_lambda() {
+    return capacity_multi_span_lambda_.load(std::memory_order_relaxed);
+  }
+
+  [[nodiscard]] static float capacity_single_span_lambda() {
+    return capacity_single_span_lambda_.load(std::memory_order_relaxed);
+  }
+
  private:
   friend class Static;
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);
@@ -389,6 +403,8 @@ class Parameters {
       tcmalloc::tcmalloc_internal::MadviseSampledAllocations v);
   friend void ::TCMalloc_Internal_SetEventTraceMemoryLimit(size_t v);
   friend void ::TCMalloc_Internal_SetReleaseDrainedSlabMetadata(bool v);
+  friend void ::TCMalloc_Internal_SetCapacityMultiSpanLambda(float v);
+  friend void ::TCMalloc_Internal_SetCapacitySingleSpanLambda(float v);
   friend void ::TCMalloc_Internal_SetReobserveHugepageBacked(bool v);
 
   static void InitializeFromExperiments();
@@ -432,6 +448,9 @@ class Parameters {
   static std::atomic<FillerAppendOnFree> filler_append_on_free_;
   static std::atomic<MadviseRegionsNoHugepage> madvise_cold_regions_nohugepage_;
   static std::atomic<ReobserveHugepageBacked> reobserve_hugepage_backed_;
+  static std::atomic<bool> capacity_pi_;
+  static std::atomic<float> capacity_multi_span_lambda_;
+  static std::atomic<float> capacity_single_span_lambda_;
 };
 
 }  // namespace tcmalloc_internal

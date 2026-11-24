@@ -30,6 +30,7 @@
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/testing/test_allocator_harness.h"
 #include "tcmalloc/testing/thread_manager.h"
 
@@ -84,6 +85,11 @@ void GetMallocStats(std::string* buffer) {
 TEST(DrainTest, DrainWorks) {
   if (!MallocExtension::PerCpuCachesActive()) {
     GTEST_SKIP() << "Skipping test without per-CPU caches";
+    return;
+  }
+  if (tcmalloc_internal::Parameters::capacity_pi()) {
+    GTEST_SKIP() << "Test is flaky with PI controller, as growth depends on "
+                    "wall-clock time";
     return;
   }
 

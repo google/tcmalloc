@@ -29,21 +29,24 @@ namespace tcmalloc_internal {
 
 // Precomputed size class parameters.
 struct SizeClassInfo {
+  // For tests only.
+  constexpr SizeClassInfo() = default;
+
   constexpr SizeClassInfo(uint32_t size, size_t bytes, uint8_t num_to_move)
       : size(size), bytes(bytes), num_to_move(num_to_move) {}
 
   // Max size storable in that class
-  uint32_t size;
+  uint32_t size = 0;
 
   // Number of bytes to allocate at a time
-  Bytes bytes;
+  Bytes bytes{0};
 
   // Number of objects to move between a per-thread list and a central list in
   // one shot.  We want this to be not too small so we can amortize the lock
   // overhead for accessing the central list.  Making it too big may temporarily
   // cause unnecessary memory wastage in the per-thread free list until the
   // scavenger cleans up the list.
-  uint8_t num_to_move;
+  uint8_t num_to_move = 0;
 };
 
 struct SizeClassAssumptions {

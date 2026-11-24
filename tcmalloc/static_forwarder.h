@@ -73,6 +73,9 @@ class StaticForwarder : private Parameters {
   using Parameters::back_size_threshold_bytes;
   using Parameters::back_small_allocations;
   using Parameters::background_release_rate;
+  using Parameters::capacity_multi_span_lambda;
+  using Parameters::capacity_pi;
+  using Parameters::capacity_single_span_lambda;
   using Parameters::collapse_released_hugepages;
   using Parameters::enable_unfiltered_collapse;
   using Parameters::filler_append_on_free;

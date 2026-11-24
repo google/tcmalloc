@@ -91,12 +91,17 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, ContainsRegex(R"(mmap_sys_allocator: [0-9]*)"));
   EXPECT_THAT(buf, HasSubstr("memory_release_failures: 0"));
 
-  if (MallocExtension::PerCpuCachesActive()) {
+  if (MallocExtension::PerCpuCachesActive() && !Parameters::capacity_pi()) {
     EXPECT_THAT(buf, ContainsRegex(R"(per_cpu_cache_freelist: [1-9][0-9]*)"));
+  } else {
+    // Normally 0, but we could have out-of-schedule growth if we are unlucky
+    // with the timing.
+    EXPECT_THAT(buf, ContainsRegex(R"(per_cpu_cache_freelist: [0-9]+)"));
+  }
+  if (MallocExtension::PerCpuCachesActive()) {
     EXPECT_THAT(buf, ContainsRegex(R"(percpu_slab_size: [1-9][0-9]*)"));
     EXPECT_THAT(buf, ContainsRegex(R"(percpu_slab_residence: [1-9][0-9]*)"));
   } else {
-    EXPECT_THAT(buf, HasSubstr("per_cpu_cache_freelist: 0"));
     EXPECT_THAT(buf, HasSubstr("percpu_slab_size: 0"));
     EXPECT_THAT(buf, HasSubstr("percpu_slab_residence: 0"));
   }
@@ -296,8 +301,10 @@ TEST_F(GetStatsTest, Parameters) {
 #ifdef TCMALLOC_DEPRECATED_PERTHREAD
     EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_per_cpu_caches 0)"));
 #endif  // TCMALLOC_DEPRECATED_PERTHREAD
-    EXPECT_THAT(buf,
-                HasSubstr(R"(PARAMETER tcmalloc_max_per_cpu_cache_size 0)"));
+    if (!Parameters::capacity_pi()) {
+      EXPECT_THAT(buf,
+                  HasSubstr(R"(PARAMETER tcmalloc_max_per_cpu_cache_size 0)"));
+    }
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_max_total_thread_cache_bytes -1)"));
@@ -401,7 +408,9 @@ TEST_F(GetStatsTest, Parameters) {
 #ifdef TCMALLOC_DEPRECATED_PERTHREAD
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_per_cpu_caches: false)"));
 #endif  // TCMALLOC_DEPRECATED_PERTHREAD
-    EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_max_per_cpu_cache_size: 0)"));
+    if (!Parameters::capacity_pi()) {
+      EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_max_per_cpu_cache_size: 0)"));
+    }
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_max_total_thread_cache_bytes: -1)"));
     EXPECT_THAT(
@@ -490,8 +499,11 @@ TEST_F(GetStatsTest, Parameters) {
         HasSubstr(
             R"(PARAMETER desired_usage_limit_bytes 18446744073709551615)"));
     EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_per_cpu_caches 1)"));
-    EXPECT_THAT(
-        buf, HasSubstr(R"(PARAMETER tcmalloc_max_per_cpu_cache_size 3145728)"));
+    if (!Parameters::capacity_pi()) {
+      EXPECT_THAT(
+          buf,
+          HasSubstr(R"(PARAMETER tcmalloc_max_per_cpu_cache_size 3145728)"));
+    }
     EXPECT_THAT(
         buf, HasSubstr(
                  R"(PARAMETER tcmalloc_max_total_thread_cache_bytes 4194304)"));
@@ -541,8 +553,10 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(pbtxt, HasSubstr(R"(desired_usage_limit_bytes: -1)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(hard_usage_limit_bytes: -1)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_per_cpu_caches: true)"));
-    EXPECT_THAT(pbtxt,
-                HasSubstr(R"(tcmalloc_max_per_cpu_cache_size: 3145728)"));
+    if (!Parameters::capacity_pi()) {
+      EXPECT_THAT(pbtxt,
+                  HasSubstr(R"(tcmalloc_max_per_cpu_cache_size: 3145728)"));
+    }
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_max_total_thread_cache_bytes: 4194304)"));
     EXPECT_THAT(

@@ -1879,3 +1879,17 @@ tcmalloc_cc_library(
     "tcmalloc::internal_logging"
 )
 
+tcmalloc_cc_library(
+  NAME
+    tcmalloc_internal_fake_clock
+  ALIAS
+    tcmalloc::internal_fake_clock
+  HDRS
+    "fake_clock.h"
+  SRCS
+    "fake_clock.cc"
+  DEPS
+    "absl::time"
+    "tcmalloc::internal_clock"
+)
+

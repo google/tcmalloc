@@ -559,6 +559,7 @@ class MallocExtension final {
   // Gets the current maximum cache size per CPU cache.
   [[nodiscard]] static int32_t GetMaxPerCpuCacheSize();
   // Sets the maximum cache size per CPU cache.  This is a per-core limit.
+  // Ignored if capacity PI mode is active.
   static void SetMaxPerCpuCacheSize(int32_t value);
 
   // Gets the current maximum thread cache.

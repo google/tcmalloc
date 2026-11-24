@@ -216,6 +216,10 @@ void Parameters::InitializeFromExperiments() {
                                std::memory_order_relaxed);
   }
 
+  if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_CAPACITY_PI)) {
+    capacity_pi_.store(true, std::memory_order_relaxed);
+  }
+
   release_stale_pages_.store(want_release_stale_pages(),
                              std::memory_order_relaxed);
 }
@@ -338,6 +342,11 @@ ABSL_CONST_INIT std::atomic<ReleaseStalePages> Parameters::release_stale_pages_(
 
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_drained_slab_metadata_(
     true);
+ABSL_CONST_INIT std::atomic<bool> Parameters::capacity_pi_(false);
+ABSL_CONST_INIT std::atomic<float> Parameters::capacity_multi_span_lambda_(
+    0.17f);
+ABSL_CONST_INIT std::atomic<float> Parameters::capacity_single_span_lambda_(
+    1.0f);
 
 static std::atomic<bool>& fix_max_capacity_bug_enabled() {
   ABSL_CONST_INIT static absl::once_flag flag;
@@ -1043,6 +1052,27 @@ void TCMalloc_Internal_SetFixMaxCapacityBug(bool v) {
   tcmalloc::tcmalloc_internal::fix_max_capacity_bug_enabled().store(
       v, std::memory_order_relaxed);
 }
+
+float TCMalloc_Internal_GetCapacityMultiSpanLambda() {
+  tc_globals.InitIfNecessary();
+  return Parameters::capacity_multi_span_lambda();
+}
+
+void TCMalloc_Internal_SetCapacityMultiSpanLambda(float v) {
+  tc_globals.InitIfNecessary();
+  Parameters::capacity_multi_span_lambda_.store(v, std::memory_order_relaxed);
+}
+
+float TCMalloc_Internal_GetCapacitySingleSpanLambda() {
+  tc_globals.InitIfNecessary();
+  return Parameters::capacity_single_span_lambda();
+}
+
+void TCMalloc_Internal_SetCapacitySingleSpanLambda(float v) {
+  tc_globals.InitIfNecessary();
+  Parameters::capacity_single_span_lambda_.store(v, std::memory_order_relaxed);
+}
+
 }  // extern "C"
 
 GOOGLE_MALLOC_SECTION_END
