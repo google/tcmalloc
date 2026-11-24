@@ -80,6 +80,20 @@ class StatsTrackerTest : public testing::Test {
   // Generates a data point with a particular amount of demand pages, while
   // ignoring the specific number of hugepages.
   void GenerateDemandPoint(Length num_pages, Length num_free_pages);
+
+  void ReportStats(Length num_pages, Length free_pages, Length unmapped_pages) {
+    StatsTrackerType::SubreleaseStats stats;
+    stats.num_pages = num_pages;
+    stats.free_pages = free_pages;
+    stats.unmapped_pages = unmapped_pages;
+    tracker_.Report(stats, clock_);
+  }
+
+  [[nodiscard]] std::string PrintSummary() const {
+    return PrintToString(1024 * 1024, [&](Printer& printer) {
+      tracker_.Print(printer, "StatsTracker");
+    });
+  }
 };
 
 int64_t StatsTrackerTest::clock_{0};
@@ -341,6 +355,65 @@ TEST_F(StatsTrackerTest, NegativeAndUnboundedSubreleaseIntervals) {
   EXPECT_EQ(tracker_.GetRecentDemand(absl::Minutes(5), absl::Minutes(5),
                                      kWindow + absl::Minutes(5)),
             Length(150));
+}
+
+TEST_F(StatsTrackerTest, PeakDemandTieBreakingAndEmptyPrint) {
+  EXPECT_THAT(
+      PrintSummary(),
+      testing::HasSubstr(
+          "StatsTracker: at peak demand: 0 pages (and 0 free, 0 unmapped)\n"));
+
+  ReportStats(/*num_pages=*/Length(100), /*free_pages=*/Length(20),
+              /*unmapped_pages=*/Length(5));
+
+  // Equal max demand in the same epoch must preserve the first peak's free and
+  // unmapped counts (strict '>').
+  ReportStats(/*num_pages=*/Length(100), /*free_pages=*/Length(99),
+              /*unmapped_pages=*/Length(88));
+
+  // Lower demand updates min_demand_pages without overwriting peak stats.
+  ReportStats(/*num_pages=*/Length(60), /*free_pages=*/Length(10),
+              /*unmapped_pages=*/Length(1));
+
+  EXPECT_THAT(PrintSummary(),
+              testing::HasSubstr("StatsTracker: at peak demand: 100 pages (and "
+                                 "20 free, 5 unmapped)\n"));
+  EXPECT_EQ(tracker_.GetRecentDemand(absl::ZeroDuration(), absl::Minutes(1)),
+            Length(60));
+  EXPECT_EQ(tracker_.GetRecentDemand(absl::Minutes(1), absl::ZeroDuration()),
+            Length(40));
+
+  // Strictly higher demand updates peak pages, free pages, and unmapped pages.
+  ReportStats(/*num_pages=*/Length(150), /*free_pages=*/Length(40),
+              /*unmapped_pages=*/Length(12));
+
+  EXPECT_THAT(PrintSummary(),
+              testing::HasSubstr("StatsTracker: at peak demand: 150 pages (and "
+                                 "40 free, 12 unmapped)\n"));
+  EXPECT_EQ(tracker_.GetRecentPeak(absl::Minutes(1)), Length(150));
+  EXPECT_EQ(tracker_.GetRecentDemand(absl::ZeroDuration(), absl::Minutes(1)),
+            Length(60));
+  EXPECT_EQ(tracker_.GetRecentDemand(absl::Minutes(1), absl::ZeroDuration()),
+            Length(90));
+}
+
+TEST_F(StatsTrackerTest, ZeroDemandNonEmptyReport) {
+  ReportStats(/*num_pages=*/Length(0), /*free_pages=*/Length(7),
+              /*unmapped_pages=*/Length(3));
+  // Equal zero demand in the same epoch preserves the first free/unmapped
+  // counts.
+  ReportStats(/*num_pages=*/Length(0), /*free_pages=*/Length(99),
+              /*unmapped_pages=*/Length(88));
+
+  EXPECT_THAT(
+      PrintSummary(),
+      testing::HasSubstr(
+          "StatsTracker: at peak demand: 0 pages (and 7 free, 3 unmapped)\n"));
+  EXPECT_EQ(tracker_.GetRecentPeak(absl::Minutes(1)), Length(0));
+  EXPECT_EQ(tracker_.GetRecentDemand(absl::ZeroDuration(), absl::Minutes(1)),
+            Length(0));
+  EXPECT_EQ(tracker_.min_free_pages(absl::Minutes(1)).free, Length(10));
+  EXPECT_EQ(tracker_.min_free_pages(absl::Minutes(1)).free_backed, Length(7));
 }
 
 }  // namespace
