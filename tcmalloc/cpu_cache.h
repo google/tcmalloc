@@ -495,6 +495,19 @@ class CpuCache {
     }
   };
 
+  // TODO(b/298229521): Evaluate Cycles32 precision for sizing decisions.
+  struct LastMiss {
+    Cycles32 last_overflow_cycles;
+    Cycles32 last_underflow_cycles;
+  };
+
+  // Per-CPU, per-size-class sizing and miss metadata, lazily allocated on
+  // first Populate(cpu) and freed in ~CpuCache().
+  struct ABSL_CACHELINE_ALIGNED PerCpuClassData {
+    PerClassResizeInfo per_class[kNumClasses] = {};
+    LastMiss last_miss[kNumClasses] = {};
+  };
+
   struct ABSL_CACHELINE_ALIGNED ResizeInfo {
     // In addition to the limits imposed by how much metadata
     // we can store in our slab, each per-CPU cache has a policy limit
@@ -568,18 +581,13 @@ class CpuCache {
     // please use AllocationGuardSpinLockHolder to hold it.
     absl::base_internal::SpinLock lock ABSL_ACQUIRED_BEFORE(pageheap_lock){
         absl::base_internal::SCHEDULE_KERNEL_ONLY};
-    PerClassResizeInfo per_class[kNumClasses];
+    // Lazily allocated on first Populate(cpu) and kept until ~CpuCache().
+    std::atomic<PerCpuClassData*> class_data{nullptr};
     std::atomic<size_t> num_size_class_resizes;
     // Tracks number of underflows on allocate.
     MissCounts underflows;
     // Tracks number of overflows on deallocate.
     MissCounts overflows;
-    // TODO(b/298229521): Evaluate Cycles32 precision for sizing decisions.
-    struct LastMiss {
-      Cycles32 last_overflow_cycles;
-      Cycles32 last_underflow_cycles;
-    };
-    LastMiss last_miss[kNumClasses];
     // Total cache space available on this CPU (see above): the allocated and
     // unallocated bytes on this CPU cache.
     [[nodiscard]] size_t capacity() const {
@@ -1138,9 +1146,6 @@ inline void CpuCache<Forwarder>::Activate() {
     for (int cpu = 0; cpu < num_cpus; ++cpu) {
       new (&resize[cpu]) ResizeInfo();
 
-      for (int size_class = 1; size_class < kNumClasses; ++size_class) {
-        resize[cpu].per_class[size_class].Init();
-      }
       resize[cpu].AddCapacity(resize_lock_, max_cache_size);
       resize[cpu].available.store(max_cache_size, std::memory_order_relaxed);
       resize[cpu].AssertAvailableWithinCapacity(resize_lock_);
@@ -1178,6 +1183,16 @@ inline CpuCache<Forwarder>::~CpuCache() {
   }
 
   freelist_.Destroy(&forwarder_.Dealloc);
+  static_assert(std::is_trivially_destructible_v<PerCpuClassData>,
+                "PerCpuClassData is expected to be trivially destructible");
+  for (int i = 0; i < num_cpus; ++i) {
+    if (PerCpuClassData* class_data =
+            resize[i].class_data.load(std::memory_order_relaxed);
+        class_data != nullptr) {
+      forwarder_.Dealloc(class_data, sizeof(*class_data),
+                         std::align_val_t{alignof(PerCpuClassData)});
+    }
+  }
   static_assert(std::is_trivially_destructible_v<decltype(*resize_)>,
                 "ResizeInfo is expected to be trivially destructible");
   forwarder_.Dealloc(resize, sizeof(*resize) * num_cpus,
@@ -1376,14 +1391,19 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   const bool grow_by_one = capacity < 2 * batch_length;
   uint32_t successive = 0;
   ResizeInfo& resize = resize_[cpu];
-  // TODO(ckennelly): Use a strongly typed enum.
-  if (overflow) {
-    resize.last_miss[size_class].last_overflow_cycles.Update();
-  } else {
-    resize.last_miss[size_class].last_underflow_cycles.Update();
+  PerCpuClassData* class_data =
+      resize.class_data.load(std::memory_order_acquire);
+  bool grow_by_batch = false;
+  if (ABSL_PREDICT_TRUE(class_data != nullptr)) {
+    // TODO(ckennelly): Use a strongly typed enum.
+    if (overflow) {
+      class_data->last_miss[size_class].last_overflow_cycles.Update();
+    } else {
+      class_data->last_miss[size_class].last_underflow_cycles.Update();
+    }
+    grow_by_batch = class_data->per_class[size_class].Update(
+        overflow, grow_by_one, &successive);
   }
-  bool grow_by_batch =
-      resize.per_class[size_class].Update(overflow, grow_by_one, &successive);
   if ((grow_by_one || grow_by_batch) && capacity != max_capacity) {
     size_t increase = 1;
     if (grow_by_batch) {
@@ -1403,8 +1423,8 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   // We hit the maximum capacity limit when the size class capacity is equal to
   // its maximum allowed capacity. Record a miss due to that so that we can
   // potentially grow the max capacity for this size class later.
-  if (capacity == max_capacity) {
-    resize_[cpu].per_class[size_class].RecordMiss(
+  if (capacity == max_capacity && ABSL_PREDICT_TRUE(class_data != nullptr)) {
+    class_data->per_class[size_class].RecordMiss(
         PerClassMissType::kMaxCapacityTotal);
   }
   return TargetOverflowRefillCount(capacity, batch_length, successive);
@@ -1433,6 +1453,15 @@ ABSL_ATTRIBUTE_NOINLINE void CpuCache<Forwarder>::Populate(int cpu) {
   if (resize_[cpu].populated.load(std::memory_order_relaxed)) {
     return;
   }
+  if (resize_[cpu].class_data.load(std::memory_order_relaxed) == nullptr) {
+    PerCpuClassData* class_data = new (forwarder_.AllocCpuCache(
+        sizeof(PerCpuClassData), std::align_val_t{alignof(PerCpuClassData)}))
+        PerCpuClassData();
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      class_data->per_class[size_class].Init();
+    }
+    resize_[cpu].class_data.store(class_data, std::memory_order_release);
+  }
   freelist_.InitCpu(cpu, GetMaxCapacityFunctor());
   resize_[cpu].populated.store(true, std::memory_order_release);
 }
@@ -1449,8 +1478,12 @@ CpuCache<Forwarder>::Grow(int cpu, size_t size_class, size_t desired_increase) {
   size_t acquired_bytes =
       subtract_at_least(&resize_[cpu].available, size, desired_bytes);
   if (acquired_bytes < desired_bytes) {
-    resize_[cpu].per_class[size_class].RecordMiss(
-        PerClassMissType::kCapacityTotal);
+    if (PerCpuClassData* class_data =
+            resize_[cpu].class_data.load(std::memory_order_acquire);
+        ABSL_PREDICT_TRUE(class_data != nullptr)) {
+      class_data->per_class[size_class].RecordMiss(
+          PerClassMissType::kCapacityTotal);
+    }
   }
   if (ABSL_PREDICT_FALSE(acquired_bytes == 0)) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
@@ -1555,9 +1588,12 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     index = 0;
     if (!HasPopulated(cpu)) continue;
+    PerCpuClassData* class_data =
+        resize_[cpu].class_data.load(std::memory_order_acquire);
+    if (class_data == nullptr) continue;
     for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
       total_misses[index] +=
-          resize_[cpu].per_class[size_class].GetAndUpdateIntervalMisses(
+          class_data->per_class[size_class].GetAndUpdateIntervalMisses(
               PerClassMissType::kMaxCapacityTotal,
               PerClassMissType::kMaxCapacityResize);
 
@@ -1839,9 +1875,14 @@ inline void CpuCache<Forwarder>::ResizeSizeClasses() {
 
     // Record full stats in previous full stat counters so that we can collect
     // stats per interval.
-    for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
-      resize_[cpu].per_class[size_class].UpdateIntervalMisses(
-          PerClassMissType::kCapacityTotal, PerClassMissType::kCapacityResize);
+    if (PerCpuClassData* class_data =
+            resize_[cpu].class_data.load(std::memory_order_acquire);
+        class_data != nullptr) {
+      for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
+        class_data->per_class[size_class].UpdateIntervalMisses(
+            PerClassMissType::kCapacityTotal,
+            PerClassMissType::kCapacityResize);
+      }
     }
 
     if (++num_cpus_resized >= kNumCpuCachesToResize) break;
@@ -1860,11 +1901,16 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
     return;
   }
 
+  PerCpuClassData* class_data =
+      resize_[cpu].class_data.load(std::memory_order_acquire);
+  if (class_data == nullptr) {
+    return;
+  }
   absl::FixedArray<SizeClassMissStat> miss_stats(kNumClasses - 1);
   for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
     miss_stats[size_class - 1] = SizeClassMissStat{
         .size_class = size_class,
-        .misses = resize_[cpu].per_class[size_class].GetIntervalMisses(
+        .misses = class_data->per_class[size_class].GetIntervalMisses(
             PerClassMissType::kCapacityTotal,
             PerClassMissType::kCapacityResize)};
   }
@@ -2170,7 +2216,10 @@ size_t CpuCache<Forwarder>::ShrinkOtherCache(int cpu, size_t size_class) {
   } else if (size <= (64 << 10)) {
     score = (length >= capacity);
   }
-  if (resize_[cpu].per_class[size_class].Tick() < score) {
+  PerCpuClassData* class_data =
+      resize_[cpu].class_data.load(std::memory_order_acquire);
+  if (class_data == nullptr ||
+      class_data->per_class[size_class].Tick() < score) {
     return 0;
   }
 
@@ -2461,9 +2510,13 @@ inline uint64_t CpuCache<Forwarder>::DrainLocksHeld(
   // Resetting the whole array of last miss timestamps is infrequent on idle
   // CPUs; it prevents 32-bit cycle counter epoch exhaustion if no longer
   // updated when idle.
-  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-    resize_[cpu].last_miss[size_class].last_overflow_cycles.Reset();
-    resize_[cpu].last_miss[size_class].last_underflow_cycles.Reset();
+  if (PerCpuClassData* class_data =
+          resize_[cpu].class_data.load(std::memory_order_acquire);
+      class_data != nullptr) {
+    for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+      class_data->last_miss[size_class].last_overflow_cycles.Reset();
+      class_data->last_miss[size_class].last_underflow_cycles.Reset();
+    }
   }
 
   return bytes;
@@ -2810,8 +2863,13 @@ template <class Forwarder>
 size_t CpuCache<Forwarder>::GetIntervalSizeClassMisses(
     int cpu, size_t size_class, PerClassMissType total_type,
     PerClassMissType interval_type) {
-  return resize_[cpu].per_class[size_class].GetIntervalMisses(total_type,
-                                                              interval_type);
+  PerCpuClassData* class_data =
+      resize_[cpu].class_data.load(std::memory_order_acquire);
+  if (class_data == nullptr) {
+    return 0;
+  }
+  return class_data->per_class[size_class].GetIntervalMisses(total_type,
+                                                             interval_type);
 }
 
 template <class Forwarder>
@@ -2835,13 +2893,17 @@ CpuCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
 
     ++num_populated;
 
-    const typename ResizeInfo::LastMiss& last_miss =
-        resize_[cpu].last_miss[size_class];
-
     size_t cap = freelist_.Capacity(cpu, size_class);
     stats.max_capacity = std::max(stats.max_capacity, cap);
     min_capacity = std::min(min_capacity, cap);
     stats.avg_capacity += cap;
+
+    PerCpuClassData* class_data =
+        resize_[cpu].class_data.load(std::memory_order_acquire);
+    if (class_data == nullptr) {
+      continue;
+    }
+    const LastMiss& last_miss = class_data->last_miss[size_class];
 
     if (!last_miss.last_underflow_cycles || !last_miss.last_overflow_cycles) {
       // Don't consider the underflow/overflow time on this CPU if it is
@@ -2877,7 +2939,7 @@ CpuCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
       stats.max_last_underflow_cpu_id = cpu;
     }
     stats.max_capacity_misses +=
-        resize_[cpu].per_class[size_class].GetIntervalMisses(
+        class_data->per_class[size_class].GetIntervalMisses(
             PerClassMissType::kMaxCapacityTotal,
             PerClassMissType::kMaxCapacityResize);
   }

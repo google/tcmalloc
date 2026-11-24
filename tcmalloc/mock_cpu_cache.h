@@ -91,6 +91,17 @@ class CpuCachePeer {
   }
 
   template <typename CpuCache>
+  [[nodiscard]] static size_t PerCpuClassDataSize() {
+    return sizeof(typename CpuCache::PerCpuClassData);
+  }
+
+  template <typename CpuCache>
+  [[nodiscard]] static const void* ClassData(const CpuCache& cpu_cache,
+                                             int cpu) {
+    return cpu_cache.resize_[cpu].class_data.load(std::memory_order_acquire);
+  }
+
+  template <typename CpuCache>
   static size_t CpuStateSize(const CpuCache& cpu_cache) {
     return cpu_cache.freelist_.GetCpuStateSize();
   }
