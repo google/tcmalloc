@@ -114,6 +114,30 @@ inline void AbslStringify(Sink& sink, FillerAppendOnFree v) {
   }
 }
 
+// Controls whether HugePageFiller::TryGet checks subreleased regular hugepages
+// (regular_alloc_partial_released_ and regular_alloc_released_) ahead of
+// donated_alloc_.  When disabled, TryGet searches donated_alloc_ before the
+// subreleased regular lists.  When enabled, TryGet falls back to donated_alloc_
+// only after both subreleased regular lists fail to satisfy the request,
+// avoiding pinning donated tail hugepages from large allocations when
+// regular_alloc_ has been subreleased.
+enum class PreferReleasedOverDonated : bool {
+  kDisabled = false,
+  kEnabled = true,
+};
+
+template <typename Sink>
+inline void AbslStringify(Sink& sink, PreferReleasedOverDonated v) {
+  switch (v) {
+    case PreferReleasedOverDonated::kDisabled:
+      sink.Append("false");
+      return;
+    case PreferReleasedOverDonated::kEnabled:
+      sink.Append("true");
+      return;
+  }
+}
+
 enum class HugeRegionUsageOption : bool {
   // This is a default behavior. We use slack to determine when to use
   // HugeRegion. When slack is greater than 64MB (to ignore small binaries), and

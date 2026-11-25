@@ -167,7 +167,8 @@ struct Allocate {
   uint16_t length;
   uint32_t num_objects;
   bool density_dense;
-  bool prefer_backed;
+  bool prefer_backed = false;
+  bool prefer_released_over_donated = false;
 
   void Perform(State& state) const;
 
@@ -175,8 +176,9 @@ struct Allocate {
   friend void AbslStringify(Sink& sink, const Allocate& a) {
     absl::Format(&sink,
                  "Allocate{.length=%d, .num_objects=%d, .density_dense=%v, "
-                 ".prefer_backed=%v}",
-                 a.length, a.num_objects, a.density_dense, a.prefer_backed);
+                 ".prefer_backed=%v, .prefer_released_over_donated=%v}",
+                 a.length, a.num_objects, a.density_dense, a.prefer_backed,
+                 a.prefer_released_over_donated);
   }
 };
 
@@ -782,10 +784,14 @@ void Allocate::Perform(State& state) const {
   const PreferBackedPages prefer_backed_pages =
       prefer_backed ? PreferBackedPages::kEnabled
                     : PreferBackedPages::kDisabled;
+  const PreferReleasedOverDonated prefer_released_over_donated_mode =
+      prefer_released_over_donated ? PreferReleasedOverDonated::kEnabled
+                                   : PreferReleasedOverDonated::kDisabled;
   HugePageFiller<PageTracker>::TryGetResult result;
   {
     PageHeapSpinLockHolder l;
-    result = state.filler.TryGet(n, alloc_info, prefer_backed_pages);
+    result = state.filler.TryGet(n, alloc_info, prefer_backed_pages,
+                                 prefer_released_over_donated_mode);
   }
 
   if (result.pt == nullptr) {
@@ -1639,11 +1645,12 @@ TEST(HugePageFillerTest, InstructionStringify) {
     Instruction inst = Allocate{.length = 1,
                                 .num_objects = 2,
                                 .density_dense = true,
-                                .prefer_backed = true};
+                                .prefer_backed = true,
+                                .prefer_released_over_donated = true};
     std::string s = absl::StrFormat("%v", inst);
     EXPECT_EQ(s,
               "Allocate{.length=1, .num_objects=2, .density_dense=true, "
-              ".prefer_backed=true}");
+              ".prefer_backed=true, .prefer_released_over_donated=true}");
     EXPECT_THAT(s, Not(HasSubstr("<MAPPING_FUNCTION>")));
   }
   {

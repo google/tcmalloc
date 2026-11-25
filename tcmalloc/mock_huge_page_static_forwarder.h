@@ -110,6 +110,8 @@ class FakeHugePageStaticForwarder : private Parameters {
       Parameters::prefer_backed_filler_pages()};
   FakeParameter<FillerAppendOnFree> filler_append_on_free{
       Parameters::filler_append_on_free()};
+  FakeParameter<PreferReleasedOverDonated> filler_prefer_released_over_donated{
+      Parameters::filler_prefer_released_over_donated()};
   FakeParameter<ReleaseStalePages> release_stale_pages{
       Parameters::release_stale_pages()};
   FakeParameter<MadviseRegionsNoHugepage> madvise_cold_regions_nohugepage{

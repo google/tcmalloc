@@ -231,6 +231,8 @@ TEST(StaticForwarderTest, Parameters) {
             Parameters::enable_unfiltered_collapse());
   EXPECT_EQ(ProdForwarder::filler_append_on_free(),
             Parameters::filler_append_on_free());
+  EXPECT_EQ(ProdForwarder::filler_prefer_released_over_donated(),
+            Parameters::filler_prefer_released_over_donated());
   EXPECT_EQ(ProdForwarder::filler_skip_subrelease_cold_long_interval(),
             Parameters::filler_skip_subrelease_cold_long_interval());
   EXPECT_EQ(ProdForwarder::filler_skip_subrelease_cold_short_interval(),

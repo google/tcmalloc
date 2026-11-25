@@ -696,6 +696,29 @@ class FillerTest : public testing::Test {
   // Tests fragmentation
   void FragmentationTest();
 
+  // Calls filler_.TryGet and returns the result as a PAlloc (with pt == nullptr
+  // on miss) so callers can pass successful allocations directly to DeleteRaw.
+  [[nodiscard]] PAlloc TryGetRaw(
+      Length n, SpanAllocInfo span_alloc_info, PreferBackedPages prefer_backed,
+      PreferReleasedOverDonated prefer_released_over_donated) {
+    PageHeapSpinLockHolder l;
+    auto res = filler_.TryGet(n, span_alloc_info, prefer_backed,
+                              prefer_released_over_donated);
+    PAlloc ret{
+        .pt = res.pt,
+        .p = res.page,
+        .n = n,
+        .mark = 0,
+        .span_alloc_info = span_alloc_info,
+        .from_released = res.from_released,
+    };
+    if (ret.pt != nullptr) {
+      ret.mark = ++next_mark_;
+      total_allocated_ += n;
+    }
+    return ret;
+  }
+
   // Returns true iff the filler returned an empty hugepage.
   bool DeleteRaw(const PAlloc& p) {
     PageTracker* pt;
@@ -731,7 +754,8 @@ class FillerTest : public testing::Test {
     if (!donated) {  // Donated means always create a new hugepage
       PageHeapSpinLockHolder l;
       auto [pt, page, from_released] =
-          filler_.TryGet(n, span_alloc_info, PreferBackedPages::kDisabled);
+          filler_.TryGet(n, span_alloc_info, PreferBackedPages::kDisabled,
+                         PreferReleasedOverDonated::kDisabled);
       ret.pt = pt;
       ret.p = page;
       ret.from_released = from_released;
@@ -858,7 +882,8 @@ TEST_F(FillerTest, ClockCalls) {
   FakeClock::ResetCalls();
   {
     PageHeapSpinLockHolder l;
-    auto res = filler_.TryGet(Length(1), info, PreferBackedPages::kDisabled);
+    auto res = filler_.TryGet(Length(1), info, PreferBackedPages::kDisabled,
+                              PreferReleasedOverDonated::kDisabled);
     EXPECT_EQ(res.pt, nullptr);
   }
   EXPECT_EQ(FakeClock::now_calls(), 0);
@@ -894,7 +919,8 @@ TEST_F(FillerTest, ClockCalls) {
   PageId page2;
   {
     PageHeapSpinLockHolder l;
-    auto res = filler_.TryGet(Length(1), info, PreferBackedPages::kDisabled);
+    auto res = filler_.TryGet(Length(1), info, PreferBackedPages::kDisabled,
+                              PreferReleasedOverDonated::kDisabled);
     alloc_pt = res.pt;
     page2 = res.page;
   }
@@ -943,7 +969,8 @@ TEST_F(FillerTest, ClockCalls) {
 
   {
     PageHeapSpinLockHolder l;
-    auto res = filler_.TryGet(Length(1), info, PreferBackedPages::kDisabled);
+    auto res = filler_.TryGet(Length(1), info, PreferBackedPages::kDisabled,
+                              PreferReleasedOverDonated::kDisabled);
     alloc_pt = res.pt;
     page2 = res.page;
   }
@@ -1745,11 +1772,13 @@ TEST_F(FillerTest, AllocateDuringRetirementUnback) {
     EXPECT_EQ(filler_.used_pages(), kPagesPerHugePage - Length(1));
     EXPECT_EQ(
         filler_
-            .TryGet(Length(2), b.span_alloc_info, PreferBackedPages::kDisabled)
+            .TryGet(Length(2), b.span_alloc_info, PreferBackedPages::kDisabled,
+                    PreferReleasedOverDonated::kDisabled)
             .pt,
         nullptr);
     auto [pt, page, from_released] = filler_.TryGet(
-        Length(1), b.span_alloc_info, PreferBackedPages::kDisabled);
+        Length(1), b.span_alloc_info, PreferBackedPages::kDisabled,
+        PreferReleasedOverDonated::kDisabled);
     EXPECT_EQ(pt, b.pt);
     EXPECT_FALSE(from_released);
     EXPECT_EQ(filler_.Put(pt, Range(page, Length(1)), b.span_alloc_info,
@@ -1785,7 +1814,8 @@ TEST_F(FillerTest, ReleaseDropsLockDuringUnback) {
     // eligible for allocation.
     EXPECT_EQ(
         filler_
-            .TryGet(Length(1), a.span_alloc_info, PreferBackedPages::kDisabled)
+            .TryGet(Length(1), a.span_alloc_info, PreferBackedPages::kDisabled,
+                    PreferReleasedOverDonated::kDisabled)
             .pt,
         nullptr);
     // The pages being unbacked are already accounted as unmapped.
@@ -2051,7 +2081,8 @@ TEST_F(FillerTest, ReleaseTargetMetLeavesCandidatesInPlace) {
     EXPECT_FALSE(a.pt->BeingReleased());
     EXPECT_TRUE(a.pt->PinnedForRelease());
     got = filler_.TryGet(Length(1), a.span_alloc_info,
-                         PreferBackedPages::kDisabled);
+                         PreferBackedPages::kDisabled,
+                         PreferReleasedOverDonated::kDisabled);
     EXPECT_EQ(got.pt, a.pt);
   };
   EXPECT_EQ(ReleasePages(kPagesPerHugePage - Length(1)),
@@ -2284,7 +2315,8 @@ TEST_F(FillerTest, ReentrantAllocateDuringRelease) {
     PageHeapSpinLockHolder l;
     EXPECT_EQ(
         filler_
-            .TryGet(Length(5), a.span_alloc_info, PreferBackedPages::kDisabled)
+            .TryGet(Length(5), a.span_alloc_info, PreferBackedPages::kDisabled,
+                    PreferReleasedOverDonated::kDisabled)
             .pt,
         nullptr);
   };
@@ -2537,7 +2569,8 @@ TEST_F(FillerTest, ParallelReleaseCollapseAndFree) {
       {
         PageHeapSpinLockHolder l;
         auto result =
-            filler_.TryGet(Length(1), info, PreferBackedPages::kDisabled);
+            filler_.TryGet(Length(1), info, PreferBackedPages::kDisabled,
+                           PreferReleasedOverDonated::kDisabled);
         pt = result.pt;
         page = result.page;
       }
@@ -9095,7 +9128,8 @@ TEST_F(FillerTest, PreferBackedFillerPages) {
   PageId page1;
   {
     PageHeapSpinLockHolder l;
-    auto res = filler_.TryGet(Length(2), info, PreferBackedPages::kEnabled);
+    auto res = filler_.TryGet(Length(2), info, PreferBackedPages::kEnabled,
+                              PreferReleasedOverDonated::kDisabled);
     pt1 = res.pt;
     page1 = res.page;
     total_allocated_ += Length(2);
@@ -9113,7 +9147,8 @@ TEST_F(FillerTest, PreferBackedFillerPages) {
   PageId page2;
   {
     PageHeapSpinLockHolder l;
-    auto res = filler_.TryGet(Length(2), info, PreferBackedPages::kDisabled);
+    auto res = filler_.TryGet(Length(2), info, PreferBackedPages::kDisabled,
+                              PreferReleasedOverDonated::kDisabled);
     pt2 = res.pt;
     page2 = res.page;
     total_allocated_ += Length(2);
@@ -9129,7 +9164,8 @@ TEST_F(FillerTest, PreferBackedFillerPages) {
   PageId page3;
   {
     PageHeapSpinLockHolder l;
-    auto res = filler_.TryGet(Length(2), info, PreferBackedPages::kEnabled);
+    auto res = filler_.TryGet(Length(2), info, PreferBackedPages::kEnabled,
+                              PreferReleasedOverDonated::kDisabled);
     pt3 = res.pt;
     page3 = res.page;
     total_allocated_ += Length(2);
@@ -9744,6 +9780,115 @@ TEST_F(FillerTest, SetAnonVmaNameResetDropsPageHeapLock) {
   EXPECT_EQ(resets_unlocked, 2);
 
   set_anon_vma_name_.unlocked_hook_ = nullptr;
+}
+
+TEST_F(FillerTest, PreferReleasedOverDonated) {
+  if (kPagesPerHugePage < Length(8)) {
+    GTEST_SKIP() << "Requires at least 8 pages per hugepage.";
+  }
+  randomize_density_ = false;
+  const SpanAllocInfo sparse_info = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kSparse,
+  };
+  const SpanAllocInfo dense_info = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kDense,
+  };
+
+  // Fill two regular hugepages completely so neither is on regular_alloc_.
+  PAlloc partial_keep =
+      AllocateWithSpanAllocInfo(kPagesPerHugePage - Length(5), sparse_info);
+  PAlloc partial_unbacked = AllocateWithSpanAllocInfo(Length(1), sparse_info);
+  PAlloc partial_sep = AllocateWithSpanAllocInfo(Length(1), sparse_info);
+  PAlloc partial_backed = AllocateWithSpanAllocInfo(Length(3), sparse_info);
+  ASSERT_EQ(partial_keep.pt, partial_unbacked.pt);
+  ASSERT_EQ(partial_keep.pt, partial_sep.pt);
+  ASSERT_EQ(partial_keep.pt, partial_backed.pt);
+
+  PAlloc released_keep =
+      AllocateWithSpanAllocInfo(kPagesPerHugePage - Length(3), sparse_info);
+  PAlloc released_unbacked = AllocateWithSpanAllocInfo(Length(3), sparse_info);
+  ASSERT_NE(released_keep.pt, partial_keep.pt);
+  ASSERT_EQ(released_keep.pt, released_unbacked.pt);
+
+  // Subrelease both holes, then free `partial_backed` so `partial_keep.pt`
+  // sits on regular_alloc_partial_released_ (longest_free = 3) and
+  // `released_keep.pt` sits on regular_alloc_released_ (longest_free = 3).
+  DeleteRaw(partial_unbacked);
+  DeleteRaw(released_unbacked);
+  ASSERT_EQ(HardReleasePages(Length(4)), Length(4));
+  DeleteRaw(partial_backed);
+
+  // Add a freshly donated hugepage with 3 free backed pages on donated_alloc_.
+  PAlloc donated1 = AllocateWithSpanAllocInfo(kPagesPerHugePage - Length(3),
+                                              sparse_info, /*donated=*/true);
+  ASSERT_TRUE(donated1.pt->donated());
+
+  // With PreferReleasedOverDonated::kEnabled:
+  // 1) Picks regular_alloc_partial_released_ first.
+  PAlloc res1 = TryGetRaw(Length(2), sparse_info, PreferBackedPages::kDisabled,
+                          PreferReleasedOverDonated::kEnabled);
+  ASSERT_EQ(res1.pt, partial_keep.pt);
+  EXPECT_TRUE(donated1.pt->donated());
+
+  // 2) Picks regular_alloc_released_ next (partial now has longest_free == 1).
+  PAlloc res2 = TryGetRaw(Length(2), sparse_info, PreferBackedPages::kDisabled,
+                          PreferReleasedOverDonated::kEnabled);
+  ASSERT_EQ(res2.pt, released_keep.pt);
+  EXPECT_TRUE(res2.from_released);
+  EXPECT_TRUE(donated1.pt->donated());
+
+  // 3) Dense allocations never fall back to donated_alloc_.
+  PAlloc dense_miss =
+      TryGetRaw(Length(1), dense_info, PreferBackedPages::kDisabled,
+                PreferReleasedOverDonated::kEnabled);
+  EXPECT_EQ(dense_miss.pt, nullptr);
+  EXPECT_TRUE(donated1.pt->donated());
+
+  // 4) Once neither released list can satisfy Length(2), falls back to
+  //    donated_alloc_.
+  PAlloc res3 = TryGetRaw(Length(2), sparse_info, PreferBackedPages::kDisabled,
+                          PreferReleasedOverDonated::kEnabled);
+  ASSERT_EQ(res3.pt, donated1.pt);
+  EXPECT_FALSE(res3.from_released);
+  EXPECT_FALSE(donated1.pt->donated());
+
+  // Free res1 so `partial_keep.pt` returns to regular_alloc_partial_released_
+  // with longest_free >= 2, and contribute a second donated hugepage.
+  DeleteRaw(res1);
+  PAlloc donated2 = AllocateWithSpanAllocInfo(kPagesPerHugePage - Length(3),
+                                              sparse_info, /*donated=*/true);
+  ASSERT_TRUE(donated2.pt->donated());
+
+  // Flip to kDisabled mid-test while live trackers remain: donated_alloc_ is
+  // once again preferred ahead of regular_alloc_partial_released_.
+  PAlloc res4 = TryGetRaw(Length(2), sparse_info, PreferBackedPages::kDisabled,
+                          PreferReleasedOverDonated::kDisabled);
+  ASSERT_EQ(res4.pt, donated2.pt);
+  EXPECT_FALSE(donated2.pt->donated());
+
+  // Flip back to kEnabled mid-test with a third donated hugepage: prefers
+  // regular_alloc_partial_released_ and leaves `donated3` untouched.
+  PAlloc donated3 = AllocateWithSpanAllocInfo(kPagesPerHugePage - Length(3),
+                                              sparse_info, /*donated=*/true);
+  ASSERT_TRUE(donated3.pt->donated());
+  PAlloc res5 = TryGetRaw(Length(2), sparse_info, PreferBackedPages::kDisabled,
+                          PreferReleasedOverDonated::kEnabled);
+  ASSERT_EQ(res5.pt, partial_keep.pt);
+  EXPECT_TRUE(donated3.pt->donated());
+
+  // Clean up all remaining live allocations.
+  DeleteRaw(res5);
+  DeleteRaw(res4);
+  DeleteRaw(res3);
+  DeleteRaw(res2);
+  DeleteRaw(donated3);
+  DeleteRaw(donated2);
+  DeleteRaw(donated1);
+  DeleteRaw(released_keep);
+  DeleteRaw(partial_sep);
+  DeleteRaw(partial_keep);
 }
 }  // namespace
 }  // namespace tcmalloc_internal

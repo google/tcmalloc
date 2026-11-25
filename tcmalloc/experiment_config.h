@@ -28,6 +28,7 @@ enum class Experiment : int {
   TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION,  // TODO: b/205153285 - Complete experiment.
   TCMALLOC_SONIC_COLLAPSE_RELEASED_HUGEPAGES,  // TODO: b/435718337 - Complete experiment.
   TCMALLOC_SONIC_DEMAND_CYCLE_60S,  // TODO: b/582367305 - Complete experiment.
+  TCMALLOC_SONIC_FILLER_PREFER_RELEASED_OVER_DONATED,  // TODO: b/589431769 - Complete experiment.
   TCMALLOC_SONIC_FIX_MAX_CAPACITY_BUG_ABLATION,  // TODO: b/577007348 - Complete experiment.
   TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE_DENSE_128K,  // TODO: b/572352809 - Complete experiment.
   TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE_DENSE_128K_SPARSE_64K,  // TODO: b/572352809 - Complete experiment.
@@ -64,6 +65,7 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION, "TCMALLOC_RELEASE_DRAINED_METADATA_ABLATION"},
     {Experiment::TCMALLOC_SONIC_COLLAPSE_RELEASED_HUGEPAGES, "TCMALLOC_SONIC_COLLAPSE_RELEASED_HUGEPAGES", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01, /*rollout_salt=*/"", /*rollout_inverted=*/true},
     {Experiment::TCMALLOC_SONIC_DEMAND_CYCLE_60S, "TCMALLOC_SONIC_DEMAND_CYCLE_60S", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01, /*rollout_salt=*/"", /*rollout_inverted=*/true},
+    {Experiment::TCMALLOC_SONIC_FILLER_PREFER_RELEASED_OVER_DONATED, "TCMALLOC_SONIC_FILLER_PREFER_RELEASED_OVER_DONATED"},
     {Experiment::TCMALLOC_SONIC_FIX_MAX_CAPACITY_BUG_ABLATION, "TCMALLOC_SONIC_FIX_MAX_CAPACITY_BUG_ABLATION", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01},
     {Experiment::TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE_DENSE_128K, "TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE_DENSE_128K", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0, /*rollout_upper_bound=*/0.01, /*rollout_salt=*/"TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE"},
     {Experiment::TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE_DENSE_128K_SPARSE_64K, "TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE_DENSE_128K_SPARSE_64K", /*brittle=*/false, /*force_disable=*/false, /*rollout_lower_bound=*/0.02, /*rollout_upper_bound=*/0.03, /*rollout_salt=*/"TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE", /*rollout_inverted=*/true},

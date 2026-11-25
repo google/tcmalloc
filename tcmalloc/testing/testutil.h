@@ -199,6 +199,9 @@ using ScopedMadviseSampledAllocations =
 using ScopedReobserveHugepageBacked =
     ScopedParameter<TCMalloc_Internal_GetReobserveHugepageBacked,
                     TCMalloc_Internal_SetReobserveHugepageBacked>;
+using ScopedFillerPreferReleasedOverDonated =
+    ScopedParameter<TCMalloc_Internal_GetFillerPreferReleasedOverDonated,
+                    TCMalloc_Internal_SetFillerPreferReleasedOverDonated>;
 
 inline void UnregisterRseq() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ

@@ -176,6 +176,9 @@ TEST_F(GetStatsTest, Pbtxt) {
               HasSubstr(absl::StrCat("tcmalloc_filler_append_on_free: ",
                                      Parameters::filler_append_on_free())));
   EXPECT_THAT(buf, HasSubstr(absl::StrCat(
+                       "tcmalloc_filler_prefer_released_over_donated: ",
+                       Parameters::filler_prefer_released_over_donated())));
+  EXPECT_THAT(buf, HasSubstr(absl::StrCat(
                        "tcmalloc_min_free_bytes_to_break_dense_hugepage: ",
                        Parameters::min_free_bytes_to_break_dense_hugepage())));
   EXPECT_THAT(buf, HasSubstr(absl::StrCat(
@@ -272,6 +275,8 @@ TEST_F(GetStatsTest, Parameters) {
       Parameters::filler_append_on_free() ==
       tcmalloc_internal::FillerAppendOnFree::kEnabled;
   Parameters::set_filler_append_on_free(false);
+  ScopedFillerPreferReleasedOverDonated filler_prefer_released_over_donated(
+      false);
   const size_t old_min_free_bytes_to_break_dense_hugepage =
       Parameters::min_free_bytes_to_break_dense_hugepage();
   Parameters::set_min_free_bytes_to_break_dense_hugepage(0);
@@ -367,6 +372,10 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         buf,
         HasSubstr(
+            R"(PARAMETER tcmalloc_filler_prefer_released_over_donated 0)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(
             R"(PARAMETER tcmalloc_min_free_bytes_to_break_dense_hugepage 0)"));
     EXPECT_THAT(
         buf,
@@ -392,6 +401,9 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_prefer_backed_filler_pages: false)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_filler_append_on_free: false)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(R"(tcmalloc_filler_prefer_released_over_donated: false)"));
     EXPECT_THAT(
         pbtxt,
         HasSubstr(R"(tcmalloc_min_free_bytes_to_break_dense_hugepage: 0)"));
@@ -468,6 +480,7 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_collapse_released_hugepages(true);
   Parameters::set_prefer_backed_filler_pages(true);
   Parameters::set_filler_append_on_free(true);
+  Parameters::set_filler_prefer_released_over_donated(true);
   Parameters::set_min_free_bytes_to_break_dense_hugepage(131072);
   Parameters::set_min_free_bytes_to_break_sparse_hugepage(65536);
   Parameters::set_reobserve_hugepage_backed(ReobserveHugepageBacked::kEnabled);
@@ -521,6 +534,10 @@ TEST_F(GetStatsTest, Parameters) {
         buf, HasSubstr(R"(PARAMETER tcmalloc_prefer_backed_filler_pages 1)"));
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_filler_append_on_free 1)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(
+            R"(PARAMETER tcmalloc_filler_prefer_released_over_donated 1)"));
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_reobserve_hugepage_backed 1)"));
     EXPECT_THAT(
@@ -569,6 +586,9 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_prefer_backed_filler_pages: true)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_filler_append_on_free: true)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(R"(tcmalloc_filler_prefer_released_over_donated: true)"));
     EXPECT_THAT(
         pbtxt,
         HasSubstr(

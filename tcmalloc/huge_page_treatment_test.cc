@@ -290,7 +290,8 @@ TEST_F(HugePageTreatmentRealMemoryTest,
   {
     PageHeapSpinLockHolder l;
     auto [got_pt, got_page, from_released] =
-        filler_.TryGet(released_len, info, PreferBackedPages::kDisabled);
+        filler_.TryGet(released_len, info, PreferBackedPages::kDisabled,
+                       PreferReleasedOverDonated::kDisabled);
     ASSERT_EQ(got_pt, pt.get());
     EXPECT_FALSE(from_released);
     rel_page = got_page;
@@ -328,7 +329,8 @@ TEST_F(HugePageTreatmentRealMemoryTest,
   {
     PageHeapSpinLockHolder l;
     auto [got_pt, got_page, from_released] =
-        filler_.TryGet(Length(1), info, PreferBackedPages::kDisabled);
+        filler_.TryGet(Length(1), info, PreferBackedPages::kDisabled,
+                       PreferReleasedOverDonated::kDisabled);
     ASSERT_EQ(got_pt, pt.get());
     EXPECT_TRUE(from_released);
     extra_free_page = got_page;

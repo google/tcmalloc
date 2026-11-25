@@ -3356,6 +3356,116 @@ TEST_P(HugePageAwareAllocatorTest, MinFreePagesToBreakHugepage) {
   }
 }
 
+TEST_P(HugePageAwareAllocatorTest, FillerPreferReleasedOverDonated) {
+  if (kPagesPerHugePage < Length(8)) {
+    GTEST_SKIP() << "Requires at least 8 pages per hugepage.";
+  }
+
+  allocator_->forwarder().hpaa_subrelease.set(true);
+  allocator_->forwarder().filler_skip_subrelease_short_interval.set(
+      absl::ZeroDuration());
+  allocator_->forwarder().filler_skip_subrelease_long_interval.set(
+      absl::ZeroDuration());
+  allocator_->forwarder().release_max_filler_pages.set(true);
+  allocator_->forwarder().min_free_pages_to_break_dense_hugepage.set(Length(1));
+  allocator_->forwarder().min_free_pages_to_break_sparse_hugepage.set(
+      Length(1));
+
+  constexpr SpanAllocInfo kSpanInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kSparse,
+  };
+  const Length kLargeWithTail = 2 * kPagesPerHugePage + Length(1);
+
+  auto donated_and_abandoned = [&]() {
+    PageHeapSpinLockHolder l;
+    return std::pair<HugeLength, Length>(allocator_->DonatedHugePages(),
+                                         allocator_->AbandonedPages());
+  };
+
+  // Pin a regular filler hugepage and drain all its free backed pages onto
+  // regular_alloc_released_ via release_max_filler_pages.
+  AllocationState pin = New(Length(1), kSpanInfo);
+  const HugePage regular_hp = HugePageContaining(pin.r.p);
+  ReleasePages(Length(1), PageReleaseReason::kProcessBackgroundActions);
+  ASSERT_EQ(GetHugepageState(regular_hp).released_pages,
+            kPagesPerHugePage - Length(1));
+
+  // 1. Enabled: small allocations prefer the subreleased regular hugepage
+  //    ahead of a freshly donated tail, so freeing the large allocation
+  //    reassembles the tail without abandoning pages.
+  allocator_->forwarder().filler_prefer_released_over_donated.set(
+      PreferReleasedOverDonated::kEnabled);
+  AllocationState large1 = New(kLargeWithTail, kSpanInfo);
+  ASSERT_TRUE(large1.donated);
+  const HugePage donated_hp1 = HugePageContaining(large1.r.p) + NHugePages(2);
+
+  AllocationState small1 = New(Length(1), kSpanInfo);
+  EXPECT_EQ(HugePageContaining(small1.r.p), regular_hp);
+  EXPECT_NE(HugePageContaining(small1.r.p), donated_hp1);
+
+  Delete(large1, 1);
+  EXPECT_EQ(donated_and_abandoned(), std::make_pair(NHugePages(0), Length(0)));
+
+  // 2. Flip to disabled mid-run while live spans remain: a small allocation
+  //    now carves into the donated tail ahead of regular_alloc_released_,
+  //    pinning the tail hugepage when the large allocation is freed.
+  allocator_->forwarder().filler_prefer_released_over_donated.set(
+      PreferReleasedOverDonated::kDisabled);
+  AllocationState large2 = New(kLargeWithTail, kSpanInfo);
+  ASSERT_TRUE(large2.donated);
+  const HugePage donated_hp2 = HugePageContaining(large2.r.p) + NHugePages(2);
+
+  AllocationState small2 = New(Length(1), kSpanInfo);
+  EXPECT_EQ(HugePageContaining(small2.r.p), donated_hp2);
+
+  Delete(large2, 1);
+  EXPECT_EQ(donated_and_abandoned(), std::make_pair(NHugePages(1), Length(1)));
+
+  // 3. Flip back to enabled mid-run: drain regular_alloc_ (which now holds
+  //    donated_hp2) and confirm a new donated tail is once again protected.
+  allocator_->forwarder().filler_prefer_released_over_donated.set(
+      PreferReleasedOverDonated::kEnabled);
+  ReleasePages(Length(1), PageReleaseReason::kProcessBackgroundActions);
+
+  AllocationState large3 = New(kLargeWithTail, kSpanInfo);
+  ASSERT_TRUE(large3.donated);
+  const HugePage donated_hp3 = HugePageContaining(large3.r.p) + NHugePages(2);
+
+  AllocationState small3 = New(Length(1), kSpanInfo);
+  EXPECT_NE(HugePageContaining(small3.r.p), donated_hp3);
+
+  Delete(large3, 1);
+  EXPECT_EQ(donated_and_abandoned(), std::make_pair(NHugePages(1), Length(1)));
+
+  // Release small2 and small3 so donated_hp2 returns to HugeCache and only
+  // regular_hp remains in the filler with `pin` and `small1` (2 pages used).
+  Delete(small3, 1);
+  Delete(small2, 1);
+  EXPECT_EQ(donated_and_abandoned(), std::make_pair(NHugePages(0), Length(0)));
+
+  // 4. Enabled fallback: once regular and subreleased hugepages have no space,
+  //    small allocations still fall back to donated tail hugepages.
+  AllocationState large4 = New(kLargeWithTail, kSpanInfo);
+  ASSERT_TRUE(large4.donated);
+  const HugePage donated_hp4 = HugePageContaining(large4.r.p) + NHugePages(2);
+
+  AllocationState fill_regular = New(kPagesPerHugePage - Length(2), kSpanInfo);
+  EXPECT_EQ(HugePageContaining(fill_regular.r.p), regular_hp);
+
+  AllocationState small4 = New(Length(1), kSpanInfo);
+  EXPECT_EQ(HugePageContaining(small4.r.p), donated_hp4);
+
+  Delete(large4, 1);
+  EXPECT_EQ(donated_and_abandoned(), std::make_pair(NHugePages(1), Length(1)));
+
+  Delete(small4, 1);
+  EXPECT_EQ(donated_and_abandoned(), std::make_pair(NHugePages(0), Length(0)));
+  Delete(fill_regular, 1);
+  Delete(small1, 1);
+  Delete(pin, 1);
+}
+
 TEST(HugePageAwareAllocatorDeathTest, DoubleFreeReportsError) {
   FakeHugePageAwareAllocator allocator({.tag = MemoryTag::kNormal});
   constexpr SpanAllocInfo kSpanInfo = {

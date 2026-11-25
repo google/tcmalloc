@@ -541,8 +541,9 @@ class HugePageFiller {
   // number of individual objects that would be allocated on these n pages.
   //
   // On failure, returns nullptr/PageId{0}.
-  [[nodiscard]] TryGetResult TryGet(Length n, SpanAllocInfo span_alloc_info,
-                                    PreferBackedPages prefer_backed)
+  [[nodiscard]] TryGetResult TryGet(
+      Length n, SpanAllocInfo span_alloc_info, PreferBackedPages prefer_backed,
+      PreferReleasedOverDonated prefer_released_over_donated)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Marks r as usable by new allocations into *pt; returns pt if that hugepage
@@ -978,8 +979,9 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
 
 template <class TrackerType>
 inline typename HugePageFiller<TrackerType>::TryGetResult
-HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info,
-                                    PreferBackedPages prefer_backed) {
+HugePageFiller<TrackerType>::TryGet(
+    Length n, SpanAllocInfo span_alloc_info, PreferBackedPages prefer_backed,
+    PreferReleasedOverDonated prefer_released_over_donated) {
   TC_ASSERT_GT(n, Length(0));
   TC_ASSERT(span_alloc_info.density == AccessDensityPrediction::kSparse ||
             n == Length(1));
@@ -1027,7 +1029,9 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info,
   //
   // Overall our allocation preference is:
   //  - We prefer allocating from used freelists rather than freshly donated
-  //  - We prefer donated pages over previously released hugepages ones.
+  //  - We prefer donated pages over previously released hugepages ones (unless
+  //    prefer_released_over_donated is kEnabled, in which case we search
+  //    previously released hugepages before donated ones)
   //  - Among donated freelists we prefer smaller longest_free_range
   //  - Among used freelists we prefer smaller longest_free_range
   //    with ties broken by (quantized) alloc counts
@@ -1053,6 +1057,12 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info,
 
   bool was_released = false;
   const AccessDensityPrediction type = span_alloc_info.density;
+  auto try_donated = [&]() GOOGLE_MALLOC_SECTION -> TrackerType* {
+    if (ABSL_PREDICT_TRUE(type == AccessDensityPrediction::kSparse)) {
+      return donated_alloc_.GetLeast(n.raw_num());
+    }
+    return nullptr;
+  };
   do {
     const size_t listindex =
         type == AccessDensityPrediction::kSparse
@@ -1063,8 +1073,8 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info,
       TC_ASSERT(!pt->donated());
       break;
     }
-    if (ABSL_PREDICT_TRUE(type == AccessDensityPrediction::kSparse)) {
-      pt = donated_alloc_.GetLeast(n.raw_num());
+    if (prefer_released_over_donated == PreferReleasedOverDonated::kDisabled) {
+      pt = try_donated();
       if (pt) {
         break;
       }
@@ -1084,6 +1094,12 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info,
       TC_ASSERT_GE(n_used_released_[type], pt->used_pages());
       n_used_released_[type] -= pt->used_pages();
       break;
+    }
+    if (prefer_released_over_donated == PreferReleasedOverDonated::kEnabled) {
+      pt = try_donated();
+      if (pt) {
+        break;
+      }
     }
 
     return {nullptr, PageId{0}, false};

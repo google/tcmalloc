@@ -552,6 +552,19 @@ struct SetFillerAppendOnFree {
   }
 };
 
+struct SetFillerPreferReleasedOverDonated {
+  bool value;
+
+  void Perform(State& state) const;
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink,
+                            const SetFillerPreferReleasedOverDonated& s) {
+    absl::Format(&sink, "SetFillerPreferReleasedOverDonated{.value=%v}",
+                 s.value);
+  }
+};
+
 struct SetEnableReleaseStalePages {
   bool value;
 
@@ -680,10 +693,10 @@ using ParamOp = std::variant<
     SetHugeRegionAdaptiveRelease, SetAllocateSucceeds, SetBackAllocations,
     SetBackSizeThresholdBytes, ReentrantSubprogram, SetEnableUnfilteredCollapse,
     SetReleaseMaxFillerPages, SetPreferBackedFillerPages, SetFillerAppendOnFree,
-    SetEnableReleaseStalePages, SetCollapseReleasedHugepages,
-    SetMadvNoHugepageHugeRegions, SetReobserveHugepageBacked, UpdateBitmaps,
-    SetUsageLimitPressure, SetMinFreePagesToBreakDenseHugepage,
-    SetMinFreePagesToBreakSparseHugepage>;
+    SetFillerPreferReleasedOverDonated, SetEnableReleaseStalePages,
+    SetCollapseReleasedHugepages, SetMadvNoHugepageHugeRegions,
+    SetReobserveHugepageBacked, UpdateBitmaps, SetUsageLimitPressure,
+    SetMinFreePagesToBreakDenseHugepage, SetMinFreePagesToBreakSparseHugepage>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const ParamOp& p) {
@@ -1357,6 +1370,12 @@ void SetFillerAppendOnFree::Perform(State& state) const {
       value ? FillerAppendOnFree::kEnabled : FillerAppendOnFree::kDisabled);
 }
 
+void SetFillerPreferReleasedOverDonated::Perform(State& state) const {
+  state.allocator.forwarder().filler_prefer_released_over_donated.set(
+      value ? PreferReleasedOverDonated::kEnabled
+            : PreferReleasedOverDonated::kDisabled);
+}
+
 void SetEnableReleaseStalePages::Perform(State& state) const {
   state.allocator.forwarder().release_stale_pages.set(
       value ? ReleaseStalePages::kEnabled : ReleaseStalePages::kDisabled);
@@ -1546,6 +1565,9 @@ fuzztest::Domain<ChangeParam> GetChangeParamDomain(int depth) {
                     fuzztest::Arbitrary<SetPreferBackedFillerPages>()),
       fuzztest::Map([](SetFillerAppendOnFree s) { return ChangeParam{s}; },
                     fuzztest::Arbitrary<SetFillerAppendOnFree>()),
+      fuzztest::Map(
+          [](SetFillerPreferReleasedOverDonated s) { return ChangeParam{s}; },
+          fuzztest::Arbitrary<SetFillerPreferReleasedOverDonated>()),
       fuzztest::Map([](SetEnableReleaseStalePages s) { return ChangeParam{s}; },
                     fuzztest::Arbitrary<SetEnableReleaseStalePages>()),
       fuzztest::Map(

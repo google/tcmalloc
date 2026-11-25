@@ -181,6 +181,12 @@ void Parameters::InitializeFromExperiments() {
   }
 
   if (IsExperimentActive(
+          Experiment::TCMALLOC_SONIC_FILLER_PREFER_RELEASED_OVER_DONATED)) {
+    filler_prefer_released_over_donated_.store(
+        PreferReleasedOverDonated::kEnabled, std::memory_order_relaxed);
+  }
+
+  if (IsExperimentActive(
           Experiment::
               TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE_DENSE_128K)) {
     min_free_bytes_to_break_dense_hugepage_.store(128 * 1024,
@@ -399,6 +405,9 @@ ABSL_CONST_INIT std::atomic<PreferBackedPages>
     Parameters::prefer_backed_filler_pages_(PreferBackedPages::kDisabled);
 ABSL_CONST_INIT std::atomic<FillerAppendOnFree>
     Parameters::filler_append_on_free_(FillerAppendOnFree::kDisabled);
+ABSL_CONST_INIT std::atomic<PreferReleasedOverDonated>
+    Parameters::filler_prefer_released_over_donated_(
+        PreferReleasedOverDonated::kDisabled);
 ABSL_CONST_INIT std::atomic<MadviseRegionsNoHugepage>
     Parameters::madvise_cold_regions_nohugepage_(
         MadviseRegionsNoHugepage::kDisabled);
@@ -975,6 +984,20 @@ void TCMalloc_Internal_SetFillerAppendOnFree(bool v) {
   Parameters::filler_append_on_free_.store(
       v ? tcmalloc::tcmalloc_internal::FillerAppendOnFree::kEnabled
         : tcmalloc::tcmalloc_internal::FillerAppendOnFree::kDisabled,
+      std::memory_order_relaxed);
+}
+
+bool TCMalloc_Internal_GetFillerPreferReleasedOverDonated() {
+  tc_globals.InitIfNecessary();
+  return Parameters::filler_prefer_released_over_donated() ==
+         tcmalloc::tcmalloc_internal::PreferReleasedOverDonated::kEnabled;
+}
+
+void TCMalloc_Internal_SetFillerPreferReleasedOverDonated(bool v) {
+  tc_globals.InitIfNecessary();
+  Parameters::filler_prefer_released_over_donated_.store(
+      v ? tcmalloc::tcmalloc_internal::PreferReleasedOverDonated::kEnabled
+        : tcmalloc::tcmalloc_internal::PreferReleasedOverDonated::kDisabled,
       std::memory_order_relaxed);
 }
 

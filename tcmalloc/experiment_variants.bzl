@@ -47,6 +47,12 @@ experiment_variants = [
         "env": {"BORG_DISABLE_EXPERIMENTS": "TCMALLOC_SONIC_DEMAND_CYCLE_60S"},
     },
     {
+        "name": "tcmalloc_filler_prefer_released_over_donated",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_FILLER_PREFER_RELEASED_OVER_DONATED"},
+    },
+    {
         "name": "tcmalloc_fix_max_capacity_bug_ablation",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],

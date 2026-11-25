@@ -533,7 +533,8 @@ HugePageAwareAllocator<Forwarder>::AllocSmall(Length n,
                                               SpanAllocInfo span_alloc_info,
                                               bool* from_released) {
   auto [pt, page, released] = filler_.TryGet(
-      n, span_alloc_info, forwarder_.prefer_backed_filler_pages());
+      n, span_alloc_info, forwarder_.prefer_backed_filler_pages(),
+      forwarder_.filler_prefer_released_over_donated());
   *from_released = released;
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {
     return Finalize(Range(page, n), *from_released);
@@ -567,7 +568,8 @@ HugePageAwareAllocator<Forwarder>::AllocLarge(Length n,
   // If we fit in a single hugepage, try the Filler.p.
   if (n < kPagesPerHugePage) {
     auto [pt, page, released] = filler_.TryGet(
-        n, span_alloc_info, forwarder_.prefer_backed_filler_pages());
+        n, span_alloc_info, forwarder_.prefer_backed_filler_pages(),
+        forwarder_.filler_prefer_released_over_donated());
     *from_released = released;
     if (ABSL_PREDICT_TRUE(pt != nullptr)) {
       return Finalize(Range(page, n), *from_released);
