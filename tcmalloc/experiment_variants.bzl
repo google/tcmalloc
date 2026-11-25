@@ -62,7 +62,7 @@ experiment_variants = [
         "name": "tcmalloc_min_free_bytes_to_break_hugepage_dense_128k_sparse_64k",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE_DENSE_128K_SPARSE_64K"},
+        "env": {"BORG_DISABLE_EXPERIMENTS": "TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE_DENSE_128K_SPARSE_64K"},
     },
     {
         "name": "tcmalloc_min_free_bytes_to_break_hugepage_dense_64k_sparse_64k",
