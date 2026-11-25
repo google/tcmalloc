@@ -772,6 +772,7 @@ TEST_F(GetStatsTest, HugeRegionTimeseries) {
   EXPECT_THAT(pbtxt, HasSubstr("huge_region_free_backed_stats {"));
   EXPECT_THAT(pbtxt, HasSubstr("huge_region_usage_history {"));
   EXPECT_THAT(pbtxt, HasSubstr("huge_region_free_backed_history {"));
+  EXPECT_THAT(pbtxt, HasSubstr("huge_region_activity_history {"));
 
   for (void* p : ptrs) {
     if (p != nullptr) {

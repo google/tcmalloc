@@ -37,6 +37,7 @@
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/min_max_tracker.h"
 #include "tcmalloc/internal/range_tracker.h"
+#include "tcmalloc/internal/timeseries_tracker.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
 
@@ -217,7 +218,8 @@ class HugeRegionSet {
         clock_(clock),
 #endif
         usage_tracker_(clock, kTimeseriesWindow),
-        free_backed_tracker_(clock, kTimeseriesWindow) {
+        free_backed_tracker_(clock, kTimeseriesWindow),
+        activity_tracker_(clock, kTimeseriesWindow / kTimeseriesEpochs) {
   }
 
   // If available, return a range of n free pages, setting *from_released =
@@ -235,7 +237,7 @@ class HugeRegionSet {
   // Releases unused but backed hugepages from the set.
   // - If hit_limit is true, we release up to desired pages.
   // - If hit_limit is false and use_adaptive is true, we release up to the
-  //   low water mark of free backed pages (capped by desired).
+  //   low water mark of free backed pages.
   // - If hit_limit is false and use_adaptive is false, we release a fraction
   //   of the free backed pages.
   [[nodiscard]] Length ReleasePages(Length desired,
@@ -277,14 +279,54 @@ class HugeRegionSet {
     return backed_huge_pages_ - free_backed_count_;
   }
 
-  void ReportStats() {
+  struct ActivityDelta {
+    HugeLength backed = NHugePages(0);
+    HugeLength unbacked = NHugePages(0);
+  };
+
+  struct ActivityEntry {
+    HugeLength backed = NHugePages(0);
+    HugeLength unbacked = NHugePages(0);
+    bool valid = false;
+
+    [[nodiscard]] static ActivityEntry Nil() { return {}; }
+
+    void Report(ActivityDelta delta) {
+      valid = true;
+      backed += delta.backed;
+      unbacked += delta.unbacked;
+    }
+
+    [[nodiscard]] bool empty() const { return !valid; }
+  };
+
+  [[nodiscard]] ActivityEntry RecentActivity() const {
+    ActivityEntry total;
+    activity_tracker_.IterBackwards(
+        [&](size_t, size_t, const ActivityEntry& entry) GOOGLE_MALLOC_SECTION {
+          total.backed += entry.backed;
+          total.unbacked += entry.unbacked;
+        },
+        kTimeseriesWindow);
+    return total;
+  }
+
+  [[nodiscard]] double HitRate() const {
+    const double total = static_cast<double>(hits_ + misses_);
+    if (total == 0.0) return 0.0;
+    return static_cast<double>(hits_) / total;
+  }
+
+  void ReportStats(ActivityDelta activity) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING2
     usage_tracker_.Report(in_use_huge_pages());
     free_backed_tracker_.Report(free_backed_count_);
+    activity_tracker_.Report(activity);
 #else
     const int64_t now = clock_.now();
     usage_tracker_.Report(in_use_huge_pages(), now);
     free_backed_tracker_.Report(free_backed_count_, now);
+    activity_tracker_.Report(activity, now);
 #endif
   }
 
@@ -348,11 +390,15 @@ class HugeRegionSet {
   HugeLength backed_huge_pages_;
   HugeLength free_backed_count_;
   HugeLength lowater_free_backed_;
+  size_t hits_{0};
+  size_t misses_{0};
 #ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING2
   Clock clock_;
 #endif
   MinMaxTracker<HugeLength, kTimeseriesEpochs> usage_tracker_;
   MinMaxTracker<HugeLength, kTimeseriesEpochs> free_backed_tracker_;
+  TimeSeriesTracker<ActivityEntry, ActivityDelta, kTimeseriesEpochs>
+      activity_tracker_;
 };
 
 // REQUIRES: r.len() == size(); r unbacked.
@@ -700,10 +746,16 @@ inline bool HugeRegionSet<Region>::MaybeGet(Length n, PageId* absl_nonnull page,
       const HugeLength diff = free_backed_before - free_backed_after;
       TC_ASSERT_GE(free_backed_count_, diff);
       free_backed_count_ -= diff;
-      backed_huge_pages_ += backed_after - backed_before;
+      const HugeLength newly_backed = backed_after - backed_before;
+      backed_huge_pages_ += newly_backed;
+      if (*from_released) {
+        ++misses_;
+      } else {
+        ++hits_;
+      }
       lowater_free_backed_ = std::min(lowater_free_backed_, free_backed_count_);
       Fix(region);
-      ReportStats();
+      ReportStats({.backed = newly_backed});
       return true;
     }
   }
@@ -729,7 +781,7 @@ inline bool HugeRegionSet<Region>::MaybePut(Range r) {
       TC_ASSERT_GE(backed_huge_pages_, unbacked);
       backed_huge_pages_ -= unbacked;
       Fix(region);
-      ReportStats();
+      ReportStats({.unbacked = unbacked});
       return true;
     }
   }
@@ -746,7 +798,7 @@ inline void HugeRegionSet<Region>::Contribute(Region* region) {
   free_backed_count_ += region->free_backed();
   AddToList(region);
   if (backed > NHugePages(0)) {
-    ReportStats();
+    ReportStats({.backed = backed});
   }
 }
 
@@ -813,7 +865,7 @@ inline Length HugeRegionSet<Region>::ReleasePages(
   backed_huge_pages_ -= released_hl;
   lowater_free_backed_ = free_backed_count_;
   if (released_hl > NHugePages(0)) {
-    ReportStats();
+    ReportStats({.unbacked = released_hl});
   }
 
   return released;
@@ -869,8 +921,36 @@ inline void HugeRegionSet<Region>::Print(Printer& out) const {
       "MiB\n",
       free_min.in_mib(), free_backed_count_.in_mib(), free_max.in_mib());
 
+  const ActivityEntry recent_activity = RecentActivity();
+  out.printf(
+      "HugeRegionSet: %.3f hit rate (%zu hits, %zu misses), "
+      "%zu MiB backed and %zu MiB unbacked in recent window\n",
+      HitRate(), hits_, misses_, recent_activity.backed.in_mib(),
+      recent_activity.unbacked.in_mib());
+
   usage_tracker_.Print(out, "HugeRegionSet", "Usage");
   free_backed_tracker_.Print(out, "HugeRegionSet", "Free backed");
+
+  const absl::Duration epoch_length = kTimeseriesWindow / kTimeseriesEpochs;
+  const int64_t epoch_ms = absl::ToInt64Milliseconds(epoch_length);
+  out.printf("\nHugeRegionSet: epoch length %lldms, number of records %zu",
+             epoch_ms, kTimeseriesEpochs);
+  int written = 0;
+  int64_t accumulated_delta_ms = 0;
+  activity_tracker_.Iter([&](size_t offset, size_t epoch_delta,
+                             const ActivityEntry& entry) GOOGLE_MALLOC_SECTION {
+    accumulated_delta_ms +=
+        absl::ToInt64Milliseconds(epoch_delta * epoch_length);
+    if (entry.backed == NHugePages(0) && entry.unbacked == NHugePages(0)) {
+      return;
+    }
+    if ((written++) % 100 == 0) {
+      out.printf("\nHugeRegionSet: Activity timeseries ");
+    }
+    out.printf("%zu:%zu:%v:%v,", offset, accumulated_delta_ms, entry.backed,
+               entry.unbacked);
+  });
+  out.printf("\n");
 }
 
 template <typename Region>
@@ -879,6 +959,12 @@ inline void HugeRegionSet<Region>::PrintInPbtxt(PbtxtRegion& hpaa) const {
   hpaa.PrintI64("huge_region_size", Region::size().in_bytes());
   hpaa.PrintI64("huge_region_low_water_mark_bytes",
                 lowater_free_backed_.in_bytes());
+  hpaa.PrintDouble("huge_region_hit_rate", HitRate());
+  const ActivityEntry recent_activity = RecentActivity();
+  hpaa.PrintI64("huge_region_recent_backed_bytes",
+                recent_activity.backed.in_bytes());
+  hpaa.PrintI64("huge_region_recent_unbacked_bytes",
+                recent_activity.unbacked.in_bytes());
   for (Region* region : list_) {
     auto detail = hpaa.CreateSubRegion("huge_region_details");
     region->PrintInPbtxt(detail);
@@ -907,6 +993,29 @@ inline void HugeRegionSet<Region>::PrintInPbtxt(PbtxtRegion& hpaa) const {
 
   usage_tracker_.PrintInPbtxt(hpaa, "huge_region_usage_history");
   free_backed_tracker_.PrintInPbtxt(hpaa, "huge_region_free_backed_history");
+
+  {
+    const absl::Duration epoch_length = kTimeseriesWindow / kTimeseriesEpochs;
+    auto history = hpaa.CreateSubRegion("huge_region_activity_history");
+    history.PrintI64("window_ms", absl::ToInt64Milliseconds(epoch_length));
+    history.PrintI64("epochs", kTimeseriesEpochs);
+    int64_t accumulated_delta_ms = 0;
+    activity_tracker_.Iter(
+        [&](size_t offset, size_t epoch_delta, const ActivityEntry& entry)
+            GOOGLE_MALLOC_SECTION {
+              accumulated_delta_ms +=
+                  absl::ToInt64Milliseconds(epoch_delta * epoch_length);
+              if (entry.backed == NHugePages(0) &&
+                  entry.unbacked == NHugePages(0)) {
+                return;
+              }
+              auto m = history.CreateSubRegion("measurements");
+              m.PrintI64("sequence_number", offset);
+              m.PrintI64("time_offset_ms", accumulated_delta_ms);
+              m.PrintI64("backed_bytes", entry.backed.in_bytes());
+              m.PrintI64("unbacked_bytes", entry.unbacked.in_bytes());
+            });
+  }
 }
 
 template <typename Region>

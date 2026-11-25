@@ -1875,6 +1875,80 @@ TEST_P(HugeRegionSetTest, TimeSeriesMinMaxWindow) {
   ASSERT_TRUE(set_.MaybePut(Range(p1, kHalfHp)));
 }
 
+TEST_P(HugeRegionSetTest, HitRateAndActivityTimeseries) {
+  auto r1 = GetRegion();
+  set_.Contribute(r1.get());
+
+  PageId p1, p2, p3;
+  bool from_released = false;
+
+  // Epoch 0 (t = 0ms): back 4 HP (miss).
+  ASSERT_TRUE(set_.MaybeGet(NHugePages(4).in_pages(), &p1, &from_released));
+  EXPECT_TRUE(from_released);
+
+  // Epoch 1 (t = 1000ms): free p1 (unbacks 4 HP eagerly if !more_often, else
+  // keeps 4 HP free-backed).
+  AdvanceClock(absl::Seconds(1));
+  ASSERT_TRUE(set_.MaybePut(Range(p1, NHugePages(4).in_pages())));
+
+  // Epoch 2 (t = 2000ms): allocate 2 HP (hit if more_often, miss otherwise)
+  // then release remaining 2 HP if more_often.
+  AdvanceClock(absl::Seconds(1));
+  ASSERT_TRUE(set_.MaybeGet(NHugePages(2).in_pages(), &p2, &from_released));
+  EXPECT_EQ(from_released, !UseHugeRegionMoreOften());
+  if (UseHugeRegionMoreOften()) {
+    EXPECT_EQ(
+        set_.ReleasePages(Length::max(), HugeRegionAdaptiveRelease::kEnabled,
+                          /*hit_limit=*/true),
+        NHugePages(2).in_pages());
+  }
+
+  // Epoch 3 (t = 3000ms): free p2 (quiet epoch under more_often; unbacks 2 HP
+  // under eager release).
+  AdvanceClock(absl::Seconds(1));
+  ASSERT_TRUE(set_.MaybePut(Range(p2, NHugePages(2).in_pages())));
+
+  // Epoch 4 (t = 4000ms): hit from backed pages under more_often (miss under
+  // eager release).
+  AdvanceClock(absl::Seconds(1));
+  ASSERT_TRUE(set_.MaybeGet(NHugePages(1).in_pages(), &p3, &from_released));
+  EXPECT_EQ(from_released, !UseHugeRegionMoreOften());
+
+  const std::string text = PrintToString();
+  EXPECT_THAT(text, testing::HasSubstr("HugeRegionSet: "));
+  EXPECT_THAT(text, testing::HasSubstr("hit rate ("));
+  EXPECT_THAT(text, testing::HasSubstr("HugeRegionSet: Activity timeseries "));
+
+  // Advance across 605 one-second epochs of pure backed hits (under more_often)
+  // so old fault/unback activity rolls off the 10-minute window cleanly.
+  if (UseHugeRegionMoreOften()) {
+    ASSERT_TRUE(set_.MaybePut(Range(p3, NHugePages(1).in_pages())));
+    for (int epoch = 0; epoch < 605; ++epoch) {
+      AdvanceClock(absl::Seconds(1));
+      PageId p;
+      ASSERT_TRUE(set_.MaybeGet(kPagesPerHugePage, &p, &from_released));
+      EXPECT_FALSE(from_released);
+      ASSERT_TRUE(set_.MaybePut(Range(p, kPagesPerHugePage)));
+    }
+  } else {
+    ASSERT_TRUE(set_.MaybePut(Range(p3, NHugePages(1).in_pages())));
+  }
+}
+
+TEST_P(HugeRegionSetTest, ContributeBackedRecordsActivity) {
+  auto r = GetRegion();
+  // Pre-back 3 hugepages before contributing the region to the set.
+  Range alloc = Allocate(*r, NHugePages(3).in_pages());
+  set_.Contribute(r.get());
+
+  EXPECT_THAT(PrintToString(),
+              testing::HasSubstr(std::to_string(NHugePages(3).in_mib()) +
+                                 " MiB backed and 0 MiB unbacked in recent "
+                                 "window"));
+
+  ASSERT_TRUE(set_.MaybePut(alloc));
+}
+
 // While ReleasePages has a region unbacking a range, other threads may Get
 // from and Put to the set (b/73749855).  The set learns of the release only
 // when ReleasePages returns, so meanwhile its free_backed() exceeds its
