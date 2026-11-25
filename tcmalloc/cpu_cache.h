@@ -1378,9 +1378,11 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   ResizeInfo& resize = resize_[cpu];
   // TODO(ckennelly): Use a strongly typed enum.
   if (overflow) {
-    resize.last_miss[size_class].last_overflow_cycles.Update();
+    resize.last_miss[size_class].last_overflow_cycles.Update(
+        forwarder_.clock());
   } else {
-    resize.last_miss[size_class].last_underflow_cycles.Update();
+    resize.last_miss[size_class].last_underflow_cycles.Update(
+        forwarder_.clock());
   }
   bool grow_by_batch =
       resize.per_class[size_class].Update(overflow, grow_by_one, &successive);
@@ -2823,7 +2825,7 @@ CpuCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
   // SizeClassCapacityStats struct to make sure we do not end up with SIZE_MAX
   // in stats.min_capacity when num_populated is equal to zero.
   size_t min_capacity = SIZE_MAX;
-  const Clock::Snapshot clock_snap = Clock{}.GetSnapshot();
+  const Clock::Snapshot clock_snap = forwarder_.clock().GetSnapshot();
 
   // Scan through all per-CPU caches and calculate minimum, average and maximum
   // capacities for the size class <size_class> across all the populated caches.

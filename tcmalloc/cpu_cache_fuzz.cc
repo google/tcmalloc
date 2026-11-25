@@ -38,11 +38,13 @@
 #include "absl/base/optimization.h"
 #include "absl/numeric/bits.h"
 #include "absl/strings/str_format.h"
+#include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/fake_clock.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/percpu_tcmalloc.h"
@@ -102,6 +104,11 @@ class FuzzForwarder : public TestStaticForwarder {
   using ShardedManager =
       ShardedTransferCacheManagerBase<ArenaShardedForwarder, FakeCpuLayout,
                                       FakeCentralFreeList>;
+
+  FuzzForwarder() {
+    clock_ = FakeClock::GetClock();
+    FakeClock::ResetClock();
+  }
 
   ~FuzzForwarder() { ReleaseLeakedMappings(); }
 
@@ -848,11 +855,22 @@ struct ReadStats {
   }
 };
 
+struct TickFakeClock {
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const TickFakeClock& tick) {
+    absl::Format(&sink, "TickFakeClock{}");
+  }
+
+  void Perform(State& state) const {
+    FakeClock::Advance(absl::Milliseconds(100));
+  }
+};
+
 using Instruction =
     std::variant<Allocate, Deallocate, Churn, Drain, Reclaim,
                  ReleaseDrainedMetadata, TryDrainingCaches, ShuffleCpuCaches,
                  ResizeSizeClasses, ResizeSizeClassMaxCapacities, ResizeSlab,
-                 SetCacheLimit, Print, PrintInPbtxt, ReadStats>;
+                 SetCacheLimit, Print, PrintInPbtxt, ReadStats, TickFakeClock>;
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const Instruction& i) {

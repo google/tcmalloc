@@ -171,9 +171,7 @@ cc_library(
     name = "clock",
     hdrs = ["clock.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//tcmalloc:__subpackages__",
-    ],
+    visibility = ["//tcmalloc:__subpackages__"],
     deps = [
         ":config",
         "@com_google_absl//absl/base",
@@ -1837,5 +1835,24 @@ cc_library(
         ":config",
         ":logging",
         "@com_google_absl//absl/numeric:bits",
+    ],
+)
+
+cc_library(
+    name = "fake_clock",
+    testonly = 1,
+    srcs = [
+        "fake_clock.cc",
+    ],
+    hdrs = [
+        "fake_clock.h",
+    ],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":clock",
+        "@com_google_absl//absl/time",
     ],
 )

@@ -36,6 +36,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
@@ -418,6 +419,8 @@ class TestStaticForwarder : private Parameters {
 
   bool fix_max_capacity_bug() const { return fix_max_capacity_bug_; }
 
+  [[nodiscard]] Clock clock() const { return clock_; }
+
   size_t arena_reported_nonresident_bytes_ = 0;
   int64_t arena_reported_impending_bytes_ = 0;
   size_t shrink_to_usage_limit_calls_ = 0;
@@ -429,6 +432,7 @@ class TestStaticForwarder : private Parameters {
   bool release_drained_slab_metadata_ = false;
   size_t active_partitions_ = 1u;
   bool fix_max_capacity_bug_ = true;
+  Clock clock_{};
 
  private:
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;
