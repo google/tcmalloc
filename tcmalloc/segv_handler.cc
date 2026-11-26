@@ -61,10 +61,14 @@ static bool Aarch64GetESR(const ucontext_t* ucontext, uint64_t* esr) {
   static const uint32_t kEsrMagic = 0x45535201;
   const uint8_t* aux =
       reinterpret_cast<const uint8_t*>(ucontext->uc_mcontext.__reserved);
-  while (true) {
+  const uint8_t* const last = aux + sizeof(ucontext->uc_mcontext.__reserved);
+  while (aux + sizeof(_aarch64_ctx) <= last) {
     const _aarch64_ctx* ctx = (const _aarch64_ctx*)aux;
     if (ctx->size == 0) break;
+    // A record must advance the walk and must fit in the reserved area.
+    if (ctx->size < sizeof(*ctx) || ctx->size > last - aux) break;
     if (ctx->magic == kEsrMagic) {
+      if (ctx->size < sizeof(__esr_context)) break;
       *esr = ((const __esr_context*)ctx)->esr;
       return true;
     }
