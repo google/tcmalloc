@@ -16,11 +16,16 @@
 
 #include <sys/mman.h>
 #include <sys/syscall.h>
+#include <ucontext.h>
 
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <memory>
 #include <new>
 
 #include "gtest/gtest.h"
+#include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
@@ -104,6 +109,48 @@ self:
   EXPECT_LT(usage, kExpectedUsage);
   EXPECT_GT(usage, kExpectedUsage * (100 - kUsageSlack) / 100);
 }
+
+#if defined(__aarch64__)
+constexpr uint32_t kEsrMagic = 0x45535201;
+constexpr uint32_t kFpsimdMagic = 0x46508001;
+
+// Fills uc_mcontext.__reserved so that the record walk never sees a
+// terminating (size == 0) record.
+TEST(SegvHandlerTest, UnterminatedSignalContextRecords) {
+  auto uc = std::make_unique<ucontext_t>();
+  memset(uc.get(), 0, sizeof(*uc));
+  unsigned char* const reserved = uc->uc_mcontext.__reserved;
+  constexpr size_t kReservedSize = sizeof(uc->uc_mcontext.__reserved);
+  for (size_t offset = 0; offset + 16 <= kReservedSize; offset += 16) {
+    const _aarch64_ctx ctx = {kFpsimdMagic, 16};
+    memcpy(reserved + offset, &ctx, sizeof(ctx));
+  }
+
+  EXPECT_EQ(RefineErrorTypeBasedOnContext(
+                uc.get(), GuardedAllocationsErrorType::kUseAfterFree),
+            GuardedAllocationsErrorType::kUseAfterFree);
+}
+
+// The last record claims the ESR magic but its payload does not fit in
+// uc_mcontext.__reserved.
+TEST(SegvHandlerTest, TruncatedEsrSignalContextRecord) {
+  auto uc = std::make_unique<ucontext_t>();
+  memset(uc.get(), 0, sizeof(*uc));
+  unsigned char* const reserved = uc->uc_mcontext.__reserved;
+  constexpr size_t kReservedSize = sizeof(uc->uc_mcontext.__reserved);
+  for (size_t offset = 0; offset + 16 <= kReservedSize; offset += 8) {
+    const _aarch64_ctx ctx = {kFpsimdMagic, 8};
+    memcpy(reserved + offset, &ctx, sizeof(ctx));
+  }
+  // Only the 8-byte header fits; esr would start past __reserved.
+  const _aarch64_ctx esr = {kEsrMagic, 8};
+  memcpy(reserved + kReservedSize - 8, &esr, sizeof(esr));
+
+  EXPECT_EQ(RefineErrorTypeBasedOnContext(
+                uc.get(), GuardedAllocationsErrorType::kUseAfterFree),
+            GuardedAllocationsErrorType::kUseAfterFree);
+}
+#endif  // defined(__aarch64__)
 
 }  // namespace
 }  // namespace tcmalloc_internal
