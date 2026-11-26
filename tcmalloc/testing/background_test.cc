@@ -15,6 +15,7 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+#include <limits>
 #include <thread>
 
 #include "gtest/gtest.h"
@@ -80,6 +81,23 @@ TEST(BackgroundTest, DisableInterruptsSleep) {
   const absl::Duration elapsed = absl::Now() - start;
 
   EXPECT_LT(elapsed, absl::Seconds(10));
+}
+
+TEST(BackgroundTest, HugeReleaseRateDoesNotOverflow) {
+  // With the maximum release rate, rate * elapsed time exceeds 2^63 bytes after
+  // about half a second. Clamping that to ssize_t must not overflow.
+  ScopedBackgroundReleaseRate release_rate(
+      MallocExtension::BytesPerSecond{std::numeric_limits<size_t>::max()});
+  ScopedBackgroundProcessSleepInterval sleep_time(absl::Milliseconds(600));
+
+  std::thread background([]() { MallocExtension::ProcessBackgroundActions(); });
+
+  // Let several iterations run, each seeing about 600ms of elapsed time.
+  absl::SleepFor(absl::Seconds(2));
+
+  ScopedBackgroundProcessActionsEnabled background_process_enabled(
+      /*value=*/false);
+  background.join();
 }
 
 }  // namespace

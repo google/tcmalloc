@@ -212,10 +212,13 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
       constexpr double kMaxSsize =
           static_cast<double>(std::numeric_limits<ssize_t>::max());
 
-      ssize_t bytes_to_release = calculated_bytes >= kMaxSsize
-                                     ? std::numeric_limits<ssize_t>::max()
-                                     : calculated_bytes;
-      bytes_to_release = std::max<ssize_t>(bytes_to_release, 0);
+      // Clamp in floating point before converting.
+      ssize_t bytes_to_release = 0;
+      if (calculated_bytes >= kMaxSsize) {
+        bytes_to_release = std::numeric_limits<ssize_t>::max();
+      } else if (calculated_bytes > 0) {
+        bytes_to_release = static_cast<ssize_t>(calculated_bytes);
+      }
 
       // If release rate is set to 0, do not release memory to system. However,
       // if we want to release free and backed hugepages from HugeRegion,
