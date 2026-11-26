@@ -33,7 +33,7 @@ TEST(ProfileBuilderNoTCMallocTest, StatusErrorTest) {
     defined(ABSL_HAVE_LEAK_SANITIZER) ||    \
     defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
   EXPECT_THAT(profile_st,
-              StatusIs(absl::StatusCode::kUnimplemented,
+              StatusIs(absl::StatusCode::kNotFound,
                        HasSubstr("Program was built with sanitizers enabled")));
 #else
   EXPECT_THAT(profile_st, StatusIs(absl::StatusCode::kNotFound,

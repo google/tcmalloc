@@ -1060,7 +1060,7 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
 #if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
     defined(ABSL_HAVE_LEAK_SANITIZER) ||    \
     defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
-    return absl::UnimplementedError(
+    return absl::NotFoundError(
         "Program was built with sanitizers enabled, which do not support heap "
         "profiling");
 #else
