@@ -685,9 +685,30 @@ class MallocExtension final {
   // session. Returns null if the implementation does not support profiling.
   [[nodiscard]] static AllocationProfilingToken StartLifetimeProfiling();
 
+  // Options configuring event trace profiling.
+  struct EventTraceOptions {
+    // Which events survive when the trace outgrows its buffer, whose size is
+    // set by the tcmalloc_event_trace_memory_limit flag.
+    enum class WindowMode {
+      // Keeps the first events after Start() and drops the rest, like unix
+      // 'head'. Allocations still live at Stop() are recorded then.
+      kHead,
+      // Keeps the last events before Stop(), overwriting the oldest, like unix
+      // 'tail'. Each allocation and deallocation is recorded as it happens, so
+      // a deallocation whose allocation was overwritten appears on its own.
+      kTail,
+    };
+
+    WindowMode window_mode = WindowMode::kHead;
+  };
+
   // Start recording a temporal trace of alloc/free events.
   // Returns null if the implementation does not support profiling.
-  [[nodiscard]] static AllocationProfilingToken StartEventTracing();
+  [[nodiscard]] static AllocationProfilingToken StartEventTracing(
+      EventTraceOptions options);
+  [[nodiscard]] static AllocationProfilingToken StartEventTracing() {
+    return StartEventTracing({});
+  }
 
   // Runs housekeeping actions for the allocator off of the main allocation path
   // of new/delete.  As of 2020, this includes:

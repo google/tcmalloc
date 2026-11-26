@@ -538,21 +538,6 @@ TEST(ProfileTest, HeapProfile) {
   }
 }
 
-class ScopedEventTraceMemoryLimit {
- public:
-  explicit ScopedEventTraceMemoryLimit(size_t limit)
-      : previous_(TCMalloc_Internal_GetEventTraceMemoryLimit()) {
-    TCMalloc_Internal_SetEventTraceMemoryLimit(limit);
-  }
-
-  ~ScopedEventTraceMemoryLimit() {
-    TCMalloc_Internal_SetEventTraceMemoryLimit(previous_);
-  }
-
- private:
-  size_t previous_;
-};
-
 TEST(ProfileTest, EventTraceTruncation) {
 #if ABSL_HAVE_ADDRESS_SANITIZER || ABSL_HAVE_HWADDRESS_SANITIZER || \
     ABSL_HAVE_MEMORY_SANITIZER || ABSL_HAVE_THREAD_SANITIZER

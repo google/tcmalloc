@@ -203,6 +203,21 @@ using ScopedFillerPreferReleasedOverDonated =
     ScopedParameter<TCMalloc_Internal_GetFillerPreferReleasedOverDonated,
                     TCMalloc_Internal_SetFillerPreferReleasedOverDonated>;
 
+class ScopedEventTraceMemoryLimit {
+ public:
+  explicit ScopedEventTraceMemoryLimit(size_t limit)
+      : old_limit_(TCMalloc_Internal_GetEventTraceMemoryLimit()) {
+    TCMalloc_Internal_SetEventTraceMemoryLimit(limit);
+  }
+
+  ~ScopedEventTraceMemoryLimit() {
+    TCMalloc_Internal_SetEventTraceMemoryLimit(old_limit_);
+  }
+
+ private:
+  size_t old_limit_;
+};
+
 inline void UnregisterRseq() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   syscall(__NR_rseq, &tcmalloc_internal::subtle::percpu::__rseq_abi,

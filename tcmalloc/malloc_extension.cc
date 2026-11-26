@@ -307,7 +307,8 @@ MallocExtension::StartLifetimeProfiling() {
 #endif
 }
 
-MallocExtension::AllocationProfilingToken MallocExtension::StartEventTracing() {
+MallocExtension::AllocationProfilingToken MallocExtension::StartEventTracing(
+    EventTraceOptions options) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (&MallocExtension_Internal_StartEventTracing == nullptr) {
     return {};
@@ -315,7 +316,7 @@ MallocExtension::AllocationProfilingToken MallocExtension::StartEventTracing() {
 
   return tcmalloc_internal::AllocationProfilingTokenAccessor::MakeToken(
       std::unique_ptr<tcmalloc_internal::AllocationProfilingTokenBase>(
-          MallocExtension_Internal_StartEventTracing()));
+          MallocExtension_Internal_StartEventTracing(options.window_mode)));
 #else
   return {};
 #endif

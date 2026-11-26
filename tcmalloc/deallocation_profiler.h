@@ -55,8 +55,10 @@ enum class Mode { kLifetimes, kEventTrace };
 class DeallocationSample final
     : public tcmalloc_internal::AllocationProfilingTokenBase {
  public:
-  explicit DeallocationSample(DeallocationProfilerList* absl_nonnull list,
-                              Mode mode);
+  explicit DeallocationSample(
+      DeallocationProfilerList* absl_nonnull list, Mode mode,
+      MallocExtension::EventTraceOptions::WindowMode window_mode =
+          MallocExtension::EventTraceOptions::WindowMode::kHead);
   // We define the dtor to ensure it is placed in the desired text section.
   ~DeallocationSample() override;
 

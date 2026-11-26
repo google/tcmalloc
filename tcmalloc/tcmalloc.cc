@@ -321,12 +321,14 @@ MallocExtension_Internal_StartLifetimeProfiling() {
 }
 
 extern "C" tcmalloc_internal::AllocationProfilingTokenBase*
-MallocExtension_Internal_StartEventTracing() {
+MallocExtension_Internal_StartEventTracing(
+    MallocExtension::EventTraceOptions::WindowMode window_mode) {
   if (Parameters::profile_sampling_interval() <= 0) {
     return nullptr;
   }
-  return new deallocationz::DeallocationSample(
-      &tc_globals.deallocation_samples, deallocationz::Mode::kEventTrace);
+  return new deallocationz::DeallocationSample(&tc_globals.deallocation_samples,
+                                               deallocationz::Mode::kEventTrace,
+                                               window_mode);
 }
 
 MallocExtension::Ownership GetOwnership(const void* ptr) {
