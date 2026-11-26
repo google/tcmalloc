@@ -14,11 +14,15 @@
 
 #include "tcmalloc/internal/allocation_guard.h"
 
+#include <atomic>
 #include <new>
+#include <thread>  // NOLINT(build/c++11)
+#include <vector>
 
 #include "gtest/gtest.h"
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
+#include "tcmalloc/internal/scoped_allow_allocation.h"
 
 namespace tcmalloc::tcmalloc_internal {
 namespace {

@@ -15,6 +15,8 @@
 #include "tcmalloc/internal/allocation_guard.h"
 
 #include "absl/base/attributes.h"
+#include "absl/base/const_init.h"
+#include "absl/base/internal/spinlock.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -22,6 +24,9 @@ namespace tcmalloc::tcmalloc_internal {
 
 #ifndef NDEBUG
 ABSL_CONST_INIT thread_local int AllocationGuard::disallowed_ = 0;
+ABSL_CONST_INIT absl::base_internal::SpinLock AllocationGuard::hook_lock_(
+    absl::base_internal::SCHEDULE_KERNEL_ONLY);
+ABSL_CONST_INIT int AllocationGuard::active_guard_threads_ = 0;
 #endif
 
 }  // namespace tcmalloc::tcmalloc_internal

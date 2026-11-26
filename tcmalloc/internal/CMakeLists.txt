@@ -84,6 +84,7 @@ tcmalloc_cc_test(
     "absl::base"
     "absl::core_headers"
     "tcmalloc::internal_allocation_guard"
+    "tcmalloc::internal_scoped_allow_allocation"
     "tcmalloc::tcmalloc"
 )
 
