@@ -3466,6 +3466,99 @@ TEST_P(HugePageAwareAllocatorTest, FillerPreferReleasedOverDonated) {
   Delete(pin, 1);
 }
 
+TEST_P(HugePageAwareAllocatorTest, SubreleaseOrderByAllocationTime) {
+  constexpr SpanAllocInfo kSparseInfo = {
+      .objects_per_span = 1,
+      .density = AccessDensityPrediction::kSparse,
+  };
+  constexpr Length kBand = BytesToLengthCeil(kHugePageSize / 16);
+
+  allocator_->forwarder().hpaa_subrelease.set(true);
+  allocator_->forwarder().filler_skip_subrelease_short_interval.set(
+      absl::ZeroDuration());
+  allocator_->forwarder().filler_skip_subrelease_long_interval.set(
+      absl::ZeroDuration());
+  allocator_->forwarder().release_max_filler_pages.set(false);
+  allocator_->forwarder().min_free_pages_to_break_sparse_hugepage.set(
+      Length(1));
+
+  struct TrackedPage {
+    AllocationState keep;
+    AllocationState fill1;
+    AllocationState fill2;
+    HugePage hp;
+    Length free_pages;
+  };
+  // Populate four sparse hugepages in band 1 from oldest (most used pages) to
+  // newest (fewest used pages, placed at the front of the filler freelist).
+  std::array<TrackedPage, 4> pages;
+  for (int i = 0; i < 4; ++i) {
+    if (i > 0) {
+      huge_page_allocator_internal::FakeHugePageStaticForwarder::AdvanceClock(
+          absl::Seconds(120));
+    }
+    Length used = Length(1);
+    if constexpr (kBand >= Length(4)) {
+      used = kBand + Length(3 - i);
+    }
+    const Length rem = kPagesPerHugePage - used;
+    pages[i].keep = New(used, kSparseInfo);
+    pages[i].fill1 = New(rem / 2, kSparseInfo);
+    pages[i].fill2 = New(rem - rem / 2, kSparseInfo);
+    pages[i].hp = HugePageContaining(pages[i].keep.r.p);
+    pages[i].free_pages = rem;
+    ASSERT_EQ(HugePageContaining(pages[i].fill1.r.p), pages[i].hp);
+    ASSERT_EQ(HugePageContaining(pages[i].fill2.r.p), pages[i].hp);
+  }
+  for (TrackedPage& page : pages) {
+    DeleteWithInfo(page.fill1, kSparseInfo);
+    DeleteWithInfo(page.fill2, kSparseInfo);
+  }
+
+  // Flip back and forth between modes with live trackers in flight:
+  //   kEnabled  -> oldest pages[0] (background release)
+  //   kDisabled -> emptiest/MRU pages[3] (background release)
+  //   kEnabled  -> oldest remaining pages[1] (hard-limit release)
+  //   kDisabled -> remaining pages[2] (background release)
+  allocator_->forwarder().subrelease_order_by_allocation_time.set(
+      SubreleaseOrderByAllocationTime::kEnabled);
+  EXPECT_EQ(
+      ReleasePages(Length(1), PageReleaseReason::kProcessBackgroundActions),
+      pages[0].free_pages);
+  EXPECT_FALSE(GetHugepageState(pages[0].hp).unbroken);
+  EXPECT_TRUE(GetHugepageState(pages[3].hp).unbroken);
+
+  allocator_->forwarder().subrelease_order_by_allocation_time.set(
+      SubreleaseOrderByAllocationTime::kDisabled);
+  EXPECT_EQ(
+      ReleasePages(Length(1), PageReleaseReason::kProcessBackgroundActions),
+      pages[3].free_pages);
+  EXPECT_FALSE(GetHugepageState(pages[3].hp).unbroken);
+  EXPECT_TRUE(GetHugepageState(pages[1].hp).unbroken);
+
+  allocator_->forwarder().subrelease_order_by_allocation_time.set(
+      SubreleaseOrderByAllocationTime::kEnabled);
+  {
+    PageHeapSpinLockHolder l;
+    EXPECT_EQ(allocator_->ReleaseAtLeastNPagesBreakingHugepages(
+                  Length(1), PageReleaseReason::kSoftLimitExceeded),
+              pages[1].free_pages);
+  }
+  EXPECT_FALSE(GetHugepageState(pages[1].hp).unbroken);
+  EXPECT_TRUE(GetHugepageState(pages[2].hp).unbroken);
+
+  allocator_->forwarder().subrelease_order_by_allocation_time.set(
+      SubreleaseOrderByAllocationTime::kDisabled);
+  EXPECT_EQ(
+      ReleasePages(Length(1), PageReleaseReason::kProcessBackgroundActions),
+      pages[2].free_pages);
+  EXPECT_FALSE(GetHugepageState(pages[2].hp).unbroken);
+
+  for (TrackedPage& page : pages) {
+    DeleteWithInfo(page.keep, kSparseInfo);
+  }
+}
+
 TEST(HugePageAwareAllocatorDeathTest, DoubleFreeReportsError) {
   FakeHugePageAwareAllocator allocator({.tag = MemoryTag::kNormal});
   constexpr SpanAllocInfo kSpanInfo = {

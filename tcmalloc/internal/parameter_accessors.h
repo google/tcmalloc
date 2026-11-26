@@ -178,6 +178,10 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetFillerAppendOnFree(bool v);
 TCMalloc_Internal_GetFillerPreferReleasedOverDonated();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetFillerPreferReleasedOverDonated(
     bool v);
+[[nodiscard]] ABSL_ATTRIBUTE_WEAK bool
+TCMalloc_Internal_GetSubreleaseOrderByAllocationTime();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetSubreleaseOrderByAllocationTime(
+    bool v);
 
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_GetSizeClasses(
     std::vector<tcmalloc::tcmalloc_internal::TracerSizeClassInfo>* absl_nonnull

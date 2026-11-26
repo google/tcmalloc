@@ -187,6 +187,12 @@ void Parameters::InitializeFromExperiments() {
   }
 
   if (IsExperimentActive(
+          Experiment::TCMALLOC_SONIC_SUBRELEASE_ORDER_BY_ALLOCATION_TIME)) {
+    subrelease_order_by_allocation_time_.store(
+        SubreleaseOrderByAllocationTime::kEnabled, std::memory_order_relaxed);
+  }
+
+  if (IsExperimentActive(
           Experiment::
               TCMALLOC_SONIC_MIN_FREE_BYTES_TO_BREAK_HUGEPAGE_DENSE_128K)) {
     min_free_bytes_to_break_dense_hugepage_.store(128 * 1024,
@@ -408,6 +414,9 @@ ABSL_CONST_INIT std::atomic<FillerAppendOnFree>
 ABSL_CONST_INIT std::atomic<PreferReleasedOverDonated>
     Parameters::filler_prefer_released_over_donated_(
         PreferReleasedOverDonated::kDisabled);
+ABSL_CONST_INIT std::atomic<SubreleaseOrderByAllocationTime>
+    Parameters::subrelease_order_by_allocation_time_(
+        SubreleaseOrderByAllocationTime::kDisabled);
 ABSL_CONST_INIT std::atomic<MadviseRegionsNoHugepage>
     Parameters::madvise_cold_regions_nohugepage_(
         MadviseRegionsNoHugepage::kDisabled);
@@ -998,6 +1007,21 @@ void TCMalloc_Internal_SetFillerPreferReleasedOverDonated(bool v) {
   Parameters::filler_prefer_released_over_donated_.store(
       v ? tcmalloc::tcmalloc_internal::PreferReleasedOverDonated::kEnabled
         : tcmalloc::tcmalloc_internal::PreferReleasedOverDonated::kDisabled,
+      std::memory_order_relaxed);
+}
+
+bool TCMalloc_Internal_GetSubreleaseOrderByAllocationTime() {
+  tc_globals.InitIfNecessary();
+  return Parameters::subrelease_order_by_allocation_time() ==
+         tcmalloc::tcmalloc_internal::SubreleaseOrderByAllocationTime::kEnabled;
+}
+
+void TCMalloc_Internal_SetSubreleaseOrderByAllocationTime(bool v) {
+  tc_globals.InitIfNecessary();
+  Parameters::subrelease_order_by_allocation_time_.store(
+      v ? tcmalloc::tcmalloc_internal::SubreleaseOrderByAllocationTime::kEnabled
+        : tcmalloc::tcmalloc_internal::SubreleaseOrderByAllocationTime::
+              kDisabled,
       std::memory_order_relaxed);
 }
 

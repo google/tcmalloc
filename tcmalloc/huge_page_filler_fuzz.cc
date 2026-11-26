@@ -208,6 +208,7 @@ struct Release {
   bool release_partial_allocs;
   uint16_t min_free_pages_to_break_dense = 1;
   uint16_t min_free_pages_to_break_sparse = 1;
+  bool order_by_allocation_time = false;
 
   void Perform(State& state) const;
 
@@ -220,13 +221,14 @@ struct Release {
         ".short_interval=absl::Nanoseconds(%v), "
         ".long_interval=absl::Nanoseconds(%v), .desired_pages=%d, "
         ".release_partial_allocs=%v, .min_free_pages_to_break_dense=%d, "
-        ".min_free_pages_to_break_sparse=%d}",
+        ".min_free_pages_to_break_sparse=%d, "
+        ".order_by_allocation_time=%v}",
         r.hit_limit, r.use_peak_interval,
         absl::ToInt64Nanoseconds(r.peak_interval),
         absl::ToInt64Nanoseconds(r.short_interval),
         absl::ToInt64Nanoseconds(r.long_interval), r.desired_pages,
         r.release_partial_allocs, r.min_free_pages_to_break_dense,
-        r.min_free_pages_to_break_sparse);
+        r.min_free_pages_to_break_sparse, r.order_by_allocation_time);
   }
 };
 
@@ -276,12 +278,16 @@ struct ModelTail {
 
 struct MemoryLimitHitRelease {
   uint16_t desired;
+  bool order_by_allocation_time = false;
 
   void Perform(State& state) const;
 
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const MemoryLimitHitRelease& m) {
-    absl::Format(&sink, "MemoryLimitHitRelease{.desired=%d}", m.desired);
+    absl::Format(
+        &sink,
+        "MemoryLimitHitRelease{.desired=%d, .order_by_allocation_time=%v}",
+        m.desired, m.order_by_allocation_time);
   }
 };
 
@@ -937,7 +943,9 @@ void Release::Perform(State& state) const {
             .sparse =
                 Length(std::clamp<size_t>(min_free_pages_to_break_sparse, 1,
                                           kPagesPerHugePage.raw_num())),
-        });
+        },
+        order_by_allocation_time ? SubreleaseOrderByAllocationTime::kEnabled
+                                 : SubreleaseOrderByAllocationTime::kDisabled);
     state.DrainFullyFreedTrackers();
   }
   if (state.depth == 0 && runs_before == state.reentrant_runs) {
@@ -1024,7 +1032,9 @@ void MemoryLimitHitRelease::Perform(State& state) const {
         desired_len, SkipSubreleaseIntervals{},
         ReleasePartialAllocPages::kDisabled,
         /*hit_limit=*/true,
-        MinFreePagesToBreak{.dense = Length(1), .sparse = Length(1)});
+        MinFreePagesToBreak{.dense = Length(1), .sparse = Length(1)},
+        order_by_allocation_time ? SubreleaseOrderByAllocationTime::kEnabled
+                                 : SubreleaseOrderByAllocationTime::kDisabled);
     state.DrainFullyFreedTrackers();
   }
   // As in Release::Perform, the bounds hold only when no subprogram ran while
@@ -1687,7 +1697,8 @@ TEST(HugePageFillerTest, InstructionStringify) {
               ".short_interval=absl::Nanoseconds(2000000000), "
               ".long_interval=absl::Nanoseconds(3000000000), .desired_pages=4, "
               ".release_partial_allocs=true, .min_free_pages_to_break_dense=1, "
-              ".min_free_pages_to_break_sparse=1}");
+              ".min_free_pages_to_break_sparse=1, "
+              ".order_by_allocation_time=false}");
   }
   {
     Instruction inst = GatherStats{.summary_only = true};
@@ -1702,7 +1713,9 @@ TEST(HugePageFillerTest, InstructionStringify) {
   {
     Instruction inst = MemoryLimitHitRelease{.desired = 10};
     std::string s = absl::StrFormat("%v", inst);
-    EXPECT_EQ(s, "MemoryLimitHitRelease{.desired=10}");
+    EXPECT_EQ(
+        s,
+        "MemoryLimitHitRelease{.desired=10, .order_by_allocation_time=false}");
   }
   {
     Instruction inst = GatherStatsPbtxt{};

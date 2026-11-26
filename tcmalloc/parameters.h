@@ -206,6 +206,15 @@ class Parameters {
     TCMalloc_Internal_SetFillerPreferReleasedOverDonated(value);
   }
 
+  [[nodiscard]] static SubreleaseOrderByAllocationTime
+  subrelease_order_by_allocation_time() {
+    return subrelease_order_by_allocation_time_.load(std::memory_order_relaxed);
+  }
+
+  static void set_subrelease_order_by_allocation_time(bool value) {
+    TCMalloc_Internal_SetSubreleaseOrderByAllocationTime(value);
+  }
+
   [[nodiscard]] static MadviseRegionsNoHugepage
   madvise_cold_regions_nohugepage() {
     return madvise_cold_regions_nohugepage_.load(std::memory_order_relaxed);
@@ -394,6 +403,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetPreferBackedFillerPages(bool v);
   friend void ::TCMalloc_Internal_SetFillerAppendOnFree(bool v);
   friend void ::TCMalloc_Internal_SetFillerPreferReleasedOverDonated(bool v);
+  friend void ::TCMalloc_Internal_SetSubreleaseOrderByAllocationTime(bool v);
   friend void ::TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(bool v);
   friend void ::TCMalloc_Internal_SetMadviseSampledAllocations(
       tcmalloc::tcmalloc_internal::MadviseSampledAllocations v);
@@ -442,6 +452,8 @@ class Parameters {
   static std::atomic<FillerAppendOnFree> filler_append_on_free_;
   static std::atomic<PreferReleasedOverDonated>
       filler_prefer_released_over_donated_;
+  static std::atomic<SubreleaseOrderByAllocationTime>
+      subrelease_order_by_allocation_time_;
   static std::atomic<MadviseRegionsNoHugepage> madvise_cold_regions_nohugepage_;
   static std::atomic<ReobserveHugepageBacked> reobserve_hugepage_backed_;
 };
