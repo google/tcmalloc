@@ -362,6 +362,36 @@ TYPED_TEST_P(TransferCacheTest, Plunder) {
   EXPECT_EQ(env.transfer_cache().tc_length(), 0);
 }
 
+TYPED_TEST_P(TransferCacheTest,
+             TryPlunderLockDropDoesNotPlunderPostDrainObjects) {
+  TypeParam env;
+  const int batch_size = TypeParam::kBatchSize;
+
+  env.Insert(2 * batch_size);
+  ASSERT_EQ(env.transfer_cache().tc_length(), 2 * batch_size);
+  env.TryPlunder();
+  ASSERT_EQ(env.transfer_cache().tc_length(), 2 * batch_size);
+
+  int freelist_inserts = 0;
+  ON_CALL(env.central_freelist(), InsertRange)
+      .WillByDefault([&](absl::Span<void*> batch) {
+        env.central_freelist().FreeBatch(batch);
+        ++freelist_inserts;
+        if (freelist_inserts == 1) {
+          env.Remove(batch_size);
+          EXPECT_EQ(env.transfer_cache().tc_length(), 0);
+          env.Insert(2 * batch_size);
+          EXPECT_EQ(env.transfer_cache().tc_length(), 2 * batch_size);
+        }
+      });
+
+  env.TryPlunder();
+  EXPECT_EQ(env.transfer_cache().tc_length(), 2 * batch_size);
+
+  env.TryPlunder();
+  EXPECT_EQ(env.transfer_cache().tc_length(), 2 * batch_size);
+}
+
 // PickCoprimeBatchSize picks a batch size in [2, max_batch_size) that is
 // coprime with 2^32.  We choose the largest possible batch size within that
 // constraint to minimize the number of iterations of insert/remove required.
@@ -456,7 +486,9 @@ TYPED_TEST_P(TransferCacheTest, b172283201) {
 REGISTER_TYPED_TEST_SUITE_P(TransferCacheTest, IsolatedSmoke, ReadStats,
                             FetchesFromFreelist, PartialFetchFromFreelist,
                             PushesToFreelist, WrappingWorks, SingleItemSmoke,
-                            Plunder, b172283201);
+                            Plunder,
+                            TryPlunderLockDropDoesNotPlunderPostDrainObjects,
+                            b172283201);
 
 template <typename Env>
 using FuzzTest = ::testing::Test;
