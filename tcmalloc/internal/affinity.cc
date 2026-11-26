@@ -97,8 +97,8 @@ ScopedAffinityMask::~ScopedAffinityMask() {
 bool ScopedAffinityMask::Tampered() {
   CpuSet current_cpus;
   TC_CHECK(current_cpus.GetAffinity(0));
-  return !CPU_EQUAL_S(kCpuSetBytes, &current_cpus,
-                      &specified_cpus_);  // Mismatch => modified.
+  return !CPU_EQUAL_S(kCpuSetBytes, current_cpus.data(),
+                      specified_cpus_.data());  // Mismatch => modified.
 }
 
 }  // namespace tcmalloc_internal
