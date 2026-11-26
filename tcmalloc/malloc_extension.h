@@ -396,6 +396,15 @@ class AddressRegionFactory {
   // returned.
   [[nodiscard]] virtual size_t GetStatsInPbtxt(absl::Span<char> buffer);
 
+  virtual void NotifyRelease(size_t /*length*/) {}
+  virtual void NotifyRelease(void* absl_nullable /*start*/, size_t length) {
+    NotifyRelease(length);
+  }
+  virtual void NotifyBack(size_t /*length*/) {}
+  virtual void NotifyBack(void* absl_nullable /*start*/, size_t length) {
+    NotifyBack(length);
+  }
+
   // Returns the total number of bytes allocated by MallocInternal().
   [[nodiscard]] static size_t InternalBytesAllocated();
 
