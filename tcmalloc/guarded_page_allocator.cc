@@ -230,41 +230,53 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(
   void* result = reinterpret_cast<void*>(SlotToAddr(free_slot));
   SlotMetadata& d = data_[free_slot];
 
-  // For size == 0, the page remains protected.
-  if (size > 0) {
-    if (UnprotectPage(result, page_size_, d.mprotect_quarantined) == -1) {
-      TC_ASSERT(false, "madvise/mprotect failed");
-      AllocationGuardSpinLockHolder h(guarded_page_lock_);
-      failed_allocations_.LossyAdd(1);
-      successful_allocations_.LossyAdd(-1);
-      FreeSlot(free_slot);
-      return {nullptr, Profile::Sample::GuardedStatus::MProtectFailed};
+  bool unprotect_failed = false;
+  {
+    AllocationGuardSpinLockHolder slot_h(d.lock);
+    // For size == 0, the page remains protected.
+    if (size > 0) {
+      if (UnprotectPage(result, page_size_, d.mprotect_quarantined) == -1) {
+        unprotect_failed = true;
+      } else {
+        // Place some allocations at end of page for better overflow detection.
+        MaybeRightAlign(free_slot, size, alignment, &result);
+      }
     }
-    // Place some allocations at end of page for better overflow detection.
-    MaybeRightAlign(free_slot, size, alignment, &result);
-  }
 
-  // Record stack trace.
-  // Count the number of pages that have been used at least once.
-  if (ABSL_PREDICT_FALSE(d.allocation_start == 0)) {
-    pages_touched_.Add(1);
-  }
+    if (!unprotect_failed) {
+      // Record stack trace.
+      // Count the number of pages that have been used at least once.
+      if (ABSL_PREDICT_FALSE(d.allocation_start == 0)) {
+        pages_touched_.Add(1);
+      }
 
-  static_assert(sizeof(d.alloc_trace.stack) == sizeof(stack_trace.stack));
-  memcpy(d.alloc_trace.stack, stack_trace.stack,
-         stack_trace.depth * sizeof(stack_trace.stack[0]));
-  d.alloc_trace.depth = stack_trace.depth;
-  d.alloc_trace.thread_id = absl::base_internal::GetTID();
-  d.dealloc_trace.depth = 0;
-  d.requested_size = size;
-  d.requested_alignment = static_cast<std::align_val_t>(std::max(
-      alignment, std::max(kAlignment, static_cast<std::align_val_t>(
-                                          __STDCPP_DEFAULT_NEW_ALIGNMENT__))));
-  d.allocation_start = reinterpret_cast<uintptr_t>(result);
-  d.dealloc_count.store(0, std::memory_order_relaxed);
-  TC_ASSERT(!d.write_overflow_detected);
-  TC_ASSERT(static_cast<size_t>(alignment) == 0 ||
-            d.allocation_start % static_cast<size_t>(alignment) == 0);
+      static_assert(sizeof(d.alloc_trace.stack) == sizeof(stack_trace.stack));
+      memcpy(d.alloc_trace.stack, stack_trace.stack,
+             stack_trace.depth * sizeof(stack_trace.stack[0]));
+      d.alloc_trace.depth = stack_trace.depth;
+      d.alloc_trace.thread_id = absl::base_internal::GetTID();
+      d.dealloc_trace.depth = 0;
+      d.requested_size = size;
+      d.requested_alignment = static_cast<std::align_val_t>(std::max(
+          alignment,
+          std::max(kAlignment, static_cast<std::align_val_t>(
+                                   __STDCPP_DEFAULT_NEW_ALIGNMENT__))));
+      const uintptr_t allocation_start = reinterpret_cast<uintptr_t>(result);
+      d.allocation_start = allocation_start;
+      d.dealloc_count = 0;
+      TC_ASSERT(!d.write_overflow_detected);
+      TC_ASSERT(static_cast<size_t>(alignment) == 0 ||
+                allocation_start % static_cast<size_t>(alignment) == 0);
+    }
+  }
+  if (ABSL_PREDICT_FALSE(unprotect_failed)) {
+    TC_ASSERT(false, "madvise/mprotect failed");
+    AllocationGuardSpinLockHolder h(guarded_page_lock_);
+    failed_allocations_.LossyAdd(1);
+    successful_allocations_.LossyAdd(-1);
+    FreeSlot(free_slot);
+    return {nullptr, Profile::Sample::GuardedStatus::MProtectFailed};
+  }
 
   stacktrace_filter_.Add({stack_trace.stack, stack_trace.depth}, 1);
   return {result, Profile::Sample::GuardedStatus::Guarded};
@@ -284,62 +296,76 @@ void GuardedPageAllocator::Deallocate(void* absl_nonnull ptr) {
   const size_t slot = AddrToSlot(page_addr);
   SlotMetadata& d = data_[slot];
 
-  // On double-free, do not overwrite the original deallocation metadata, so
-  // that the report produced shows the original deallocation stack trace.
-  if (d.dealloc_count.fetch_add(1, std::memory_order_relaxed) != 0) {
+  bool double_free = false;
+  bool write_overflow = false;
+  {
+    AllocationGuardSpinLockHolder slot_h(d.lock);
+    // On double-free, do not overwrite the original deallocation metadata, so
+    // that the report produced shows the original deallocation stack trace.
+    if (++d.dealloc_count > 1) {
+      (void)ProtectPage(reinterpret_cast<void*>(page_addr), page_size_);
+      double_free = true;
+    } else {
+      // Record stack trace. Unwinding the stack is expensive, and holding the
+      // guarded_page_lock_ should be avoided here.
+      d.dealloc_trace.depth =
+          absl::GetStackTrace(d.dealloc_trace.stack, kMaxStackDepth,
+                              /*skip_count=*/2);
+      d.dealloc_trace.thread_id = absl::base_internal::GetTID();
+
+      // Remove allocation (based on allocation stack trace) from filter.
+      stacktrace_filter_.Add({d.alloc_trace.stack, d.alloc_trace.depth}, -1);
+
+      // For zero-byte allocations WriteOverflowOccurred() and mprotect are
+      // skipped.
+      if (d.requested_size > 0) {
+        // Needs to be done before mprotect() because it accesses the object
+        // page to check canary bytes.
+        write_overflow = WriteOverflowOccurred(slot, d);
+        if (write_overflow) {
+          d.write_overflow_detected = true;
+        }
+
+        // Calling madvise/mprotect should also be done outside the
+        // guarded_page_lock_ critical section, since it can have relatively
+        // large latency.
+        const auto result =
+            ProtectPage(reinterpret_cast<void*>(page_addr), page_size_);
+        TC_CHECK_EQ(0, result.error);
+        d.mprotect_quarantined = result.mprotect_quarantined;
+      }
+
+      if (!write_overflow &&
+          ABSL_PREDICT_FALSE(absl::bit_cast<void*>(d.allocation_start) !=
+                             ptr)) {
+        // TODO(ckennelly): Plumb d.dealloc_trace into this call.
+        const bool left_aligned = SlotToAddr(slot) == d.allocation_start;
+        const std::align_val_t expected_alignment =
+            left_aligned ? static_cast<std::align_val_t>(page_size_)
+                         : d.requested_alignment;
+
+        ReportCorruptedFree(tc_globals, expected_alignment, ptr,
+                            {d.alloc_trace.stack, d.alloc_trace.depth});
+      }
+    }
+  }
+
+  if (double_free || write_overflow) {
     ForceTouchPage(ptr);
   }
 
-  // Record stack trace. Unwinding the stack is expensive, and holding the
-  // guarded_page_lock_ should be avoided here.
-  d.dealloc_trace.depth =
-      absl::GetStackTrace(d.dealloc_trace.stack, kMaxStackDepth,
-                          /*skip_count=*/2);
-  d.dealloc_trace.thread_id = absl::base_internal::GetTID();
-
-  // Remove allocation (based on allocation stack trace) from filter.
-  stacktrace_filter_.Add({d.alloc_trace.stack, d.alloc_trace.depth}, -1);
-
-  // For zero-byte allocations WriteOverflowOccurred() and mprotect are skipped.
-  if (d.requested_size > 0) {
-    // Needs to be done before mprotect() because it accesses the object page to
-    // check canary bytes.
-    if (WriteOverflowOccurred(slot)) {
-      d.write_overflow_detected = true;
-    }
-
-    // Calling madvise/mprotect should also be done outside the
-    // guarded_page_lock_ critical section, since it can have relatively large
-    // latency.
-    const auto result =
-        ProtectPage(reinterpret_cast<void*>(page_addr), page_size_);
-    TC_CHECK_EQ(0, result.error);
-    d.mprotect_quarantined = result.mprotect_quarantined;
-
-    if (d.write_overflow_detected) {
-      ForceTouchPage(ptr);
-    }
-  }
-
-  if (ABSL_PREDICT_FALSE(absl::bit_cast<void*>(d.allocation_start) != ptr)) {
-    // TODO(ckennelly): Plumb d.dealloc_trace into this call.
-    const bool left_aligned = SlotToAddr(slot) == d.allocation_start;
-    const std::align_val_t expected_alignment =
-        left_aligned ? static_cast<std::align_val_t>(page_size_)
-                     : d.requested_alignment;
-
-    ReportCorruptedFree(tc_globals, expected_alignment, ptr,
-                        {d.alloc_trace.stack, d.alloc_trace.depth});
-  }
-
   AllocationGuardSpinLockHolder h(guarded_page_lock_);
-  FreeSlot(slot);
+  AllocationGuardSpinLockHolder slot_h(d.lock);
+  if (d.dealloc_count == 1) {
+    FreeSlot(slot);
+  }
 }
 
 size_t GuardedPageAllocator::GetRequestedSize(
     const void* absl_nonnull ptr) const {
   TC_ASSERT(PointerIsMine(ptr));
   size_t slot = AddrToSlot(GetPageAddr(reinterpret_cast<uintptr_t>(ptr)));
+  AllocationGuardSpinLockHolder h(data_[slot].lock);
   return data_[slot].requested_size;
 }
 
@@ -348,6 +374,7 @@ std::pair<off_t, size_t> GuardedPageAllocator::GetAllocationOffsetAndSize(
   TC_ASSERT(PointerIsMine(ptr));
   const uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
   const size_t slot = GetNearestSlot(addr);
+  AllocationGuardSpinLockHolder h(data_[slot].lock);
   return {addr - data_[slot].allocation_start, data_[slot].requested_size};
 }
 
@@ -357,9 +384,11 @@ GuardedAllocationsErrorType GuardedPageAllocator::GetStackTraces(
   TC_ASSERT(PointerIsMine(ptr));
   const uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
   size_t slot = GetNearestSlot(addr);
+  const SlotMetadata& d = data_[slot];
+  AllocationGuardSpinLockHolder h(d.lock);
   *alloc_trace = &data_[slot].alloc_trace;
   *dealloc_trace = &data_[slot].dealloc_trace;
-  return GetErrorType(addr, data_[slot]);
+  return GetErrorType(addr, d);
 }
 
 // We take guarded samples during periodic profiling samples.  Computes the
@@ -511,6 +540,7 @@ void GuardedPageAllocator::MapPages() {
       ArenaAlloc::kGuardedPageAllocator, sizeof(*data_) * total_pages_));
   for (size_t i = 0; i < total_pages_; ++i) {
     new (&data_[i]) SlotMetadata;
+    AllocationGuardSpinLockHolder slot_h(data_[i].lock);
     data_[i].mprotect_quarantined = mprotect_quarantined;
   }
 
@@ -536,6 +566,14 @@ ssize_t GuardedPageAllocator::ReserveFreeSlot() {
   const size_t slot = GetFreeSlot();
   TC_ASSERT(!used_pages_.GetBit(slot));
   used_pages_.SetBit(slot);
+
+  SlotMetadata& d = data_[slot];
+  {
+    AllocationGuardSpinLockHolder slot_h(d.lock);
+    d.dealloc_trace.depth = 0;
+    d.write_overflow_detected = false;
+    d.dealloc_count = 0;
+  }
 
   // Both writes to allocated_pages_ happen under the guarded_page_lock_, so
   // we do not have to use an atomic fetch_add(), which is more expensive due to
@@ -596,11 +634,11 @@ size_t GuardedPageAllocator::GetNearestSlot(uintptr_t addr) const {
   return AddrToSlot(GetPageAddr(GetNearestValidPage(addr)));
 }
 
-bool GuardedPageAllocator::WriteOverflowOccurred(size_t slot) const {
+bool GuardedPageAllocator::WriteOverflowOccurred(size_t slot,
+                                                 const SlotMetadata& d) const {
   if (!ShouldRightAlign(slot)) return false;
   uint8_t magic = GetWriteOverflowMagic(slot);
-  uintptr_t alloc_end =
-      data_[slot].allocation_start + data_[slot].requested_size;
+  uintptr_t alloc_end = d.allocation_start + d.requested_size;
   uintptr_t page_end = SlotToAddr(slot) + page_size_;
   uintptr_t magic_end = std::min(page_end, alloc_end + kMagicSize);
   for (uintptr_t p = alloc_end; p < magic_end; ++p) {
@@ -612,11 +650,10 @@ bool GuardedPageAllocator::WriteOverflowOccurred(size_t slot) const {
 GuardedAllocationsErrorType GuardedPageAllocator::GetErrorType(
     uintptr_t addr, const SlotMetadata& d) const {
   if (!d.allocation_start) return GuardedAllocationsErrorType::kUnknown;
-  size_t dealloc_count = d.dealloc_count.load(std::memory_order_relaxed);
-  if (dealloc_count >= 2) return GuardedAllocationsErrorType::kDoubleFree;
+  if (d.dealloc_count >= 2) return GuardedAllocationsErrorType::kDoubleFree;
   if (d.write_overflow_detected)
     return GuardedAllocationsErrorType::kBufferOverflowOnDealloc;
-  if (dealloc_count == 1) {
+  if (d.dealloc_count == 1) {
     return GuardedAllocationsErrorType::kUseAfterFree;
   }
   if (addr < d.allocation_start) {
