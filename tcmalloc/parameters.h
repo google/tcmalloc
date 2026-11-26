@@ -16,7 +16,6 @@
 #define TCMALLOC_PARAMETERS_H_
 
 #include <atomic>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 
