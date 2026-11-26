@@ -369,9 +369,7 @@ class PbtxtRegion {
 
 #if !defined(NDEBUG)
 ABSL_CONST_INIT extern thread_local int tcmalloc_reentrancy_count;
-#endif
 
-#if 0 && !defined(NDEBUG)
 class [[maybe_unused]] ReentrancyGuard {
  public:
   ReentrancyGuard() {
