@@ -29,6 +29,8 @@ extern "C" {
 void* __alloc_token_0_malloc(size_t) noexcept;
 void* __alloc_token_1_malloc(size_t) noexcept;
 void* __alloc_token_0__Znwm(size_t);
+void* __alloc_token_0__Znwm12__hot_cold_t(size_t, __hot_cold_t);
+void* __alloc_token_1__Znwm12__hot_cold_t(size_t, __hot_cold_t);
 }
 
 int main() {
@@ -41,6 +43,12 @@ int main() {
     void* ptr_1_sz0 = __alloc_token_1_malloc(0);
     void* new_0 = __alloc_token_0__Znwm(8);
     void* new_0_large = __alloc_token_0__Znwm(512 << 10);
+    // Cold allocations above kMaxSize are page allocations without a size
+    // class, so they can be cold-tagged in either partition.
+    void* cold_0_large =
+        __alloc_token_0__Znwm12__hot_cold_t(512 << 10, __hot_cold_t{0});
+    void* cold_1_large =
+        __alloc_token_1__Znwm12__hot_cold_t(512 << 10, __hot_cold_t{0});
 
     int mode = tcmalloc::MallocExtension::GetNumericProperty(
                    "tcmalloc.security_partitioning_active")
@@ -61,7 +69,15 @@ int main() {
     absl::PrintF("new_0_tag:%s\n", MemoryTagToLabel(GetMemoryTag(new_0)));
     absl::PrintF("new_0_large_tag:%s\n",
                  MemoryTagToLabel(GetMemoryTag(new_0_large)));
+    absl::PrintF("cold_0_large_tag:%s\n",
+                 MemoryTagToLabel(GetMemoryTag(cold_0_large)));
+    absl::PrintF("cold_1_large_tag:%s\n",
+                 MemoryTagToLabel(GetMemoryTag(cold_1_large)));
 
+    // Exercise both the sized and the unsized delete paths for large cold
+    // allocations in each partition.
+    ::operator delete(cold_0_large);
+    tcmalloc::sized_delete(cold_1_large, 512 << 10);
     ::operator delete(new_0_large);
     ::operator delete(new_0);
     free(ptr_0);
