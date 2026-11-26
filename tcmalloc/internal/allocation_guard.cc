@@ -22,6 +22,7 @@ namespace tcmalloc::tcmalloc_internal {
 
 #ifndef NDEBUG
 ABSL_CONST_INIT thread_local int AllocationGuard::disallowed_ = 0;
+ABSL_CONST_INIT thread_local int tcmalloc_reentrancy_count = 0;
 #endif
 
 }  // namespace tcmalloc::tcmalloc_internal
