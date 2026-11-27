@@ -46,7 +46,8 @@ class FakeCentralFreeListBase {
   FakeCentralFreeListBase& operator=(const FakeCentralFreeListBase&) = delete;
 
   static constexpr void Init(
-      size_t, central_freelist_internal::CflSubbucketPrioritization) {}
+      size_t, central_freelist_internal::CflSubbucketPrioritization,
+      central_freelist_internal::CflHugepageOccupancyPrioritization) {}
 };
 
 // CentralFreeList implementation that backs onto the system's malloc.

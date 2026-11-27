@@ -113,6 +113,10 @@ class PageTracker : public TList<PageTracker>::Elem {
                       2 * ABSL_CACHELINE_SIZE,
                   "alloctime_ should fall within the first two cachelines of "
                   "PageTracker.");
+    static_assert(offsetof(PageTracker, used_pages_) + sizeof(used_pages_) <=
+                      2 * ABSL_CACHELINE_SIZE,
+                  "used_pages_ should fall within the first two "
+                  "cachelines of PageTracker.");
 #endif  // NDEBUG
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
@@ -198,7 +202,12 @@ class PageTracker : public TList<PageTracker>::Elem {
   }
   [[nodiscard]] size_t nallocs() const { return tracker_.allocs(); }
   [[nodiscard]] size_t nobjects() const { return num_objects_; }
-  [[nodiscard]] Length used_pages() const { return Length(tracker_.used()); }
+  // Exact when called with pageheap_lock held.  Also callable without the
+  // lock, in which case the result may be stale; CentralFreeList uses it that
+  // way as a hint to prioritize spans.
+  [[nodiscard]] Length used_pages() const {
+    return Length(used_pages_.load(std::memory_order_relaxed));
+  }
   [[nodiscard]] Length released_pages() const {
     return Length(released_count_);
   }
@@ -448,7 +457,10 @@ class PageTracker : public TList<PageTracker>::Elem {
   // and fit in what was padding before alloctime_.
   uint32_t release_pins_ = 0;
   double alloctime_;
-  double last_page_allocation_time_ = 0;
+
+  // Copy of tracker_.used() readable without pageheap_lock.  Updated under the
+  // lock in Get() and Put().
+  std::atomic<uint16_t> used_pages_{0};
 
   RangeTracker<kPagesPerHugePage.raw_num()> tracker_;
 
@@ -457,6 +469,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   TrackerFeatures features_;
 
   TagState tagged_state_;
+  double last_page_allocation_time_ = 0;
 
   // Bitmap of pages based on them being released to the OS.
   // * Not yet released pages are unset (considered "free")
@@ -522,6 +535,7 @@ inline typename PageTracker::PageAllocation PageTracker::Get(
   } else {
     index = Length(tracker_.FindAndMark(n.raw_num()));
   }
+  used_pages_.store(tracker_.used(), std::memory_order_relaxed);
   num_objects_ += span_alloc_info.objects_per_span;
 
   TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
@@ -587,6 +601,7 @@ inline PageTracker::HardwarePageResidencyInfo PageTracker::CountInfoInHugePage(
 inline void PageTracker::Put(Range r, SpanAllocInfo span_alloc_info) {
   Length index = r.p - location_.first_page();
   tracker_.Unmark(index.raw_num(), r.n.raw_num());
+  used_pages_.store(tracker_.used(), std::memory_order_relaxed);
   if (ABSL_PREDICT_FALSE(PinnedByTreatment(HugePageTreatmentType::kCollapse))) {
     freed_since_selected_ = true;
   }

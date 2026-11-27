@@ -71,7 +71,9 @@ class BackingTransferCache {
  public:
   void Init(int size_class,
             central_freelist_internal::CflSubbucketPrioritization
-                cfl_subbucket_prioritization) {
+                cfl_subbucket_prioritization,
+            central_freelist_internal::CflHugepageOccupancyPrioritization
+                cfl_hugepage_occupancy_prioritization) {
     size_class_ = size_class;
   }
   void InsertRange(absl::Span<void*> batch) const;
@@ -573,7 +575,10 @@ class ABSL_CACHELINE_ALIGNED TransferCacheManagerBase {
   void Init() {
     for (int i = 0; i < kNumClasses; ++i) {
       new (&cache_[i].freelist) FreeList();
-      cache_[i].freelist.Init(i, Parameters::cfl_subbucket_prioritization());
+      cache_[i].freelist.Init(
+          i, Parameters::cfl_subbucket_prioritization(),
+          central_freelist_internal::CflHugepageOccupancyPrioritization::
+              kDisabled);
     }
   }
 

@@ -34,6 +34,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
+#include "tcmalloc/huge_page_tracker.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pagemap.h"
@@ -211,6 +212,17 @@ TEST(StaticForwarderTest, PageMap) {
 
   EXPECT_EQ(ProdForwarder::GetHugepage(hp).Raw(),
             tc_globals.pagemap().GetHugepage(hp.first_page()));
+  // HugepageUsedPages reads the used page count of the span's hugepage without
+  // pageheap_lock.  Compare it against the count read under the lock.
+  const PageTracker* tracker = ProdForwarder::GetHugepage(hp).Get();
+  Length used, expected;
+  {
+    PageHeapSpinLockHolder l;
+    used = ProdForwarder::HugepageUsedPages(p);
+    expected = tracker != nullptr ? tracker->used_pages() : Length(0);
+  }
+  EXPECT_EQ(used, expected);
+  if (tracker != nullptr) EXPECT_GE(used, pages_per_span);
   {
     PageHeapSpinLockHolder l;
     EXPECT_TRUE(ProdForwarder::Ensure(Range(p, pages_per_span)));
