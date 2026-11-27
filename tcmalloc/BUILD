@@ -1534,6 +1534,7 @@ cc_test(
         "noubsan",
     ],
     deps = [
+        ":common_deprecated_perthread",
         ":malloc_extension",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:parameter_accessors",

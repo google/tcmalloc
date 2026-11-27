@@ -267,7 +267,6 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
   tc_globals.InitIfNecessary();
   ThreadCache* heap = nullptr;
 
-  const bool maybe_reentrant = !tsd_inited_;
   // If we have set up our TLS, we can avoid a scan of the thread_heaps_ list.
   if (tsd_inited_) {
     if (thread_local_data_) {
@@ -279,15 +278,15 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
     AllocationGuardSpinLockHolder l(threadcache_lock_);
     const pthread_t me = pthread_self();
 
-    // This may be a recursive malloc call from pthread_setspecific()
-    // In that case, the heap for this thread has already been created
-    // and added to the linked list.  So we search for that first.
-    if (maybe_reentrant) {
-      for (ThreadCache* h = thread_heaps_; h != nullptr; h = h->next_) {
-        if (pthread_equal(h->tid_, me) != 0) {
-          heap = h;
-          break;
-        }
+    // This may be a recursive malloc call from pthread_setspecific() or the
+    // first allocation on this thread after InitTSD() when a heap was already
+    // created before InitTSD(). In that case, the heap for this thread has
+    // already been created and added to the linked list, so we search for that
+    // first.
+    for (ThreadCache* h = thread_heaps_; h != nullptr; h = h->next_) {
+      if (pthread_equal(h->tid_, me) != 0) {
+        heap = h;
+        break;
       }
     }
 
