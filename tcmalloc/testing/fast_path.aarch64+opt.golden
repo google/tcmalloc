@@ -17,4 +17,4 @@ new(nothrow)               -    1   2     28   -   4   -    7   -   -    -   -  
 new(token_1)               -    1   2     28   -   4   -    7   -   -    -   -   -     3
 new(token_1)->size         -    1   2     28   -   4   -    8   -   -    -   -   -     3
 new->size                  -    1   2     28   -   4   -    8   -   -    -   -   -     3
-posix_memalign             -    1   4     31   -   9   -   10   -   -    -   -   5     6
+posix_memalign             -    2   5     31   -   8   -   10   -   -    -   -   5     6
