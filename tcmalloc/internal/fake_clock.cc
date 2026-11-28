@@ -14,6 +14,10 @@
 
 #include "tcmalloc/internal/fake_clock.h"
 
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+
 namespace tcmalloc::tcmalloc_internal {
 
 std::atomic<int64_t> FakeClock::clock_{1234};
