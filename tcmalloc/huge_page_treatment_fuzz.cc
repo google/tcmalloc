@@ -21,7 +21,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
-#include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_treatment.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/memory_tag.h"
